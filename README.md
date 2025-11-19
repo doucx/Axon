@@ -2,7 +2,7 @@
 
 > **The Effector for AI Agents.**
 
-Axon 是一个基于 Markdown 块流（Block Stream）的文件系统操作执行器。它旨在作为 AI 模型的“轴突”，将 AI 生成的指令转化为实际的文件系统副作用。
+Axon 是一个基于 Markdown 块流（Block Stream）的文件系统操作执行器。它旨在作为 AI 模型的“轴突”，将 AI 生成的思维链（Chain of Thought）或指令转化为实际的文件系统副作用。
 
 ## 🧠 核心理念
 
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 创建一个包含指令的 Markdown 文件（例如 `plan.md`）：
 
-`````markdown
+````markdown
 我将为你创建一个 Python 脚本。
 
 ```act
@@ -61,36 +61,35 @@ src/hello.py
 ```python
     print("Hello World!")
 ```
-`````
+````
 
 运行 Axon 执行该计划：
 
 ```bash
-python main.py run plan.md
+# 默认会有 Diff 预览和确认提示
+python main.py plan.md
+
+# 使用 YOLO 模式 (You Only Look Once) 跳过确认
+python main.py plan.md -y
 ```
 
 或者指定工作区（防止误伤系统文件）：
 
 ```bash
-python main.py run plan.md --work-dir ./my_project
+python main.py plan.md --work-dir ./my_project
 ```
 
-### 🎭 幕布模式 (Parsers)
+### 🎭 智能幕布 (Smart Parsers)
 
-当需要让 AI 修改 Markdown 文件或写入包含 \`\`\` 的复杂代码时，传统的反引号解析可能会混淆。Axon 提供了“幕布模式”，类似于电影制作中的“绿幕”和“蓝幕”。
+Axon 支持 **Act 嗅探 (Act-Sniffing)** 技术。你不需要手动指定解析器。
 
-#### 1. Backtick (绿幕) - 默认
-使用 \`\`\` 作为分隔符。适用于绝大多数编程语言代码。
+*   如果你的指令块使用 ` ```act `，Axon 会使用反引号解析器（绿幕）。
+*   如果你的指令块使用 ` ~~~act `，Axon 会自动切换到波浪号解析器（蓝幕）。
+*   Axon 还支持**变长围栏**，例如 ` ````act `，以处理多层嵌套的代码块。
 
-```bash
-# 默认使用
-python main.py run plan.md
-```
+示例（蓝幕模式）：
 
-#### 2. Tilde (蓝幕)
-使用 `~~~` 作为分隔符。适用于指令内容本身包含 \`\`\` 的情况。
-
-`````markdown
+````markdown
 ~~~act
 write_file
 ~~~
@@ -103,33 +102,41 @@ Here is a code block:
 print("nested")
 ```
 ~~~
-`````
-
-```bash
-# 指定使用 tilde 解析器
-python main.py run plan.md --parser tilde
-```
+````
 
 ## 🛠️ 支持的操作 (Acts)
 
 目前 Axon 内置了以下原子操作：
 
-### `write_file`
+### 基础操作 (`acts/basic.py`)
+
+#### `write_file`
 将内容写入指定文件。如果文件不存在会自动创建，如果存在则覆盖。
+*   **参数**: `[path, content]`
 
-*   **参数 1**: 文件相对路径
-*   **参数 2**: 文件内容
-
-### `replace`
+#### `replace`
 在文件中进行精确文本替换。这比行号更安全，比正则表达式更易于 AI 生成。
+*   **参数**: `[path, old_string, new_string]`
 
-*   **参数 1**: 文件相对路径
-*   **参数 2**: 要被替换的**旧文本**（必须完全匹配，包括缩进）
-*   **参数 3**: 新文本
+### 检查操作 (`acts/check.py`)
+
+#### `check_files_exist`
+检查当前工作区是否存在指定的一组文件（按行分隔）。如果缺少文件则报错终止。
+*   **参数**: `[file_list]`
+
+#### `check_cwd_match`
+检查当前实际的工作区绝对路径是否与预期的路径匹配。防止在错误的机器或目录下执行。
+*   **参数**: `[expected_abs_path]`
+
+### 控制流
+
+#### `end`
+强制结束当前语句的解析。用于在参数之间插入大量非参数文本，或明确截断参数列表。
 
 ## 🛡️ 安全机制
 
-Axon 内置了路径逃逸检查。所有的文件操作都被限制在指定的 `--work-dir`（默认为当前目录）中。任何尝试访问父目录（`../`）的操作都会被拦截并报错。
+1.  **路径逃逸检查**: 所有的文件操作都被限制在指定的 `--work-dir`（默认为当前目录）中。任何尝试访问父目录（`../`）的操作都会被拦截。
+2.  **交互式确认**: 默认情况下，Axon 会显示文件变更的 Diff，并要求用户确认。使用 `-y` 参数可跳过此步骤。
 
 ## 🧪 开发与测试
 
@@ -138,16 +145,13 @@ Axon 内置了路径逃逸检查。所有的文件操作都被限制在指定的
 ```bash
 # 运行所有测试
 pytest
-
-# 运行特定模块
-pytest tests/test_ops.py
 ```
 
 ## 📂 项目结构
 
-*   `acts/`: 具体操作的实现（可扩展）。
+*   `acts/`: 具体操作的实现（Basic, Check）。
 *   `core/`: 解析器与执行器核心逻辑。
-*   `commands/`: CLI 接口实现。
 *   `tests/`: 单元测试。
+*   `main.py`: CLI 入口。
 
 ---
