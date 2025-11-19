@@ -43,19 +43,24 @@ class RegexBlockParser(BaseParser):
             lang_tag = lang.strip().lower() if lang else ""
             
             if lang_tag == "act":
-                # 动词
+                # 动词：开始新语句
                 action_name = content.strip()
                 current_statement = {
                     "act": action_name,
                     "contexts": []
                 }
                 statements.append(current_statement)
+            
+            elif lang_tag == "end":
+                # 结束符：强制终止当前语句
+                current_statement = None
+            
             else:
                 # 名词 (上下文)
                 if current_statement is not None:
                     current_statement["contexts"].append(content)
                 else:
-                    pass # 忽略游离的块
+                    pass # 忽略游离的块（不在 act 和 end 之间的块）
         
         return statements
 

@@ -22,6 +22,42 @@ hello
         assert stmts[0]['act'] == 'write_file'
         assert stmts[0]['contexts'][0].strip() == 'test.txt'
 
+    def test_end_block(self):
+        """测试 end 块能正确终止语句"""
+        md = """
+```act
+op1
+```
+```arg1
+val1
+```
+```end
+```
+```arg2
+ignored_val
+```
+```act
+op2
+```
+```arg3
+val2
+```
+"""
+        parser = BacktickParser()
+        stmts = parser.parse(md)
+        
+        # 应该有两个语句
+        assert len(stmts) == 2
+        
+        # 第一个语句应该只有一个参数，arg2 应该被忽略
+        assert stmts[0]['act'] == 'op1'
+        assert len(stmts[0]['contexts']) == 1
+        assert stmts[0]['contexts'][0].strip() == 'val1'
+        
+        # 第二个语句正常
+        assert stmts[1]['act'] == 'op2'
+        assert stmts[1]['contexts'][0].strip() == 'val2'
+
     def test_tilde_parser(self):
         # 测试蓝幕模式：当内容中包含反引号时，外部使用波浪号
         md = """
