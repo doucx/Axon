@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 from logger_config import setup_logging
-from core.parser import get_parser, list_parsers
+from core.parser import get_parser, list_parsers, detect_best_parser
 from core.executor import Executor
 from acts.basic import register_basic_acts
 from acts.check import register_check_acts
@@ -40,9 +40,9 @@ def main(
         str,
         typer.Option(
             "--parser", "-p",
-            help=f"选择解析器语法。可用: {list_parsers()}",
+            help=f"选择解析器语法。默认为 'auto' (自动检测)。可用: {['auto'] + list_parsers()}",
         )
-    ] = "backtick",
+    ] = "auto",
     yolo: Annotated[
         bool,
         typer.Option(
@@ -65,12 +65,20 @@ def main(
         content = file.read_text(encoding="utf-8")
 
         # 2. 获取解析器并解析
-        parser = get_parser(parser_name)
+        final_parser_name = parser_name
+        if parser_name == "auto":
+            final_parser_name = detect_best_parser(content)
+            # 只有当检测到非默认值时才提示，减少噪音
+            if final_parser_name != "backtick":
+                logger.info(f"🔍 自动检测到解析器: {final_parser_name}")
+
+        parser = get_parser(final_parser_name)
         statements = parser.parse(content)
         
         if not statements:
-            typer.echo(f"⚠️  使用 '{parser_name}' 解析器未找到任何有效的 'act' 操作块。")
-            typer.echo(f"提示: 如果文件中使用了不同的分隔符（如 ~~~），请尝试使用 --parser tilde")
+            typer.echo(f"⚠️  使用 '{final_parser_name}' 解析器未找到任何有效的 'act' 操作块。")
+            if parser_name != "auto":
+                typer.echo(f"提示: 您手动指定了解析器，请检查文件内容是否匹配。")
             raise typer.Exit()
 
         # 3. 初始化执行器并注册能力
