@@ -3,6 +3,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# tmpfiles
+o.md
+a.md
+a
+o
+t
+tmpfile
+
 # Distribution / Packaging
 .Python
 build/
