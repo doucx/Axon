@@ -1,6 +1,6 @@
 import logging
 import sys
-from .config import LOG_LEVEL
+from config import LOG_LEVEL
 
 def setup_logging():
     """配置全局日志记录器"""
