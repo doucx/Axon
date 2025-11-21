@@ -4,7 +4,8 @@ from config import LOG_LEVEL
 
 def setup_logging():
     """配置全局日志记录器"""
-    root_logger = logging.getLogger("neuron_ops")
+    # 配置根记录器，确保所有模块(acts.*, core.*)的日志都能被捕获
+    root_logger = logging.getLogger()
     root_logger.setLevel(LOG_LEVEL)
     
     # 避免重复添加 handler
