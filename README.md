@@ -35,17 +35,17 @@ AI 模型擅长生成结构化的 Markdown，但在直接操作文件系统时�
     ```
     解析结果: `["README.md", "foo", "bar"]`
 
-#### 2. 智能模式 (Smart)
+#### 2. 互斥模式 (Exclusive)
 *   **逻辑**: **优先**使用行内参数。若存在行内参数，则**忽略**后续的代码块；若无行内参数，则读取后续代码块。
-*   **行为**: 互斥选择 (Exclusive OR)。
-*   **适用**: `git_add`, `check_files_exist`, `run_command`, `delete_file`。
+*   **行为**: 互斥选择 (Exclusive OR)。行内参数与块参数互不兼容。
+*   **适用**: `git_add`, `check_files_exist`, `run_command`, `delete_file`, `search_files`。
 *   **场景 A (行内简写)**:
     ```markdown
     ~~~act
     git_add file1.py file2.py
     ~~~
     ```
-    解析结果: `["file1.py", "file2.py"]` (后续如果有块，会被视为下一个指令的一部分或被忽略)
+    解析结果: `["file1.py", "file2.py"]` (后续如果有块，会被视为无关文本而被忽略)
 *   **场景 B (块列表)**:
     ```markdown
     ~~~act
