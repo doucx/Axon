@@ -2,8 +2,9 @@ import os
 import shutil
 import subprocess
 import re
+import argparse
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import logging
 from core.executor import Executor, ExecutionError
 
@@ -16,18 +17,43 @@ def register_read_acts(executor: Executor):
     # search_files 使用 exclusive 模式，以支持在行内指定参数时忽略后续无关块（流式处理优化）
     executor.register("search_files", _search_files, arg_mode="exclusive")
 
+class SafeArgumentParser(argparse.ArgumentParser):
+    """
+    覆盖默认的 ArgumentParser 行为：
+    1. 错误时抛出 ExecutionError 而不是退出进程。
+    2. 禁用自动 help 打印导致的退出。
+    """
+    def error(self, message):
+        raise ExecutionError(f"参数解析错误: {message}")
+
+    def exit(self, status=0, message=None):
+        if message:
+            raise ExecutionError(message)
+
 def _search_files(executor: Executor, args: List[str]):
     """
     Act: search_files
-    Args: [pattern, path (optional)]
+    Args: pattern [--path PATH]
     说明: 在指定目录下搜索包含 pattern 的文件内容。
-    策略: 优先使用 ripgrep (rg)，如果不可用则回退到 Python 原生搜索。
+    使用 CLI 风格参数解析。
     """
-    if len(args) < 1:
-        raise ExecutionError("search_files 需要至少一个参数: [pattern]")
+    # 1. 配置参数解析器
+    parser = SafeArgumentParser(prog="search_files", add_help=False)
+    parser.add_argument("pattern", help="搜索内容的正则表达式")
+    parser.add_argument("--path", "-p", default=".", help="搜索的根目录 (默认: 当前目录)")
     
-    pattern = args[0]
-    search_path_str = args[1] if len(args) > 1 else "."
+    # 2. 解析参数
+    try:
+        parsed_args = parser.parse_args(args)
+    except ExecutionError:
+        # 重新抛出以保持异常类型一致，或者在此处捕获并丰富错误信息
+        raise
+    except Exception as e:
+        raise ExecutionError(f"参数解析异常: {e}")
+
+    pattern = parsed_args.pattern
+    search_path_str = parsed_args.path
+    
     search_path = executor.resolve_path(search_path_str)
 
     if not search_path.exists():

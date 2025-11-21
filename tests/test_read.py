@@ -62,7 +62,7 @@ class TestReadActs:
 
     def test_search_scoped_path(self, executor: Executor, isolated_vault: Path, caplog, capsys, monkeypatch):
         """
-        测试场景: 指定搜索特定子目录。
+        测试场景: 指定搜索特定子目录 (CLI参数风格 --path)。
         """
         monkeypatch.setattr(shutil, "which", lambda x: None) # 保持一致性使用 Python 搜索
 
@@ -75,10 +75,10 @@ class TestReadActs:
         src_dir.mkdir()
         (src_dir / "inner.txt").write_text("target_function", encoding='utf-8')
 
-        # 2. 执行搜索：限制在 src 目录下
+        # 2. 执行搜索：限制在 src 目录下 (使用 --path 参数)
         caplog.set_level(logging.INFO)
         search_func, _ = executor._acts['search_files']
-        search_func(executor, ["target_function", "src"])
+        search_func(executor, ["target_function", "--path", "src"])
 
         # 3. 断言
         captured = capsys.readouterr()
@@ -123,3 +123,11 @@ class TestReadActs:
             search_func(executor, ["pattern"])
         except Exception as e:
             pytest.fail(f"搜索过程因二进制文件崩溃: {e}")
+    def test_search_args_error(self, executor: Executor):
+        """测试非法参数应抛出 ExecutionError 而非 SystemExit"""
+        search_func, _ = executor._acts['search_files']
+        
+        with pytest.raises(ExecutionError) as exc:
+            search_func(executor, ["pattern", "--unknown-flag"])
+        
+        assert "参数解析错误" in str(exc.value)
