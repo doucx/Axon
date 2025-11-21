@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 def register_memory_acts(executor: Executor):
     """注册记忆与日志操作"""
-    executor.register("log_thought", _log_thought)
+    executor.register("log_thought", _log_thought, arg_mode="block_only")
 
 def _log_thought(executor: Executor, args: List[str]):
     """

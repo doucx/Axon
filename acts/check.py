@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 
 def register_check_acts(executor: Executor):
     """注册检查类操作"""
-    # 禁止混合模式，明确参数来源
-    executor.register("check_files_exist", _check_files_exist, allow_hybrid=False)
-    executor.register("check_cwd_match", _check_cwd_match)
+    # Smart 模式：要么在行内写文件名(不推荐)，要么在块里写列表(推荐)
+    executor.register("check_files_exist", _check_files_exist, arg_mode="smart")
+    executor.register("check_cwd_match", _check_cwd_match, arg_mode="smart")
 
 def _check_files_exist(executor: Executor, args: List[str]):
     """

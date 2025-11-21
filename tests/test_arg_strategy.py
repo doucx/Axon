@@ -8,80 +8,83 @@ class TestArgStrategy:
         """创建一个干净的 Executor 用于测试参数逻辑"""
         return Executor(root_dir=tmp_path, yolo=True)
 
-    def test_default_hybrid_behavior(self, executor):
-        """测试默认的混合模式 (allow_hybrid=True)"""
+    # --- 1. Hybrid Mode Tests ---
+    
+    def test_hybrid_mode_merge(self, executor):
+        """测试 Hybrid 模式：行内 + 块"""
         received_args = []
+        executor.register("op", lambda exc, args: received_args.extend(args), arg_mode="hybrid")
         
-        def mock_hybrid_act(exc, args):
-            received_args.extend(args)
-            
-        # 注册默认为 True
-        executor.register("hybrid_op", mock_hybrid_act, allow_hybrid=True)
-        
-        statements = [{
-            "act": "hybrid_op inline_arg",
-            "contexts": ["block_arg"]
+        stmts = [{
+            "act": "op inline_1",
+            "contexts": ["block_1"]
         }]
-        
-        executor.execute(statements)
-        
-        # 预期：两者合并
-        assert received_args == ["inline_arg", "block_arg"]
+        executor.execute(stmts)
+        assert received_args == ["inline_1", "block_1"]
 
-    def test_strict_mode_with_inline(self, executor):
-        """测试严格模式：有行内参数时，应忽略 Block"""
+    def test_hybrid_mode_only_inline(self, executor):
+        """测试 Hybrid 模式：仅行内"""
         received_args = []
+        executor.register("op", lambda exc, args: received_args.extend(args), arg_mode="hybrid")
         
-        def mock_strict_act(exc, args):
-            received_args.extend(args)
-            
-        # 显式注册为 False
-        executor.register("strict_op", mock_strict_act, allow_hybrid=False)
-        
-        statements = [{
-            "act": "strict_op inline_arg",
-            "contexts": ["ignored_block_arg"]
-        }]
-        
-        executor.execute(statements)
-        
-        # 预期：只保留行内参数，Block 被丢弃
-        assert received_args == ["inline_arg"]
+        stmts = [{"act": "op inline_1", "contexts": []}]
+        executor.execute(stmts)
+        assert received_args == ["inline_1"]
 
-    def test_strict_mode_without_inline(self, executor):
-        """测试严格模式：没有行内参数时，应接受 Block"""
-        received_args = []
-        
-        def mock_strict_act(exc, args):
-            received_args.extend(args)
-            
-        executor.register("strict_op", mock_strict_act, allow_hybrid=False)
-        
-        # act 字符串没有参数
-        statements = [{
-            "act": "strict_op",
-            "contexts": ["valid_block_arg"]
-        }]
-        
-        executor.execute(statements)
-        
-        # 预期：接受 Block
-        assert received_args == ["valid_block_arg"]
+    # --- 2. Smart Mode Tests ---
 
-    def test_strict_mode_multi_inline(self, executor):
-        """测试严格模式：多个行内参数的情况"""
+    def test_smart_mode_inline_priority(self, executor):
+        """测试 Smart 模式：如果有行内参数，应忽略块"""
         received_args = []
+        executor.register("op", lambda exc, args: received_args.extend(args), arg_mode="smart")
         
-        def mock_strict_act(exc, args):
-            received_args.extend(args)
-            
-        executor.register("strict_op", mock_strict_act, allow_hybrid=False)
-        
-        statements = [{
-            "act": "strict_op arg1 arg2",
-            "contexts": ["ignored"]
+        stmts = [{
+            "act": "op inline_1 inline_2",
+            "contexts": ["ignored_block"]
         }]
+        executor.execute(stmts)
+        # 块被忽略
+        assert received_args == ["inline_1", "inline_2"]
+
+    def test_smart_mode_fallback_to_block(self, executor):
+        """测试 Smart 模式：如果无行内参数，应使用块"""
+        received_args = []
+        executor.register("op", lambda exc, args: received_args.extend(args), arg_mode="smart")
         
-        executor.execute(statements)
+        stmts = [{
+            "act": "op",
+            "contexts": ["valid_block"]
+        }]
+        executor.execute(stmts)
+        assert received_args == ["valid_block"]
+
+    # --- 3. Block Only Mode Tests ---
+
+    def test_block_only_mode(self, executor):
+        """测试 Block Only 模式：始终忽略行内参数"""
+        received_args = []
+        executor.register("op", lambda exc, args: received_args.extend(args), arg_mode="block_only")
         
-        assert received_args == ["arg1", "arg2"]
+        stmts = [{
+            "act": "op ignored_inline",
+            "contexts": ["valid_block"]
+        }]
+        executor.execute(stmts)
+        # 行内参数被丢弃
+        assert received_args == ["valid_block"]
+
+    def test_block_only_no_block(self, executor):
+        """测试 Block Only 模式：行内被忽略，且无块 -> 空参数"""
+        received_args = []
+        executor.register("op", lambda exc, args: received_args.extend(args), arg_mode="block_only")
+        
+        stmts = [{"act": "op ignored_inline", "contexts": []}]
+        executor.execute(stmts)
+        assert received_args == []
+
+    # --- 4. Validation Tests ---
+    
+    def test_invalid_mode_registration(self, executor):
+        """测试注册非法模式应报错"""
+        with pytest.raises(ValueError):
+            executor.register("op", lambda e, a: None, arg_mode="chaos_mode")

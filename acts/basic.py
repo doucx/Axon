@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 
 def register_basic_acts(executor: Executor):
     """注册基础文件系统操作"""
-    executor.register("write_file", _write_file)
-    executor.register("replace", _replace)
-    executor.register("append_file", _append_file)
+    executor.register("write_file", _write_file, arg_mode="hybrid")
+    executor.register("replace", _replace, arg_mode="hybrid")
+    executor.register("append_file", _append_file, arg_mode="hybrid")
 
 def _write_file(executor: Executor, args: List[str]):
     """

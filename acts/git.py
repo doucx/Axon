@@ -8,11 +8,19 @@ logger = logging.getLogger(__name__)
 
 def register_git_acts(executor: Executor):
     """注册 Git 相关操作"""
-    executor.register("git_init", _git_init)
-    # git_add: 禁止混合模式，防止误吞后续代码块
-    executor.register("git_add", _git_add, allow_hybrid=False)
-    executor.register("git_commit", _git_commit)
-    executor.register("git_status", _git_status)
+    # git_init: 无参数，Smart/Hybrid 皆可，Smart 更安全
+    executor.register("git_init", _git_init, arg_mode="smart")
+    
+    # git_add: Smart 模式
+    # 写法 A: git_add file1 file2 (忽略块)
+    # 写法 B: git_add (读取块)
+    executor.register("git_add", _git_add, arg_mode="smart")
+    
+    # git_commit: Block Only 模式
+    # 强制忽略行内参数，防止 AI 写 git_commit -m "msg" 导致解析混乱，强制要求消息在块中
+    executor.register("git_commit", _git_commit, arg_mode="block_only")
+    
+    executor.register("git_status", _git_status, arg_mode="smart")
 
 def _run_git_cmd(executor: Executor, cmd_args: List[str]) -> str:
     """
@@ -51,20 +59,26 @@ def _git_init(executor: Executor, args: List[str]):
 def _git_add(executor: Executor, args: List[str]):
     """
     Act: git_add
-    Args: [files] (空白符（如空格，换行）分隔的文件列表，或者 "." )
-    注意：本指令禁用混合模式。若在 act 行内指定了文件，后续的代码块将被忽略。
+    Args: [files] (空白符分隔的文件列表)
     """
     if not args:
         target = "."
+        targets = [target]
     else:
-        target = args[0]
+        # Smart 模式下，args 可能来源：
+        # 1. 行内参数: ["file1", "file2"]
+        # 2. 块参数: ["file1\nfile2"]
+        # 我们需要统一展平
+        targets = []
+        for arg in args:
+            # split() 不带参数会同时处理空格和换行符
+            targets.extend(arg.split())
     
-    # 将参数字符串拆分为列表，例如 "src/main.py tests/" -> ["src/main.py", "tests/"]
-    # 简单的 split 即可，暂不支持带空格的文件名（需要引号处理）
-    targets = target.split()
-    
+    if not targets:
+        targets = ["."]
+
     _run_git_cmd(executor, ["add"] + targets)
-    logger.info(f"✅ [Git] 已添加文件: {target}")
+    logger.info(f"✅ [Git] 已添加文件: {targets}")
 
 def _git_commit(executor: Executor, args: List[str]):
     """
@@ -82,8 +96,7 @@ def _git_commit(executor: Executor, args: List[str]):
         logger.warning("⚠️  [Git] 没有检测到暂存的更改，跳过提交。")
         return
 
-    # 这里我们认为 commit 是一个副作用操作，询问确认
-    # 但由于很难展示 commit 的 diff (需要 git diff --cached)，这里简化为确认消息
+    # 确认
     if not executor.request_confirmation(executor.root_dir / ".git", "Staged Changes", f"Commit Message: {message}"):
         logger.warning("❌ [Skip] 用户取消提交")
         return

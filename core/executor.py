@@ -22,8 +22,9 @@ class Executor:
     def __init__(self, root_dir: Path, yolo: bool = False):
         self.root_dir = root_dir.resolve()
         self.yolo = yolo
-        # 存储结构变更为: name -> (func, allow_hybrid)
-        self._acts: Dict[str, tuple[ActFunction, bool]] = {}
+        # 存储结构变更为: name -> (func, arg_mode)
+        # arg_mode: "hybrid", "smart", "block_only"
+        self._acts: Dict[str, tuple[ActFunction, str]] = {}
         
         # 确保根目录存在
         if not self.root_dir.exists():
@@ -32,15 +33,20 @@ class Executor:
             except Exception as e:
                 logger.warning(f"无法创建根目录 {self.root_dir}: {e}")
 
-    def register(self, name: str, func: ActFunction, allow_hybrid: bool = True):
+    def register(self, name: str, func: ActFunction, arg_mode: str = "hybrid"):
         """
         注册一个新的操作
-        :param allow_hybrid: 是否允许同时使用行内参数和 Block 参数。
-                             默认为 True (如 replace, write_file)。
-                             设为 False 时 (如 git_add)，如果存在行内参数，将忽略后续 Block。
+        :param arg_mode: 参数解析模式
+                         - "hybrid": (默认) 合并行内参数和块内容 (inline + blocks)
+                         - "smart": 优先使用行内参数；若无行内参数，则使用块内容。互斥。
+                         - "block_only": 仅使用块内容，强制忽略行内参数。
         """
-        self._acts[name] = (func, allow_hybrid)
-        logger.debug(f"注册 Act: {name} (Hybrid: {allow_hybrid})")
+        valid_modes = {"hybrid", "smart", "block_only"}
+        if arg_mode not in valid_modes:
+            raise ValueError(f"Invalid arg_mode: {arg_mode}. Must be one of {valid_modes}")
+            
+        self._acts[name] = (func, arg_mode)
+        logger.debug(f"注册 Act: {name} (Mode: {arg_mode})")
 
     def get_registered_acts(self) -> Dict[str, str]:
         """获取所有已注册的 Act 及其文档字符串"""
@@ -148,20 +154,36 @@ class Executor:
                 logger.warning(f"跳过未知操作 [{i+1}/{len(statements)}]: {act_name}")
                 continue
 
-            func, allow_hybrid = self._acts[act_name]
+            func, arg_mode = self._acts[act_name]
 
-            # 2. 参数合并策略
-            if not allow_hybrid and inline_args:
-                # 如果不允许混合，且用户提供了行内参数，则忽略所有 Block 上下文
-                final_args = inline_args
-                if block_contexts:
-                    logger.debug(f"ℹ️  [{act_name}] 检测到行内参数，忽略了随后的 {len(block_contexts)} 个 Block 参数。")
+            # 2. 参数合并策略 (ArgMode Protocol)
+            final_args = []
+            
+            if arg_mode == "hybrid":
+                # 贪婪模式：合并所有来源
+                final_args = inline_args + block_contexts
+                
+            elif arg_mode == "smart":
+                # 智能/排他模式：有行内用行内，否则用块
+                if inline_args:
+                    final_args = inline_args
+                    if block_contexts:
+                        logger.debug(f"ℹ️  [{act_name} - Smart] 检测到行内参数，已忽略随后的 {len(block_contexts)} 个 Block。")
+                else:
+                    final_args = block_contexts
+                    
+            elif arg_mode == "block_only":
+                # 严格模式：只看块
+                if inline_args:
+                    logger.warning(f"⚠️  [{act_name} - BlockOnly] 忽略了非法的行内参数: {inline_args}")
+                final_args = block_contexts
+            
             else:
-                # 允许混合 (默认)，或者没有行内参数 -> 拼接
+                # Fallback (不应发生，register 已校验)
                 final_args = inline_args + block_contexts
 
             try:
-                logger.info(f"执行操作 [{i+1}/{len(statements)}]: {act_name} (Args: {len(final_args)})")
+                logger.info(f"执行操作 [{i+1}/{len(statements)}]: {act_name} (Mode: {arg_mode}, Args: {len(final_args)})")
                 func(self, final_args)
             except Exception as e:
                 logger.error(f"执行失败 '{act_name}': {e}")

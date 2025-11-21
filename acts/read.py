@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 def register_read_acts(executor: Executor):
     """注册读取与检索操作"""
-    executor.register("read_file", _read_file)
-    executor.register("list_files", _list_files)
-    executor.register("search_files", _search_files)
+    executor.register("read_file", _read_file, arg_mode="hybrid")
+    executor.register("list_files", _list_files, arg_mode="hybrid")
+    executor.register("search_files", _search_files, arg_mode="hybrid")
 
 def _search_files(executor: Executor, args: List[str]):
     """
