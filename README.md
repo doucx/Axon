@@ -13,42 +13,56 @@ AI 模型擅长生成结构化的 Markdown，但在直接操作文件系统时�
 
 这种设计使得 AI 可以像写文档一样编写可执行的脚本，同时保持人类可读性。
 
-### 🧩 参数传递机制
+### 🧩 参数传递机制 (ArgMode)
 
-Axon 采用灵活的参数组装方式：**行内参数 (Inline Args)** 与 **上下文块 (Context Blocks)** 会自动合并。
+为了平衡灵活性与安全性，Axon 引入了 **ArgMode** 协议，支持三种参数解析模式：
 
-例如，`replace` 指令需要 3 个参数：`[path, old_string, new_string]`。以下两种写法是等效的：
+#### 1. 混合模式 (Hybrid) - *默认*
+*   **逻辑**: `Args = [行内参数...] + [块参数...]`
+*   **行为**: 贪婪合并。既读取行内写的内容，也读取后续跟随的代码块。
+*   **适用**: `write_file`, `replace`, `append_file` 等大多数操作。
+*   **示例**:
+    ```markdown
+    ~~~act
+    replace README.md
+    ~~~
+    ~~~old
+    foo
+    ~~~
+    ~~~new
+    bar
+    ~~~
+    ```
+    解析结果: `["README.md", "foo", "bar"]`
 
-**写法 A（全 Block）**:
-````markdown
-```act
-replace
-```
-```path
-README.md
-```
-```old
-foo
-```
-```new
-bar
-```
-````
+#### 2. 智能模式 (Smart)
+*   **逻辑**: **优先**使用行内参数。若存在行内参数，则**忽略**后续的代码块；若无行内参数，则读取后续代码块。
+*   **行为**: 互斥选择 (Exclusive OR)。
+*   **适用**: `git_add`, `check_files_exist`, `run_command`, `delete_file`。
+*   **场景 A (行内简写)**:
+    ```markdown
+    ~~~act
+    git_add file1.py file2.py
+    ~~~
+    ```
+    解析结果: `["file1.py", "file2.py"]` (后续如果有块，会被视为下一个指令的一部分或被忽略)
+*   **场景 B (块列表)**:
+    ```markdown
+    ~~~act
+    git_add
+    ~~~
+    ~~~list
+    file1.py
+    file2.py
+    ~~~
+    ```
+    解析结果: `["file1.py\nfile2.py"]`
 
-**写法 B（行内参数简写）**:
-````markdown
-```act
-replace README.md
-```
-```old
-foo
-```
-```new
-bar
-```
-````
-
-**原理**：解析器会将 `act` 关键字后的内容（`README.md`）作为第 1 个参数，随后的 Block 依次作为后续参数（第 2、3 个...）。这使得指定文件名更加紧凑。
+#### 3. 仅块模式 (Block Only)
+*   **逻辑**: `Args = [块参数...]`
+*   **行为**: 严格模式。**强制忽略**任何行内参数（除了命令本身）。
+*   **适用**: `git_commit`, `log_thought`。
+*   **目的**: 防止 AI 在行内胡乱添加不规范的参数（如 `git_commit -m "msg"`），强制要求复杂文本（如提交信息）放在规范的 Block 中以确保解析稳定性。
 
 ## ⚡️ 快速开始
 
