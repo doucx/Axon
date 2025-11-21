@@ -3,7 +3,7 @@ import shutil
 import logging
 from pathlib import Path
 from core.executor import Executor, ExecutionError
-from acts.read import register_read_acts
+from acts.read import register as register_read_acts
 
 class TestReadActs:
     @pytest.fixture(autouse=True)

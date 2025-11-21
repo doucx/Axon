@@ -7,7 +7,7 @@ from core.executor import Executor, ExecutionError
 
 logger = logging.getLogger(__name__)
 
-def register_refactor_acts(executor: Executor):
+def register(executor: Executor):
     """注册重构类操作"""
     executor.register("move_file", _move_file, arg_mode="hybrid")
     executor.register("delete_file", _delete_file, arg_mode="exclusive")

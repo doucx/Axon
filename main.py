@@ -8,13 +8,8 @@ from typing import Annotated, Optional
 from logger_config import setup_logging
 from core.parser import get_parser, list_parsers, detect_best_parser
 from core.executor import Executor
-from acts.basic import register_basic_acts
-from acts.check import register_check_acts
-from acts.git import register_git_acts
-from acts.shell import register_shell_acts
-from acts.read import register_read_acts
-from acts.refactor import register_refactor_acts
-from acts.memory import register_memory_acts
+from core.plugin_loader import load_plugins
+from config import PROJECT_ROOT
 from config import DEFAULT_WORK_DIR, DEFAULT_ENTRY_FILE
 
 # 初始化日志
@@ -67,16 +62,9 @@ def main(
     支持从文件参数、管道 (STDIN) 或默认文件中读取指令。
     """
     if list_acts:
-        # 初始化一个临时 Executor 用于获取注册表
+        # 初始化一个临时 Executor 并加载所有插件以获取注册表
         executor = Executor(root_dir=Path("."), yolo=True)
-        
-        register_basic_acts(executor)
-        register_check_acts(executor)
-        register_git_acts(executor)
-        register_shell_acts(executor)
-        register_read_acts(executor)
-        register_refactor_acts(executor)
-        register_memory_acts(executor)
+        load_plugins(executor, PROJECT_ROOT / "acts")
         
         typer.secho("\n📋 可用的 Axon 指令列表:\n", fg=typer.colors.GREEN, bold=True)
         
@@ -155,15 +143,9 @@ def main(
             typer.echo(f"⚠️  使用 '{final_parser_name}' 解析器未找到任何有效的 'act' 操作块。")
             raise typer.Exit()
 
-        # 初始化执行器
+        # 初始化执行器并加载插件
         executor = Executor(root_dir=work_dir, yolo=yolo)
-        register_basic_acts(executor)
-        register_check_acts(executor)
-        register_git_acts(executor)
-        register_shell_acts(executor)
-        register_read_acts(executor)
-        register_refactor_acts(executor)
-        register_memory_acts(executor)
+        load_plugins(executor, PROJECT_ROOT / "acts")
 
         # 执行
         executor.execute(statements)

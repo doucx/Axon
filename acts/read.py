@@ -10,7 +10,7 @@ from core.executor import Executor, ExecutionError
 
 logger = logging.getLogger(__name__)
 
-def register_read_acts(executor: Executor):
+def register(executor: Executor):
     """注册读取与检索操作"""
     executor.register("read_file", _read_file, arg_mode="hybrid")
     # list_files 改为 exclusive 模式以支持 CLI 风格参数并防止误吸入

@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from core.executor import Executor, ExecutionError
-from acts.check import register_check_acts
+from acts.check import register as register_check_acts
 
 class TestCheckActs:
     @pytest.fixture(autouse=True)

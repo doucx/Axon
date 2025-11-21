@@ -6,7 +6,7 @@ from core.executor import Executor, ExecutionError
 
 logger = logging.getLogger(__name__)
 
-def register_git_acts(executor: Executor):
+def register(executor: Executor):
     """注册 Git 相关操作"""
     # git_init: 无参数，Exclusive 模式更安全，防止误吸入后续块
     executor.register("git_init", _git_init, arg_mode="exclusive")

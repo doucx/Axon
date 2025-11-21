@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from core.executor import Executor
-from acts.basic import register_basic_acts
+from acts.basic import register as register_basic_acts
 
 @pytest.fixture
 def isolated_vault(tmp_path: Path) -> Path:

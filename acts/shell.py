@@ -6,7 +6,7 @@ from core.executor import Executor, ExecutionError
 
 logger = logging.getLogger(__name__)
 
-def register_shell_acts(executor: Executor):
+def register(executor: Executor):
     """注册 Shell 相关操作"""
     executor.register("run_command", _run_command, arg_mode="exclusive")
 

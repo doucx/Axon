@@ -6,7 +6,7 @@ from core.executor import Executor, ExecutionError
 
 logger = logging.getLogger(__name__)
 
-def register_basic_acts(executor: Executor):
+def register(executor: Executor):
     """注册基础文件系统操作"""
     executor.register("write_file", _write_file, arg_mode="hybrid")
     executor.register("replace", _replace, arg_mode="hybrid")

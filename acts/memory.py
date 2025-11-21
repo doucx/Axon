@@ -5,7 +5,7 @@ from core.executor import Executor, ExecutionError
 
 logger = logging.getLogger(__name__)
 
-def register_memory_acts(executor: Executor):
+def register(executor: Executor):
     """注册记忆与日志操作"""
     executor.register("log_thought", _log_thought, arg_mode="block_only")
 
