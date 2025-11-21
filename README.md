@@ -13,6 +13,43 @@ AI 模型擅长生成结构化的 Markdown，但在直接操作文件系统时�
 
 这种设计使得 AI 可以像写文档一样编写可执行的脚本，同时保持人类可读性。
 
+### 🧩 参数传递机制
+
+Axon 采用灵活的参数组装方式：**行内参数 (Inline Args)** 与 **上下文块 (Context Blocks)** 会自动合并。
+
+例如，`replace` 指令需要 3 个参数：`[path, old_string, new_string]`。以下两种写法是等效的：
+
+**写法 A（全 Block）**:
+````markdown
+```act
+replace
+```
+```path
+README.md
+```
+```old
+foo
+```
+```new
+bar
+```
+````
+
+**写法 B（行内参数简写）**:
+````markdown
+```act
+replace README.md
+```
+```old
+foo
+```
+```new
+bar
+```
+````
+
+**原理**：解析器会将 `act` 关键字后的内容（`README.md`）作为第 1 个参数，随后的 Block 依次作为后续参数（第 2、3 个...）。这使得指定文件名更加紧凑。
+
 ## ⚡️ 快速开始
 
 ### 安装依赖
@@ -117,6 +154,28 @@ print("nested")
 #### `replace`
 在文件中进行精确文本替换。这比行号更安全，比正则表达式更易于 AI 生成。
 *   **参数**: `[path, old_string, new_string]`
+
+#### `append_file`
+向文件末尾追加内容。
+*   **参数**: `[path, content]`
+
+### Git 操作 (`acts/git.py`)
+
+#### `git_init`
+初始化 Git 仓库。
+*   **参数**: `[]` (无)
+
+#### `git_add`
+添加文件到暂存区。
+*   **参数**: `[files]` (空格分隔的文件列表，或 ".")
+
+#### `git_commit`
+提交暂存区的更改。
+*   **参数**: `[message]`
+
+#### `git_status`
+打印当前 Git 状态日志。
+*   **参数**: `[]` (无)
 
 ### 检查操作 (`acts/check.py`)
 
