@@ -236,7 +236,7 @@ pytest
 
 #### 读取与检索 (`acts/read.py`)
 *   `read_file`: 读取并打印文件内容。`[path]`
-*   `list_files`: 打印目录树。`[path]` (可选)
+*   `list_files`: 列出目录内容。默认扁平显示，使用 `--tree` 递归。`[path] [--tree]`
 *   `search_files`: 搜索内容（优先使用 `rg`，回退使用 Python）。`[pattern, path(opt)]`
 
 #### 重构操作 (`acts/refactor.py`)

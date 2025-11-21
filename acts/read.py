@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 def register_read_acts(executor: Executor):
     """注册读取与检索操作"""
     executor.register("read_file", _read_file, arg_mode="hybrid")
-    executor.register("list_files", _list_files, arg_mode="hybrid")
+    # list_files 改为 exclusive 模式以支持 CLI 风格参数并防止误吸入
+    executor.register("list_files", _list_files, arg_mode="exclusive")
     # search_files 使用 exclusive 模式，以支持在行内指定参数时忽略后续无关块（流式处理优化）
     executor.register("search_files", _search_files, arg_mode="exclusive")
 
@@ -162,41 +163,69 @@ def _read_file(executor: Executor, args: List[str]):
 def _list_files(executor: Executor, args: List[str]):
     """
     Act: list_files
-    Args: [path (optional, default=.)]
-    说明: 列出目录下的文件结构（类似于 tree 命令）。
+    Args: [path] [--tree]
+    说明: 列出目录内容。默认类似 'ls' (仅显示当前层级)，使用 --tree 参数则递归显示树状结构。
     """
-    target_dir = executor.root_dir
-    if args:
-        target_dir = executor.resolve_path(args[0])
+    # 1. 配置参数解析器
+    parser = SafeArgumentParser(prog="list_files", add_help=False)
+    parser.add_argument("path", nargs="?", default=".", help="目标目录")
+    parser.add_argument("--tree", "-t", action="store_true", help="以树状结构递归显示")
+    
+    # 2. 解析参数
+    try:
+        parsed_args = parser.parse_args(args)
+    except Exception as e:
+        raise ExecutionError(f"参数解析异常: {e}")
+
+    target_dir = executor.resolve_path(parsed_args.path)
     
     if not target_dir.exists() or not target_dir.is_dir():
-        raise ExecutionError(f"目录不存在: {target_dir}")
+        raise ExecutionError(f"目录不存在或不是目录: {target_dir}")
 
-    logger.info(f"📂 [List] Directory: {target_dir}")
-    
-    # 简单的递归遍历，限制深度防止刷屏
-    limit_depth = 3
     output_lines = []
     
-    # 计算基准深度的层级数
-    base_level = len(target_dir.parts)
+    # 模式 A: Tree (递归)
+    if parsed_args.tree:
+        logger.info(f"📂 [List] Directory Tree: {target_dir}")
+        # 简单的递归遍历，限制深度防止刷屏
+        limit_depth = 3
+        base_level = len(target_dir.parts)
 
-    for root, dirs, files in os.walk(target_dir):
-        # 排除隐藏目录
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        files = [f for f in files if not f.startswith('.')]
-        
-        root_path = Path(root)
-        level = len(root_path.parts) - base_level
-        
-        if level >= limit_depth:
-            del dirs[:] # 停止向下递归
-            continue
+        for root, dirs, files in os.walk(target_dir):
+            # 排除隐藏目录
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            files = [f for f in files if not f.startswith('.')]
             
-        indent = "  " * level
-        output_lines.append(f"{indent}📁 {root_path.name}/")
-        for f in files:
-            output_lines.append(f"{indent}  📄 {f}")
+            root_path = Path(root)
+            level = len(root_path.parts) - base_level
+            
+            if level >= limit_depth:
+                del dirs[:] # 停止向下递归
+                continue
+                
+            indent = "  " * level
+            # 优化显示：如果不是第一层，增加缩进
+            # 第一层(base_level)通常是 target_dir 本身
+            output_lines.append(f"{indent}📁 {root_path.name}/")
+            for f in files:
+                output_lines.append(f"{indent}  📄 {f}")
 
-    # 目录树是信息展示，通常也作为数据输出
+    # 模式 B: LS (扁平)
+    else:
+        logger.info(f"📂 [List] Directory: {target_dir}")
+        # 获取目录下所有条目
+        items = list(target_dir.iterdir())
+        # 排序：目录在前，文件在后，字母序
+        dirs = sorted([x for x in items if x.is_dir() and not x.name.startswith('.')], key=lambda x: x.name.lower())
+        files = sorted([x for x in items if x.is_file() and not x.name.startswith('.')], key=lambda x: x.name.lower())
+        
+        if not dirs and not files:
+            output_lines.append("(Empty directory)")
+        
+        for d in dirs:
+            output_lines.append(f"📁 {d.name}/")
+        for f in files:
+            output_lines.append(f"📄 {f.name}")
+
+    # 输出结果
     print("\n".join(output_lines))
