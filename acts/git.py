@@ -50,7 +50,7 @@ def _git_init(executor: Executor, args: List[str]):
 def _git_add(executor: Executor, args: List[str]):
     """
     Act: git_add
-    Args: [files] (空格分隔的文件列表，或者 "." )
+    Args: [files] (空白符（如空格，换行）分隔的文件列表，或者 "." )
     """
     if not args:
         target = "."

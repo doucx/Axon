@@ -1,5 +1,6 @@
 import typer
 import logging
+import inspect
 from pathlib import Path
 from typing import Annotated
 
@@ -9,24 +10,24 @@ from core.executor import Executor
 from acts.basic import register_basic_acts
 from acts.check import register_check_acts
 from acts.git import register_git_acts
-from config import DEFAULT_WORK_DIR
+# 如果之前有 acts.custom，也可以在这里导入，或者依赖后续的注册逻辑
+from config import DEFAULT_WORK_DIR, DEFAULT_ENTRY_FILE
 
 # 初始化日志
 setup_logging()
 logger = logging.getLogger(__name__)
 
 def main(
+    ctx: typer.Context,
     file: Annotated[
         Path, 
         typer.Argument(
-            help="包含 Markdown 指令的文件路径",
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-            readable=True,
+            help=f"包含 Markdown 指令的文件路径 [default: {DEFAULT_ENTRY_FILE.name}]",
+            # 注意：这里移除了 exists=True，将检查推迟到函数内部
+            # 以便 -l (list-acts) 可以在文件不存在时依然工作
             resolve_path=True
         )
-    ] = Path("o.md"),
+    ] = DEFAULT_ENTRY_FILE,
     work_dir: Annotated[
         Path, 
         typer.Option(
@@ -50,11 +51,66 @@ def main(
             "--yolo", "-y",
             help="跳过所有确认步骤，直接执行 (You Only Look Once)。",
         )
+    ] = False,
+    list_acts: Annotated[
+        bool,
+        typer.Option(
+            "--list-acts", "-l",
+            help="列出所有可用的操作指令及其说明。",
+        )
     ] = False
 ):
     """
     Axon: 执行 Markdown 文件中的操作指令。
     """
+    if list_acts:
+        # 初始化一个临时 Executor 用于获取注册表
+        # 这里不需要真实的 root_dir，使用当前目录即可
+        executor = Executor(root_dir=Path("."), yolo=True)
+        
+        # 注册所有已知的 Act 模块
+        register_basic_acts(executor)
+        register_check_acts(executor)
+        register_git_acts(executor)
+        
+        typer.secho("\n📋 可用的 Axon 指令列表:\n", fg=typer.colors.GREEN, bold=True)
+        
+        acts = executor.get_registered_acts()
+        for name in sorted(acts.keys()):
+            doc = acts[name]
+            # 清理文档缩进
+            clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
+            # 缩进每一行以便阅读
+            indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
+            
+            typer.secho(f"🔹 {name}", fg=typer.colors.CYAN, bold=True)
+            typer.echo(f"{indented_doc}\n")
+            
+        raise typer.Exit()
+
+    # --- 瀑布流底部：文件验证与读取 ---
+    
+    # 手动检查文件是否存在
+    if not file.exists():
+        # 判断是否是使用了默认值（即用户只输入了 `axon`）
+        # 注意：file 已经被 resolve 为绝对路径，我们需要将 DEFAULT 也 resolve 后比较
+        is_default = (file == DEFAULT_ENTRY_FILE.resolve())
+        
+        if is_default:
+            typer.secho(f"⚠️  提示: 当前目录下未找到默认指令文件 '{DEFAULT_ENTRY_FILE.name}'。", fg=typer.colors.YELLOW)
+            typer.echo("\n你可以创建一个 Markdown 文件来开始，或者使用 --help 查看用法。")
+            typer.echo("以下是帮助信息：\n")
+            typer.echo(ctx.get_help())
+            raise typer.Exit(code=0)
+        else:
+            # 用户显式指定了文件（如 axon myplan.md），但文件不存在 -> 报错
+            typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+    
+    if not file.is_file():
+        typer.secho(f"❌ 错误: 路径指向的不是一个文件: {file}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
     logger.info(f"正在加载指令文件: {file}")
     logger.info(f"工作区根目录: {work_dir}")
     logger.info(f"使用解析器: {parser_name}")

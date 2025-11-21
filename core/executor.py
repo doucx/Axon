@@ -34,6 +34,10 @@ class Executor:
         self._acts[name] = func
         logger.debug(f"注册 Act: {name}")
 
+    def get_registered_acts(self) -> Dict[str, str]:
+        """获取所有已注册的 Act 及其文档字符串"""
+        return {name: func.__doc__ for name, func in self._acts.items()}
+
     def resolve_path(self, rel_path: str) -> Path:
         """
         将相对路径转换为基于 root_dir 的绝对路径。
