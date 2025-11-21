@@ -256,6 +256,14 @@ Axon 支持标准的 Unix 管道操作，这使得它可以轻松集成到其他
 # 从管道读取
 echo "..." | axon
 
+# 从剪贴板读取
+# macOS:
+pbpaste | axon
+# Linux (X11):
+xclip -o | axon
+# Linux (Wayland):
+wl-paste | axon
+
 # 文件重定向
 axon < generated_plan.md
 
