@@ -74,6 +74,6 @@
     *   [x] 处理 `git` 未安装或工作目录非 Git 仓库的情况。
     *   [x] 在文件操作中处理权限问题 (`PermissionError`)。
     *   [ ] 细化 Plan 执行失败时的错误报告。
-*   [ ] **配置系统**：允许用户通过 `.axon/config.yml` 自定义行为。
+*   [x] **配置系统**：实现 `core/config_manager.py` 以加载 `.axon/config.yml`，并集成了第一个配置项 (`sync.remote_name`)。
 *   [ ] **文档更新**：更新 `README.md` 和 `PROMPT.md`，反映 v4.2 的新概念和工作流。
 *   [ ] **打包与分发**：为 `pip` 发布做准备。

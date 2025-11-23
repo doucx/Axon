@@ -1,15 +1,18 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+
+import re
 import sys
-from pathlib import Path
-import typer
+from main import app
 
-# 将当前脚本所在目录添加到 Python 路径，确保能找到 core 等模块
-# resolve() 确保软链接被正确解析到真实路径
-project_root = Path(__file__).resolve().parent
-sys.path.insert(0, str(project_root))
+def main():
+    """
+    Wrapper for the Typer app to ensure correct execution context.
+    """
+    # The app() call is what Typer uses to parse args and run commands.
+    app()
 
-from main import main
-
-if __name__ == "__main__":
-    # 直接调用 typer 封装的 main 函数
-    typer.run(main)
+if __name__ == '__main__':
+    # This allows the script to be run directly.
+    # The following lines are good practice for entry-point scripts.
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())

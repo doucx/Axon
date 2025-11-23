@@ -161,3 +161,22 @@ Now creating tests for the `checkout` functionality.
 2.  **权限错误捕获**: 测试实现复杂，依赖于修改文件系统权限，可能导致测试不稳定。鉴于添加的逻辑非常简单（try/except 结构），通过代码审查足以保证质量。
 
 结论是跳过专门的测试，直接提交。
+
+## [2025-11-23 16:58:26]
+开始实现配置系统。
+1.  创建一个新的 `ConfigManager` 类，负责加载和解析 `.axon/config.yml`。
+2.  该类需要健壮，能处理文件不存在、YAML 格式错误等情况。
+3.  它将维护一套内部默认值，用户的配置会覆盖这些默认值。
+4.  为了演示，我将添加 `sync.remote_name` 配置，并让 `sync` 命令使用它。
+
+## [2025-11-23 16:59:38]
+测试失败，原因是 `main.py` 中的相对导入 `from .core.config_manager import ConfigManager` 导致 `ImportError`。
+`main.py` 是一个顶级脚本，不应使用相对导入。
+修复方案：将其改为绝对导入 `from core.config_manager import ConfigManager`。
+由于 `pytest.ini` 中有 `pythonpath = .`，这个绝对路径可以被正确解析。
+
+## [2025-11-23 17:00:48]
+用户报告可执行脚本 `./axon` 失败，原因是 `ImportError: cannot import name 'main' from 'main'`。
+这是因为 `main.py` 中的 Typer 入口点是 `app`，而不是 `main`。
+我将创建一个标准的 Python 可执行脚本 `axon`，它会正确地导入并运行 `app`。
+修复完成后，我将把这次导入错误修复和可执行脚本的修复合并到同一个提交中。

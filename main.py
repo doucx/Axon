@@ -13,6 +13,7 @@ from core.engine import Engine
 from core.history import load_history_graph
 import inspect
 import subprocess
+from core.config_manager import ConfigManager
 
 # 注意：不要在模块级别直接调用 setup_logging()，
 # 否则会导致 CliRunner 测试中的 I/O 流过早绑定/关闭问题。
@@ -34,7 +35,7 @@ def sync(
             resolve_path=True
         )
     ] = DEFAULT_WORK_DIR,
-    remote: Annotated[str, typer.Option(help="Git 远程仓库的名称")] = "origin",
+    remote: Annotated[Optional[str], typer.Option("--remote", "-r", help="Git 远程仓库的名称 (覆盖配置文件)。")] = None,
 ):
     """
     与远程仓库同步 Axon 历史图谱。
@@ -44,10 +45,10 @@ def sync(
     setup_logging()
     work_dir = work_dir.resolve()
     
-    # Git 仓库检查已移至 Engine/GitDB 初始化中，会自动触发
-    # if not (work_dir / ".git").is_dir():
-    #     typer.secho(f"❌ 错误: '{work_dir}' 不是一个 Git 仓库。", fg=typer.colors.RED, err=True)
-    #     ctx.exit(1)
+    # 加载配置来确定默认的远程仓库
+    config = ConfigManager(work_dir)
+    if remote is None:
+        remote = config.get("sync.remote_name", "origin")
 
     refspec = "refs/axon/history:refs/axon/history"
     
