@@ -75,8 +75,20 @@ def run_axon(
     任何异常都会被捕获并转化为失败的 AxonResult。
     """
     try:
+        # --- Phase 0: Root Canonicalization (根目录规范化) ---
+        # 无论用户从哪个子目录启动，都必须找到并使用唯一的项目根。
+        # 这是确保 Engine 和 Executor 上下文一致性的关键。
+        project_root = _find_project_root(work_dir)
+        if not project_root:
+            # 如果不在 Git 仓库内，则使用原始 work_dir，但 Engine 初始化会失败。
+            # 这是预期的行为，因为 Axon 强依赖 Git。
+            project_root = work_dir
+        
+        logger.info(f"Project Root resolved to: {project_root}")
+
         # --- Phase 1: Engine Initialization & Perception ---
-        engine = Engine(work_dir)
+        # 注意：所有核心组件都必须使用规范化后的 project_root 初始化！
+        engine = Engine(project_root)
         status = engine.align() # "CLEAN", "DIRTY", "ORPHAN"
         
         current_hash = engine.git_db.get_tree_hash()
@@ -115,11 +127,11 @@ def run_axon(
             )
 
         # 3.2 Executor Setup
-        executor = Executor(root_dir=work_dir, yolo=yolo)
+        executor = Executor(root_dir=project_root, yolo=yolo) # 使用 project_root
         
         # 加载插件
         load_plugins(executor, PROJECT_ROOT / "acts") # 内置
-        _load_extra_plugins(executor, work_dir)       # 外部
+        _load_extra_plugins(executor, project_root)       # 外部 (也基于 project_root)
 
         # 3.3 Execute
         executor.execute(statements)
