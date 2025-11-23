@@ -1,0 +1,130 @@
+import os
+import subprocess
+import logging
+from pathlib import Path
+from typing import Optional, Dict
+from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
+
+class GitDB:
+    """
+    Axon 的 Git 底层接口 (Plumbing Interface)。
+    负责与 Git 对象数据库交互，维护 Shadow Index 和 Refs。
+    """
+    def __init__(self, root_dir: Path):
+        self.root = root_dir.resolve()
+        self.axon_dir = self.root / ".axon"
+        self._ensure_git_init()
+
+    def _ensure_git_init(self):
+        """确保目标是一个 Git 仓库"""
+        if not (self.root / ".git").exists():
+            # 在测试环境中可能需要自动 init，但在生产中通常只抛出错误
+            # 这里为了健壮性，暂不做自动 init，假设外部已处理
+            pass
+
+    def _run(self, args: list[str], env: Optional[Dict] = None, check: bool = True, log_error: bool = True) -> subprocess.CompletedProcess:
+        """执行 git 命令的底层封装，返回完整的 CompletedProcess 对象"""
+        full_env = os.environ.copy()
+        if env:
+            full_env.update(env)
+            
+        try:
+            result = subprocess.run(
+                ["git"] + args,
+                cwd=self.root,
+                env=full_env,
+                capture_output=True,
+                text=True,
+                check=check
+            )
+            return result
+        except subprocess.CalledProcessError as e:
+            if log_error:
+                logger.error(f"Git plumbing error: {e.stderr}")
+            raise RuntimeError(f"Git command failed: {' '.join(args)}\n{e.stderr}") from e
+
+    @contextmanager
+    def shadow_index(self):
+        """
+        上下文管理器：创建一个隔离的 Shadow Index。
+        在此上下文内的操作不会污染用户的 .git/index。
+        """
+        index_path = self.axon_dir / "tmp_index"
+        self.axon_dir.mkdir(exist_ok=True)
+        
+        # 定义隔离的环境变量
+        env = {"GIT_INDEX_FILE": str(index_path)}
+        
+        try:
+            yield env
+        finally:
+            # 无论成功失败，必须清理临时索引文件
+            if index_path.exists():
+                try:
+                    index_path.unlink()
+                except OSError:
+                    logger.warning(f"Failed to cleanup shadow index: {index_path}")
+
+    def get_tree_hash(self) -> str:
+        """
+        计算当前工作区的 Tree Hash (Snapshot)。
+        实现 'State is Truth' 的核心。
+        """
+        with self.shadow_index() as env:
+            # 1. 将当前工作区全量加载到影子索引
+            # 使用 ':(exclude).axon' 确保 Axon 自身数据不影响状态计算
+            # -A: 自动处理添加、修改、删除
+            # --ignore-errors: 即使某些文件无法读取也继续（尽力而为）
+            self._run(
+                ["add", "-A", "--ignore-errors", ".", ":(exclude).axon"],
+                env=env
+            )
+            
+            # 2. 将索引写入对象库，返回 Tree Hash
+            result = self._run(["write-tree"], env=env)
+            return result.stdout.strip()
+
+    def create_anchor_commit(self, tree_hash: str, message: str, parent_commits: list[str] = None) -> str:
+        """
+        创建一个 Commit Object 指向特定的 Tree Hash。
+        这是 Axon 历史链的物理载体。
+        """
+        cmd = ["commit-tree", tree_hash, "-m", message]
+        
+        if parent_commits:
+            for p in parent_commits:
+                cmd.extend(["-p", p])
+                
+        result = self._run(cmd)
+        return result.stdout.strip()
+
+    def update_ref(self, ref_name: str, commit_hash: str):
+        """
+        更新引用 (如 refs/axon/history)。
+        防止 Commit 被 GC 回收。
+        """
+        self._run(["update-ref", ref_name, commit_hash])
+
+    def get_head_commit(self) -> Optional[str]:
+        """获取当前工作区 HEAD 的 Commit Hash"""
+        try:
+            result = self._run(["rev-parse", "HEAD"])
+            return result.stdout.strip()
+        except RuntimeError:
+            return None # 可能是空仓库
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """
+        判断两个 Commit 是否具有血统关系。
+        用于解决 'Lost Time' 问题。
+        """
+        # merge-base --is-ancestor A B 返回 0 表示真，1 表示假
+        # 我们在这里直接调用 subprocess，因为我们关心返回码而不是输出
+        result = self._run(
+            ["merge-base", "--is-ancestor", ancestor, descendant],
+            check=False, # 必须禁用 check，否则非 0 退出码会抛异常
+            log_error=False # 我们不认为这是一个错误
+        )
+        return result.returncode == 0
