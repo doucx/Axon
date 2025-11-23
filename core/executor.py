@@ -128,64 +128,64 @@ class Executor:
             return False
 
     def execute(self, statements: List[Statement]):
-        """执行语句序列"""
-        logger.info(f"开始执行 {len(statements)} 个操作...")
+        """Executes a sequence of statements."""
+        logger.info(f"Starting execution of {len(statements)} operations...")
         
         for i, stmt in enumerate(statements):
             raw_act_line = stmt["act"]
             block_contexts = stmt["contexts"]
             
-            # 1. 解析 Act 行：分离命令名和行内参数
+            # 1. Parse the Act line: separate command name and inline args
             try:
-                # 使用 shlex 支持引号，例如: write_file "my file.txt"
+                # Use shlex to support quotes, e.g., write_file "my file.txt"
                 tokens = shlex.split(raw_act_line)
             except ValueError as e:
-                # 通常是引号未闭合
-                raise ExecutionError(f"Act 命令行解析错误: {raw_act_line} ({e})")
+                # Usually indicates an unclosed quote
+                raise ExecutionError(f"Error parsing Act command line: {raw_act_line} ({e})")
             
             if not tokens:
-                logger.warning(f"跳过空指令 [{i+1}/{len(statements)}]")
+                logger.warning(f"Skipping empty instruction [{i+1}/{len(statements)}]")
                 continue
                 
             act_name = tokens[0]
             inline_args = tokens[1:]
             
             if act_name not in self._acts:
-                logger.warning(f"跳过未知操作 [{i+1}/{len(statements)}]: {act_name}")
+                logger.warning(f"Skipping unknown operation [{i+1}/{len(statements)}]: {act_name}")
                 continue
 
             func, arg_mode = self._acts[act_name]
 
-            # 2. 参数合并策略 (ArgMode Protocol)
+            # 2. Argument merging strategy (ArgMode Protocol)
             final_args = []
             
             if arg_mode == "hybrid":
-                # 贪婪模式：合并所有来源
+                # Greedy mode: merge all sources
                 final_args = inline_args + block_contexts
                 
             elif arg_mode == "exclusive":
-                # 互斥模式：有行内用行内，否则用块
+                # Exclusive mode: prefer inline args; otherwise, use blocks
                 if inline_args:
                     final_args = inline_args
                     if block_contexts:
-                        logger.debug(f"ℹ️  [{act_name} - Exclusive] 检测到行内参数，已忽略随后的 {len(block_contexts)} 个 Block。")
+                        logger.debug(f"ℹ️  [{act_name} - Exclusive] Inline args detected, ignoring {len(block_contexts)} subsequent Block(s).")
                 else:
                     final_args = block_contexts
                     
             elif arg_mode == "block_only":
-                # 严格模式：只看块
+                # Strict mode: only use blocks
                 if inline_args:
-                    logger.warning(f"⚠️  [{act_name} - BlockOnly] 忽略了非法的行内参数: {inline_args}")
+                    logger.warning(f"⚠️  [{act_name} - BlockOnly] Ignoring illegal inline arguments: {inline_args}")
                 final_args = block_contexts
             
             else:
-                # Fallback (不应发生，register 已校验)
+                # Fallback (should not happen, checked in register)
                 final_args = inline_args + block_contexts
 
             try:
-                logger.info(f"执行操作 [{i+1}/{len(statements)}]: {act_name} (Mode: {arg_mode}, Args: {len(final_args)})")
+                logger.info(f"Executing operation [{i+1}/{len(statements)}]: {act_name} (Mode: {arg_mode}, Args: {len(final_args)})")
                 func(self, final_args)
             except Exception as e:
-                logger.error(f"执行失败 '{act_name}': {e}")
-                # 根据策略，这里可以选择抛出异常终止整个流程，或者继续
-                raise ExecutionError(f"在执行 '{act_name}' 时发生错误: {e}") from e
+                logger.error(f"Execution failed for '{act_name}': {e}")
+                # Depending on the strategy, we can re-raise to halt the entire process
+                raise ExecutionError(f"An error occurred while executing '{act_name}': {e}") from e

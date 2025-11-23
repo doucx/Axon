@@ -41,15 +41,9 @@ class TestGitActs:
         log = subprocess.check_output(["git", "log", "--oneline"], cwd=isolated_vault, text=True)
         assert "Initial commit" in log
 
-    def test_git_status_display(self, executor: Executor, caplog):
-        # 只是运行一下看是否报错，并通过 caplog 检查日志
-        import logging
-        caplog.set_level(logging.INFO)
-        
-        git_status, _ = executor._acts['git_status']
-        git_status(executor, [])
-        
-        assert "Git Status" in caplog.text
+    # This test is obsolete after redirecting git_status output to stdout
+    # and has been removed. The behavior is now correctly tested by
+    # test_git_status_output_stream.
 
     def test_git_init_idempotent(self, executor: Executor, caplog):
         # setup_git_env 已经 init 过了，再次 init 应该提示跳过
@@ -59,3 +53,35 @@ class TestGitActs:
         func, _ = executor._acts['git_init']
         func(executor, [])
         assert "Git 仓库已存在" in caplog.text
+
+    def test_git_status_output_stream(self, executor: Executor, isolated_vault: Path, capsys, caplog):
+        """
+        验证 git_status 的输出流是否正确。
+        - 结果数据 (git status 内容) 应在 stdout。
+        - 执行日志 (e.g., "Executing operation...") 应在 stderr (通过 logging)。
+        """
+        import logging
+        caplog.set_level(logging.INFO)
+
+        # 1. 制造一些状态变更
+        (isolated_vault / "untracked.txt").write_text("new file")
+        
+        # 2. 我们通过 executor.execute 来模拟完整的执行流程
+        stmts = [{"act": "git_status", "contexts": []}]
+        executor.execute(stmts)
+
+        # 3. 捕获并验证输出
+        # 使用 capsys 捕获 stdout
+        captured_streams = capsys.readouterr()
+        
+        # 验证 stdout 包含 git status 的核心内容
+        assert "Untracked files" in captured_streams.out
+        assert "untracked.txt" in captured_streams.out
+        
+        # 验证 stderr (原始流) 不包含 git status 的内容
+        assert "Untracked files" not in captured_streams.err
+        
+        # 使用 caplog 捕获日志记录
+        # 验证日志中确实包含了执行信息
+        assert "Executing operation" in caplog.text
+        assert "git_status" in caplog.text

@@ -197,7 +197,7 @@ class TestHybridArgs:
         assert called_args == ["-m", "fix bug"]
 
     def test_act_parsing_error(self, executor: Executor):
-        """测试引号未闭合的错误"""
+        """Tests that an unclosed quote in an act line raises an error."""
         stmts = [{
             "act": 'write_file "unclosed string',
             "contexts": []
@@ -205,4 +205,4 @@ class TestHybridArgs:
         
         with pytest.raises(ExecutionError) as exc:
             executor.execute(stmts)
-        assert "Act 命令行解析错误" in str(exc.value)
+        assert "Error parsing Act command line" in str(exc.value)

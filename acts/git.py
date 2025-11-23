@@ -1,6 +1,7 @@
 import subprocess
 import logging
 import shlex
+import os
 from typing import List
 from core.executor import Executor, ExecutionError
 
@@ -27,6 +28,10 @@ def _run_git_cmd(executor: Executor, cmd_args: List[str]) -> str:
     在工作区根目录执行 git 命令的辅助函数。
     返回 stdout。
     """
+    # 强制使用英文 locale，确保测试和脚本行为的一致性
+    env = os.environ.copy()
+    env['LC_ALL'] = 'C'
+    
     try:
         # 确保在工作区根目录下执行
         result = subprocess.run(
@@ -34,7 +39,8 @@ def _run_git_cmd(executor: Executor, cmd_args: List[str]) -> str:
             cwd=executor.root_dir,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            env=env
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -108,7 +114,9 @@ def _git_status(executor: Executor, args: List[str]):
     """
     Act: git_status
     Args: []
-    仅打印状态日志
+    说明: 获取当前 Git 仓库的状态，并将结果打印到标准输出 (stdout)。
     """
     status = _run_git_cmd(executor, ["status"])
-    logger.info(f"ℹ️  [Git Status]\n{status}")
+    # 使用 print 将结果输出到 stdout，以便于管道操作
+    # 日志已被 executor.execute 自动记录，这里只关心数据输出
+    print(status)
