@@ -29,40 +29,38 @@ def _find_project_root(start_path: Path) -> Optional[Path]:
 
 def _load_extra_plugins(executor: Executor, work_dir: Path):
     """
-    按照层级顺序加载外部插件。
-    优先级：Local > Project > Env > Home
+    按照层级顺序加载外部插件，高优先级会覆盖低优先级。
+    优先级顺序: Project > Env > Home
     """
-    plugin_dirs = []
+    plugin_sources = []
     
-    # 1. User Home
+    # 优先级由低到高添加，后面的会覆盖前面的
+    # 1. User Home (Lowest priority)
     home_acts = Path.home() / ".axon" / "acts"
-    plugin_dirs.append(("🏠 Global", home_acts))
+    plugin_sources.append(("🏠 Global", home_acts))
 
     # 2. Config / Env
     env_path = os.getenv("AXON_EXTRA_ACTS_DIR")
     if env_path:
-        plugin_dirs.append(("🔧 Env", Path(env_path)))
-
-    # 3. Project Root (Context)
+        plugin_sources.append(("🔧 Env", Path(env_path)))
+    
+    # 3. Project Root (Highest priority)
     project_root = _find_project_root(work_dir)
     if project_root:
         proj_acts = project_root / ".axon" / "acts"
-        if proj_acts != (work_dir / ".axon" / "acts"):
-             plugin_dirs.append(("📦 Project", proj_acts))
-
-    # 4. Current Work Dir (Local)
-    cwd_acts = work_dir / ".axon" / "acts"
-    plugin_dirs.append(("📂 Local", cwd_acts))
+        plugin_sources.append(("📦 Project", proj_acts))
 
     seen_paths = set()
-    for label, path in plugin_dirs:
-        resolved = path.resolve() if path.exists() else path
-        if resolved in seen_paths:
+    for label, path in plugin_sources:
+        if not path.exists() or not path.is_dir():
             continue
-            
-        if path.exists() and path.is_dir():
-            load_plugins(executor, path)
-            seen_paths.add(resolved)
+        
+        resolved_path = path.resolve()
+        if resolved_path in seen_paths:
+            continue
+        
+        load_plugins(executor, path)
+        seen_paths.add(resolved_path)
 
 def run_axon(
     content: str,
