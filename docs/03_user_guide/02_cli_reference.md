@@ -47,6 +47,18 @@ axon checkout <HASH_PREFIX> [OPTIONS]
 
 **安全机制**: 如果当前工作区有未记录的修改，`checkout` 会在切换前自动创建一个 Capture 节点保存现场。
 
+## `discard` - 丢弃变更
+
+丢弃工作区中所有未被 Axon 记录的变更，将文件恢复到上一个干净的历史状态。
+
+```bash
+axon discard [OPTIONS]
+```
+
+*   `--force, -f`: 强制执行，不询问确认。
+
+**使用场景**: 当一个 Plan 执行失败或被中途取消后，工作区可能会处于一个包含部分修改的“脏”状态。`discard` 命令提供了一个类似于 `git checkout .` 的功能，可以一键清理这些残留的修改，让你从一个已知的良好起点重新开始。
+
 ## `sync` - 远程同步
 
 同步 Axon 的隐形历史记录到远程 Git 仓库。

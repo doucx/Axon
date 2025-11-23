@@ -277,3 +277,11 @@ The user has approved the implementation of the `axon discard` command. I will n
 - **Body:** Explain the motivation and functionality. It solves the problem of a dirty workspace after a failed plan by providing a `git checkout .` style reset to the last known clean state.
 
 This commit will finalize the implementation of this important workflow improvement.
+
+## [2025-11-23 18:13:24]
+The user wants to document the new `axon discard` feature.
+
+**Plan:**
+1.  **Update CLI Reference**: Modify `docs/03_user_guide/02_cli_reference.md` to add a detailed section for the `axon discard` command. This is the most critical documentation change. I will place it after `checkout` as it's also a state-manipulation command.
+2.  **Update Roadmap**: Modify `TODO.md` to mark this user-experience feature as complete. This keeps our project tracking up-to-date.
+3.  **Commit**: Create a `docs` commit that includes both updated files.
