@@ -23,6 +23,16 @@ class Engine:
         # 确保目录结构存在
         self.history_dir.mkdir(parents=True, exist_ok=True)
         
+        # 核心：确保 .axon 目录被 Git 忽略
+        # 我们在 .axon 下创建一个 .gitignore 文件，内容为 "*"，
+        # 这会告诉 Git 忽略该目录下的所有内容（包括 .gitignore 本身）。
+        axon_gitignore = self.axon_dir / ".gitignore"
+        if not axon_gitignore.exists():
+            try:
+                axon_gitignore.write_text("*\n", encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"无法创建隔离文件 {axon_gitignore}: {e}")
+        
         self.git_db = GitDB(self.root_dir)
         self.history_graph: Dict[str, AxonNode] = {}
         self.current_node: Optional[AxonNode] = None
