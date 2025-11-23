@@ -73,8 +73,10 @@ def ui(
         ctx.exit(1)
         
     setup_logging()
-    # 关键变更: 为了 UI, 我们需要加载所有节点, 而不仅仅是唯一状态节点
-    from core.history import load_all_history_nodes
+    # 关键修复: 我们需要两种数据结构
+    # 1. 完整的节点列表 (all_nodes) -> 用于 UI 渲染
+    # 2. 从哈希到最新节点的映射 (graph) -> 用于 checkout 查找
+    from core.history import load_all_history_nodes, load_history_graph
     
     engine = Engine(work_dir)
     all_nodes = load_all_history_nodes(engine.history_dir)
@@ -83,15 +85,20 @@ def ui(
         typer.secho("📜 历史记录为空，无需启动 UI。", fg=typer.colors.YELLOW, err=True)
         ctx.exit(0)
         
-    # 获取当前工作区状态哈希，用于在 UI 中自动定位
+    graph = load_history_graph(engine.history_dir)
     current_hash = engine.git_db.get_tree_hash()
     
     app_instance = AxonUiApp(all_nodes, current_hash=current_hash)
     selected_hash = app_instance.run()
 
     if selected_hash:
-        typer.secho(f"\n> TUI 请求检出到: {selected_hash[:7]}", err=True)
-        _execute_checkout(ctx, graph[selected_hash], work_dir)
+        # 现在 'graph' 变量已定义, 这段代码可以正常工作
+        if selected_hash in graph:
+            typer.secho(f"\n> TUI 请求检出到: {selected_hash[:7]}", err=True)
+            _execute_checkout(ctx, graph[selected_hash], work_dir)
+        else:
+            typer.secho(f"❌ 错误: 无法在历史图谱中找到目标哈希 {selected_hash[:7]}", fg=typer.colors.RED, err=True)
+            ctx.exit(1)
 
 
 @app.command()
