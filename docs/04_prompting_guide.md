@@ -57,5 +57,8 @@ def main():
 ### 最佳实践
 
 1.  **行内参数**：对于简单的参数（如文件名），可以直接写在 Act 行内。
-    *   例如：`~~~~~act write_file main.py~~~~~`
+    *   例如：
+~~~~~act
+write_file main.py
+~~~~~
 2.  **安全性**：在执行大规模写入前，先使用 `check_files_exist` 确认你在预期的项目根目录下。
