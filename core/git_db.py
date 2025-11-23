@@ -128,3 +128,10 @@ class GitDB:
             log_error=False # 我们不认为这是一个错误
         )
         return result.returncode == 0
+
+    def get_diff_stat(self, old_tree: str, new_tree: str) -> str:
+        """
+        获取两个 Tree 之间的差异统计 (Human Readable)。
+        """
+        result = self._run(["diff-tree", "--stat", old_tree, new_tree])
+        return result.stdout.strip()

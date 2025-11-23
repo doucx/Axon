@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
 from typing import Dict, Optional
+import yaml
+from datetime import datetime
 
 from .git_db import GitDB
 from .history import load_history_graph
@@ -52,3 +54,68 @@ class Engine:
             return "ORPHAN" # 历史为空，无法判断从何而来
         
         return "DIRTY"
+
+    def capture_drift(self, current_hash: str) -> AxonNode:
+        """
+        捕获当前工作区的漂移，生成一个新的 CaptureNode。
+        """
+        logger.info(f"📸 正在捕获工作区漂移，新状态 Hash: {current_hash[:7]}")
+        
+        # 1. 确定父节点
+        input_hash = "_" * 40
+        last_commit_hash = None
+        
+        if self.history_graph:
+            # 按时间戳找到最近的节点作为父节点
+            last_node = max(self.history_graph.values(), key=lambda node: node.timestamp)
+            input_hash = last_node.output_tree
+            # 获取上一个锚点 commit 用于链接历史
+            parent_ref_commit_result = self.git_db._run(["rev-parse", "refs/axon/history"], check=False)
+            if parent_ref_commit_result.returncode == 0:
+                last_commit_hash = parent_ref_commit_result.stdout.strip()
+
+        # 2. 生成差异摘要
+        diff_summary = self.git_db.get_diff_stat(input_hash, current_hash)
+        
+        # 3. 构建节点内容和元数据
+        timestamp = datetime.now()
+        ts_str = timestamp.strftime("%Y%m%d%H%M%S")
+        filename = self.history_dir / f"{input_hash}_{current_hash}_{ts_str}.md"
+        
+        meta = {
+            "type": "capture",
+            "input_tree": input_hash,
+            "output_tree": current_hash
+        }
+        body = (
+            f"# 📸 Snapshot Capture\n\n"
+            f"检测到工作区发生变更。\n\n"
+            f"### 📝 变更文件摘要:\n```\n{diff_summary}\n```"
+        )
+        
+        # 4. 写入文件
+        frontmatter = f"---\n{yaml.dump(meta, sort_keys=False)}---\n\n"
+        filename.write_text(frontmatter + body, "utf-8")
+        
+        # 5. 创建锚点 Commit 并更新引用
+        commit_msg = f"Axon Capture: {current_hash[:7]}"
+        parents = [last_commit_hash] if last_commit_hash else []
+        new_commit_hash = self.git_db.create_anchor_commit(current_hash, commit_msg, parent_commits=parents)
+        self.git_db.update_ref("refs/axon/history", new_commit_hash)
+
+        # 6. 在内存中创建并返回新节点
+        new_node = AxonNode(
+            input_tree=input_hash,
+            output_tree=current_hash,
+            timestamp=timestamp,
+            filename=filename,
+            node_type="capture",
+            content=body
+        )
+        
+        # 7. 更新引擎内部状态
+        self.history_graph[current_hash] = new_node
+        self.current_node = new_node
+        
+        logger.info(f"✅ 捕获完成，新节点已创建: {filename.name}")
+        return new_node
