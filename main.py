@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Optional, Dict
 
 from logger_config import setup_logging
-from core.controller import run_axon
+from core.controller import run_axon, find_project_root
 from config import DEFAULT_WORK_DIR, DEFAULT_ENTRY_FILE, PROJECT_ROOT
 from core.plugin_loader import load_plugins
 from core.executor import Executor
@@ -21,6 +21,11 @@ from core.config_manager import ConfigManager
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(add_completion=False, name="axon")
+
+def _resolve_root(work_dir: Path) -> Path:
+    """辅助函数：解析项目根目录，如果未找到则回退到 work_dir"""
+    root = find_project_root(work_dir)
+    return root if root else work_dir
 
 # --- 导航命令辅助函数 ---
 def _find_current_node(engine: Engine, graph: Dict[str, AxonNode]) -> Optional[AxonNode]:
@@ -78,7 +83,8 @@ def ui(
     # 2. 从哈希到最新节点的映射 (graph) -> 用于 checkout 查找
     from core.history import load_all_history_nodes, load_history_graph
     
-    engine = Engine(work_dir)
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
     all_nodes = load_all_history_nodes(engine.history_dir)
     
     if not all_nodes:
@@ -120,7 +126,8 @@ def save(
     捕获当前工作区的状态，创建一个“微提交”快照。
     """
     setup_logging()
-    engine = Engine(work_dir)
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
     status = engine.align()
     if status == "CLEAN":
         typer.secho("✅ 工作区状态未发生变化，无需创建快照。", fg=typer.colors.GREEN, err=True)
@@ -153,7 +160,7 @@ def sync(
     与远程仓库同步 Axon 历史图谱。
     """
     setup_logging()
-    work_dir = work_dir.resolve()
+    work_dir = _resolve_root(work_dir) # Sync needs root
     config = ConfigManager(work_dir)
     if remote is None:
         remote = config.get("sync.remote_name", "origin")
@@ -202,8 +209,9 @@ def discard(
     丢弃工作区所有未记录的变更，恢复到上一个干净状态。
     """
     setup_logging()
-    engine = Engine(work_dir)
-    history_dir = work_dir.resolve() / ".axon" / "history"
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
+    history_dir = engine.history_dir
     graph = load_history_graph(history_dir)
     if not graph:
         typer.secho("❌ 错误: 找不到任何历史记录，无法确定要恢复到哪个状态。", fg=typer.colors.RED, err=True)
@@ -217,7 +225,7 @@ def discard(
     if not force:
         typer.confirm(f"🚨 即将丢弃工作区所有未记录的变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？", abort=True)
     try:
-        engine.git_db.checkout_tree(target_tree_hash)
+        engine.checkout(target_tree_hash)
         typer.secho(f"✅ 工作区已成功恢复到节点 {latest_node.short_hash}。", fg=typer.colors.GREEN, err=True)
     except Exception as e:
         typer.secho(f"❌ 恢复状态失败: {e}", fg=typer.colors.RED, err=True)
@@ -246,7 +254,10 @@ def checkout(
     将工作区恢复到指定的历史节点状态。
     """
     setup_logging()
-    history_dir = work_dir.resolve() / ".axon" / "history"
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
+    history_dir = engine.history_dir
+    
     graph = load_history_graph(history_dir)
     matches = [node for sha, node in graph.items() if sha.startswith(hash_prefix)]
     if not matches:
@@ -257,7 +268,7 @@ def checkout(
         ctx.exit(1)
     target_node = matches[0]
     target_tree_hash = target_node.output_tree
-    engine = Engine(work_dir)
+    
     status = engine.align()
     current_hash = engine.git_db.get_tree_hash()
     if current_hash == target_tree_hash:
@@ -270,7 +281,7 @@ def checkout(
     if not force:
         typer.confirm(f"🚨 即将重置工作区到状态 {target_node.short_hash} ({target_node.timestamp})。\n此操作会覆盖未提交的更改。是否继续？", abort=True)
     try:
-        engine.git_db.checkout_tree(target_tree_hash)
+        engine.checkout(target_tree_hash)
         typer.secho(f"✅ 已成功将工作区恢复到节点 {target_node.short_hash}。", fg=typer.colors.GREEN, err=True)
     except Exception as e:
         typer.secho(f"❌ 恢复状态失败: {e}", fg=typer.colors.RED, err=True)
@@ -290,7 +301,8 @@ def undo(
     向上移动到当前状态的父节点 (类似 Ctrl+Z)。
     """
     setup_logging()
-    engine = Engine(work_dir)
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
     graph = load_history_graph(engine.history_dir)
     current_node = _find_current_node(engine, graph)
     if not current_node: ctx.exit(1)
@@ -317,7 +329,8 @@ def redo(
     向下移动到子节点 (类似 Ctrl+Y)。默认选择最新的子节点。
     """
     setup_logging()
-    engine = Engine(work_dir)
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
     graph = load_history_graph(engine.history_dir)
     current_node = _find_current_node(engine, graph)
     if not current_node: ctx.exit(1)
@@ -345,7 +358,8 @@ def prev(
     在同一父节点的兄弟分支间，切换到上一个 (更旧的) 节点。
     """
     setup_logging()
-    engine = Engine(work_dir)
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
     graph = load_history_graph(engine.history_dir)
     current_node = _find_current_node(engine, graph)
     if not current_node: ctx.exit(1)
@@ -374,7 +388,8 @@ def next(
     在同一父节点的兄弟分支间，切换到下一个 (更新的) 节点。
     """
     setup_logging()
-    engine = Engine(work_dir)
+    real_root = _resolve_root(work_dir)
+    engine = Engine(real_root)
     graph = load_history_graph(engine.history_dir)
     current_node = _find_current_node(engine, graph)
     if not current_node: ctx.exit(1)
@@ -408,7 +423,8 @@ def log(
     显示 Axon 历史图谱日志。
     """
     setup_logging()
-    history_dir = work_dir.resolve() / ".axon" / "history"
+    real_root = _resolve_root(work_dir)
+    history_dir = real_root / ".axon" / "history"
     if not history_dir.exists():
         typer.secho(f"❌ 在 '{work_dir}' 中未找到 Axon 历史记录 (.axon/history)。", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)

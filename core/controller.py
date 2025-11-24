@@ -16,7 +16,7 @@ from config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-def _find_project_root(start_path: Path) -> Optional[Path]:
+def find_project_root(start_path: Path) -> Optional[Path]:
     """向上递归查找包含 .git 的目录作为项目根目录"""
     try:
         current = start_path.resolve()
@@ -45,7 +45,7 @@ def _load_extra_plugins(executor: Executor, work_dir: Path):
         plugin_sources.append(("🔧 Env", Path(env_path)))
     
     # 3. Project Root (Highest priority)
-    project_root = _find_project_root(work_dir)
+    project_root = find_project_root(work_dir)
     if project_root:
         proj_acts = project_root / ".axon" / "acts"
         plugin_sources.append(("📦 Project", proj_acts))
@@ -78,7 +78,7 @@ def run_axon(
         # --- Phase 0: Root Canonicalization (根目录规范化) ---
         # 无论用户从哪个子目录启动，都必须找到并使用唯一的项目根。
         # 这是确保 Engine 和 Executor 上下文一致性的关键。
-        project_root = _find_project_root(work_dir)
+        project_root = find_project_root(work_dir)
         if not project_root:
             # 如果不在 Git 仓库内，则使用原始 work_dir，但 Engine 初始化会失败。
             # 这是预期的行为，因为 Axon 强依赖 Git。
