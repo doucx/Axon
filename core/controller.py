@@ -6,10 +6,10 @@ from typing import Optional
 
 from .intf_result import AxonResult
 from .eng_state_machine import Engine
-from .executor import Executor, ExecutionError
+from .rt_executor import Executor, ExecutionError
 from .intf_exceptions import ExecutionError as CoreExecutionError # Alias to avoid conflict
-from .parser import get_parser, detect_best_parser
-from .plugin_loader import load_plugins
+from .rt_parser import get_parser, detect_best_parser
+from .rt_plugin_loader import load_plugins
 
 # 从配置导入，注意为了解耦，未来可能需要将 config 注入而不是直接导入
 from config import PROJECT_ROOT

@@ -1,4 +1,4 @@
-from core.parser import detect_best_parser
+from core.rt_parser import detect_best_parser
 
 class TestAutoDetect:
     def test_detect_backtick_simple(self):

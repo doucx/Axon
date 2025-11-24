@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from core.executor import Executor
+from core.rt_executor import Executor
 from acts.basic import register as register_basic_acts
 
 @pytest.fixture

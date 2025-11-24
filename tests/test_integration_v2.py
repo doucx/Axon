@@ -4,7 +4,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 from core.controller import run_axon, AxonResult
 from main import app
-from core.executor import Executor
+from core.rt_executor import Executor
 from acts.basic import register as register_basic
 
 # --- Fixtures ---

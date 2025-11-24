@@ -2,7 +2,7 @@ import importlib.util
 import logging
 import sys
 from pathlib import Path
-from .executor import Executor
+from .rt_executor import Executor
 
 logger = logging.getLogger(__name__)
 

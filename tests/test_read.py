@@ -2,7 +2,7 @@ import pytest
 import shutil
 import logging
 from pathlib import Path
-from core.executor import Executor, ExecutionError
+from core.rt_executor import Executor, ExecutionError
 from acts.read import register as register_read_acts
 from core.intf_types import ActContext
 

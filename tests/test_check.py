@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from core.executor import Executor, ExecutionError
+from core.rt_executor import Executor, ExecutionError
 from acts.check import register as register_check_acts
 from core.intf_types import ActContext
 

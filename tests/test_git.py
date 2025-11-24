@@ -2,7 +2,7 @@ import pytest
 import subprocess
 import shutil
 from pathlib import Path
-from core.executor import Executor
+from core.rt_executor import Executor
 from acts.git import register as register_git_acts
 
 @pytest.mark.skipif(not shutil.which("git"), reason="Git 命令未找到，跳过 Git 测试")

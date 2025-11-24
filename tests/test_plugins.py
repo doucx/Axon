@@ -1,8 +1,8 @@
 import pytest
 import sys
 from pathlib import Path
-from core.executor import Executor
-from core.plugin_loader import load_plugins
+from core.rt_executor import Executor
+from core.rt_plugin_loader import load_plugins
 from core.controller import find_project_root  # 从 Controller 导入辅助函数
 
 class TestPluginLoading:
