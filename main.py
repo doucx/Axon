@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Optional, Dict
 
 from logger_config import setup_logging
-from core.controller import run_axon, find_project_root
+from core.cli_controller import run_axon, find_project_root
 from config import DEFAULT_WORK_DIR, DEFAULT_ENTRY_FILE, PROJECT_ROOT
 from core.rt_plugin_loader import load_plugins
 from core.rt_executor import Executor

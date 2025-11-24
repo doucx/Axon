@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from core.eng_state_machine import Engine
-from core.controller import run_axon
+from core.cli_controller import run_axon
 
 class TestIdempotentNode:
     

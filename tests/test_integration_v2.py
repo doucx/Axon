@@ -2,7 +2,7 @@ import pytest
 import logging
 from pathlib import Path
 from typer.testing import CliRunner
-from core.controller import run_axon, AxonResult
+from core.cli_controller import run_axon, AxonResult
 from main import app
 from core.rt_executor import Executor
 from acts.basic import register as register_basic
