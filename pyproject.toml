@@ -2,23 +2,8 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "quipu-dev"
-version = "0.1.0"
-description = "Metapackage for the Quipu monorepo development environment."
-requires-python = ">=3.8"
-dependencies = [
-    "quipu-interfaces @ file:./packages/quipu-interfaces",
-    "quipu-engine @ file:./packages/quipu-engine",
-    "quipu-runtime @ file:./packages/quipu-runtime",
-    "quipu-cli @ file:./packages/quipu-cli",
-]
-
-[project.scripts]
-quipu = "quipu.cli.main:app"
-
-[tool.setuptools]
-py-modules = []
+# Root configuration for tools only.
+# To install the development environment, run: pip install -r dev-requirements.txt
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

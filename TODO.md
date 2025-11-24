@@ -81,4 +81,4 @@
     *   [ ] 细化 Plan 执行失败时的错误报告。
 *   [x] **配置系统**：实现 `core/config_manager.py` 以加载 `.axon/config.yml`，并集成了第一个配置项 (`sync.remote_name`)。
 *   [x] **文档更新**：更新 `README.md` 和 `docs/` 目录，反映 0.3.x 的新概念和工作流。
-*   [ ] **打包与分发**：为 `pip` 发布做准备。
+*   [x] **打包与分发**：为 `pip` 发布做准备。

@@ -1,0 +1,4 @@
+-e packages/quipu-interfaces
+-e packages/quipu-engine
+-e packages/quipu-runtime
+-e packages/quipu-cli
