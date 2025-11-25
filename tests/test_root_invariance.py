@@ -80,4 +80,6 @@ class TestRootInvariance:
         
         plan_nodes = [n for n in nodes if n.node_type == 'plan']
         assert len(plan_nodes) >= 1, "应至少有一个 plan 节点"
-        assert "Success from subdir" in plan_nodes[-1].content
+        # 使用 reader 显式获取内容 (Lazy Loading 适配)
+        content = engine.reader.get_node_content(plan_nodes[-1])
+        assert "Success from subdir" in content

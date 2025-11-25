@@ -22,8 +22,31 @@ class FileSystemHistoryReader(HistoryReader):
     def load_all_nodes(self) -> List[QuipuNode]:
         """
         通过调用现有的 `load_all_history_nodes` 函数来加载图谱。
+        注意：FS 实现目前是预加载所有内容的。
         """
         return load_all_history_nodes(self.history_dir)
+
+    def get_node_content(self, node: QuipuNode) -> str:
+        """
+        对于 FS 存储，内容通常在加载节点时已经读取到了 node.content 中。
+        为了稳健性，如果内存中为空，尝试重新读取文件。
+        """
+        if node.content:
+            return node.content
+        
+        # Fallback: 重新读取
+        try:
+            if node.filename and node.filename.exists():
+                # 我们需要重新解析一下以去除 frontmatter，复用 helper 函数
+                from .history import _parse_frontmatter
+                full_text = node.filename.read_text(encoding="utf-8")
+                _, body = _parse_frontmatter(full_text)
+                node.content = body
+                return body
+        except Exception as e:
+            logger.error(f"Failed to lazy load content from {node.filename}: {e}")
+        
+        return ""
 
 
 class FileSystemHistoryWriter(HistoryWriter):

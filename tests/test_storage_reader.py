@@ -58,18 +58,20 @@ class TestGitObjectHistoryReader:
         roots = [n for n in nodes if n.input_tree == h0]
         assert len(roots) == 1
         node_a = roots[0]
-        assert node_a.content.strip() == "Plan A"
+        # Lazy load verification
+        assert node_a.content == "" 
+        assert reader.get_node_content(node_a).strip() == "Plan A"
         assert node_a.timestamp.timestamp() == 1000.0
         
         assert len(node_a.children) == 1
         node_b = node_a.children[0]
-        assert node_b.content.strip() == "Plan B"
+        assert reader.get_node_content(node_b).strip() == "Plan B"
         assert node_b.input_tree == h1
         assert node_b.parent == node_a
         
         assert len(node_b.children) == 1
         node_c = node_b.children[0]
-        assert node_c.content.strip() == "Capture C"
+        assert reader.get_node_content(node_c).strip() == "Capture C"
         assert node_c.node_type == "capture"
 
     def test_load_forked_history(self, reader_setup):
@@ -102,7 +104,9 @@ class TestGitObjectHistoryReader:
         
         assert len(nodes) == 3
         
-        nodes_by_content = {n.content.strip(): n for n in nodes}
+        # Explicitly load content for mapping
+        nodes_by_content = {reader.get_node_content(n).strip(): n for n in nodes}
+        
         node_a = nodes_by_content["Plan A"]
         node_b = nodes_by_content["Plan B"]
         node_c = nodes_by_content["Plan C"]
@@ -165,7 +169,8 @@ class TestGitObjectHistoryReader:
         nodes = reader.load_all_nodes()
         
         assert len(nodes) == 2
-        valid_nodes = {n.content.strip(): n for n in nodes}
+        # Explicitly load content
+        valid_nodes = {reader.get_node_content(n).strip(): n for n in nodes}
         assert "A" in valid_nodes
         assert "C" in valid_nodes
         

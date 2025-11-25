@@ -13,6 +13,15 @@ class HistoryReader(ABC):
         """
         从存储中加载所有历史事件，构建完整的父子关系图，
         并返回所有节点的列表。
+        注意：为了性能，实现可能会选择不立即加载节点的 content 内容。
+        """
+        pass
+
+    @abstractmethod
+    def get_node_content(self, node: QuipuNode) -> str:
+        """
+        获取指定节点的完整内容 (Lazy Loading)。
+        如果节点内容已加载，直接返回；否则从存储后端读取。
         """
         pass
 

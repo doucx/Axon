@@ -28,6 +28,9 @@ class GitObjectHistoryReader(HistoryReader):
         return match.group(1) if match else None
 
     def load_all_nodes(self) -> List[QuipuNode]:
+        """
+        加载所有节点。为了性能，跳过 content.md 的读取 (Lazy Loading)。
+        """
         all_heads = self.git_db.get_all_ref_heads("refs/quipu/")
         if not all_heads:
             return []
@@ -41,15 +44,13 @@ class GitObjectHistoryReader(HistoryReader):
 
         for entry in log_entries:
             commit_hash = entry["hash"]
-            # Git log can return same commit multiple times if it's an ancestor of multiple heads.
-            # We only need to process each commit once.
             if commit_hash in temp_nodes:
                 continue
 
             tree_hash = entry["tree"]
             
             try:
-                # 1. Read tree content to find metadata and content blobs
+                # 1. Read tree content to find metadata
                 tree_content = self.git_db.cat_file(tree_hash, "tree").decode('utf-8')
                 blob_hashes = {}
                 for line in tree_content.splitlines():
@@ -62,12 +63,12 @@ class GitObjectHistoryReader(HistoryReader):
                     logger.warning(f"Skipping commit {commit_hash[:7]}: metadata.json not found.")
                     continue
                 
-                # 2. Read metadata and content
+                # 2. Read metadata ONLY (Skip content.md for performance)
                 meta_bytes = self.git_db.cat_file(blob_hashes["metadata.json"])
                 meta_data = json.loads(meta_bytes)
                 
-                content_bytes = self.git_db.cat_file(blob_hashes.get("content.md", "")) if "content.md" in blob_hashes else b""
-                content = content_bytes.decode('utf-8', errors='ignore')
+                # Optimization: Content is lazy loaded via get_node_content
+                content = "" 
 
                 output_tree = self._parse_output_tree_from_body(entry["body"])
                 if not output_tree:
@@ -86,7 +87,6 @@ class GitObjectHistoryReader(HistoryReader):
                 )
                 
                 temp_nodes[commit_hash] = node
-                # A commit can have multiple parents, we take the first one for our linear history model
                 parent_hash = entry["parent"].split(" ")[0] if entry["parent"] else None
                 if parent_hash:
                     parent_map[commit_hash] = parent_hash
@@ -103,14 +103,58 @@ class GitObjectHistoryReader(HistoryReader):
                 parent_node.children.append(node)
                 node.input_tree = parent_node.output_tree
             else:
-                # Node is a root or parent is not a valid Quipu node
-                node.input_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" # Assume genesis from empty tree
+                node.input_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
         # Sort children by timestamp
         for node in temp_nodes.values():
             node.children.sort(key=lambda n: n.timestamp)
             
         return list(temp_nodes.values())
+
+    def get_node_content(self, node: QuipuNode) -> str:
+        """
+        从 Git Commit 中按需读取 content.md。
+        node.filename 被 hack 为 ".quipu/git_objects/{commit_hash}"
+        """
+        if node.content:
+            return node.content
+
+        try:
+            # Extract commit hash from the virtual filename
+            commit_hash = node.filename.name
+            
+            # 1. Get Tree Hash from Commit
+            commit_bytes = self.git_db.cat_file(commit_hash, "commit")
+            # Parse "tree {hash}" from the first line
+            tree_line = commit_bytes.split(b"\n", 1)[0].decode("utf-8")
+            if not tree_line.startswith("tree "):
+                raise ValueError("Invalid commit object format")
+            tree_hash = tree_line.split()[1]
+
+            # 2. Get content.md Blob Hash from Tree
+            tree_content = self.git_db.cat_file(tree_hash, "tree").decode('utf-8')
+            blob_hash = None
+            for line in tree_content.splitlines():
+                # format: <mode> <type> <hash>\t<filename>
+                parts = line.split()
+                if len(parts) == 4 and parts[3] == "content.md":
+                    blob_hash = parts[2]
+                    break
+            
+            if not blob_hash:
+                return "" # No content found
+            
+            # 3. Read Blob
+            content_bytes = self.git_db.cat_file(blob_hash)
+            content = content_bytes.decode('utf-8', errors='ignore')
+            
+            # Cache it
+            node.content = content
+            return content
+
+        except Exception as e:
+            logger.error(f"Failed to lazy load content for node {node.short_hash}: {e}")
+            return ""
 
 
 class GitObjectHistoryWriter(HistoryWriter):
@@ -241,12 +285,10 @@ class GitObjectHistoryWriter(HistoryWriter):
         tree_hash = self.git_db.mktree(tree_descriptor)
 
         # 1. 确定父节点 (Topological Parent)
-        # 根据 input_tree 查找对应的 Commit，而不是盲目使用最新的 history ref
         parent_commit = self.git_db.get_commit_by_output_tree(input_tree)
         parents = [parent_commit] if parent_commit else None
         
         if not parent_commit and input_tree != "4b825dc642cb6eb9a060e54bf8d69288fbee4904":
-             # 如果不是创世节点，但找不到父节点，记录警告（可能是断链或首次迁移）
              logger.warning(f"⚠️  Could not find parent commit for input state {input_tree[:7]}. This node may be detached.")
 
         # 2. 创建 Commit
@@ -256,25 +298,19 @@ class GitObjectHistoryWriter(HistoryWriter):
         )
 
         # 3. 引用管理 (Multi-Head Strategy)
-        # 3.1 总是更新 history 指针到最新操作 (Chronological Head)
         self.git_db.update_ref("refs/quipu/history", new_commit_hash)
-        
-        # 3.2 维护分支 Heads (Topological Heads)
-        # 将当前新节点标记为一个 Head
         self.git_db.update_ref(f"refs/quipu/heads/{new_commit_hash}", new_commit_hash)
         
-        # 如果父节点之前是 Head，现在它有了孩子，不再是 Head，删除其引用
         if parent_commit:
             self.git_db.delete_ref(f"refs/quipu/heads/{parent_commit}")
 
         logger.info(f"✅ History node created as commit {new_commit_hash[:7]}")
 
-        # 返回一个 QuipuNode 实例以兼容现有接口
+        # 返回一个 QuipuNode 实例，content 此时已在内存中，无需 Lazy Load
         return QuipuNode(
             input_tree=input_tree,
             output_tree=output_tree,
             timestamp=datetime.fromtimestamp(start_time),
-            # 使用 Commit Hash 作为唯一标识符，因为它不再对应单个文件
             filename=Path(f".quipu/git_objects/{new_commit_hash}"),
             node_type=node_type,
             content=content,
