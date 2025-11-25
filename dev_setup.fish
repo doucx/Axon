@@ -11,9 +11,9 @@ set DEV_BIN "$SCRIPT_DIR/.envs/dev/bin/quipu"
 
 # 别名定义
 
-# qx: Quipu Execute (Stable)
+# qs: Quipu Execute (Stable)
 # 用于执行 Act，修改源码
-alias qx "$STABLE_BIN"
+alias qs "$STABLE_BIN"
 
 # qd: Quipu Dev (Development)
 # 用于手动测试，调试
@@ -26,7 +26,7 @@ alias qtest "$SCRIPT_DIR/.envs/dev/bin/pytest"
 alias qpromote "$STABLE_PYTHON $SCRIPT_DIR/bootstrap.py promote"
 
 echo "✅ Quipu 开发环境已激活"
-echo "  🔹 qx [...]  -> 稳定版 (用于干活)"
+echo "  🔹 qs [...]  -> 稳定版 (用于干活)"
 echo "  🔸 qd [...]  -> 开发版 (用于调试)"
 echo "  🧪 qtest     -> 运行测试"
-echo "  🚀 qpromote  -> 将当前代码快照更新到 qx"
+echo "  🚀 qpromote  -> 将当前代码快照更新到 qs"

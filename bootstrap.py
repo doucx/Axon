@@ -107,8 +107,8 @@ def promote():
     create_venv(STABLE_DIR)
     install_packages(STABLE_DIR, editable=False)
     
-    print("\n✅ 晋升完成！现在的 'qx' 是完全独立的二进制快照。")
-    print("   (即使删除 packages/ 目录，qx 依然可以运行)")
+    print("\n✅ 晋升完成！现在的 'qs' 是完全独立的二进制快照。")
+    print("   (即使删除 packages/ 目录，qs 依然可以运行)")
 
 def print_usage():
     print("-" * 50)
@@ -116,7 +116,7 @@ def print_usage():
     print("  source dev_setup.sh")
     print("-" * 50)
     print("命令说明:")
-    print("  qx <args>   -> Stable (独立副本，删除源码不影响)")
+    print("  qs <args>   -> Stable (独立副本，删除源码不影响)")
     print("  qd <args>   -> Dev    (实时引用，修改源码即刻生效)")
     print("-" * 50)
 
