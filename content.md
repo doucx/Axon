@@ -1,94 +1,54 @@
-# docs: 为持久化本地忽略规则功能创建说明文档
+### `fix-cli`: 为 `discard` 命令添加变更预览
 
-## 目标
-在用户指南中添加一篇新文档，详细说明“持久化本地忽略规则”功能。这篇文档将向用户解释为什么他们的本地文件 (如 `.envs/` 或 `o.md`) 可能会在 `checkout` 操作中被删除，以及 Quipu 是如何通过利用 `.git/info/exclude` 文件来解决这个问题的，并指导用户如何自定义这些规则。
+#### 目标
+增强 `quipu discard` 命令的用户体验。在执行不可逆的删除操作前，明确地告知用户哪些文件的变更将会被丢弃。
 
-## 基本原理
-清晰的文档是优秀用户体验的关键。对于一个可能导致数据丢失的边界情况，以及其对应的保护机制，提供详尽的解释是至关重要的。这不仅能帮助用户理解 Quipu 的行为，还能增强他们对工具安全性的信任。
+#### 基本原理
+1.  在 `quipu-cli` 的 `main.py` 文件中找到 `discard` 命令的实现。
+2.  在请求用户确认 (`typer.confirm`) 之前，利用 `quipu-engine` 中 `GitDB` 模块已有的 `get_diff_stat` 功能。
+3.  `get_diff_stat` 函数可以比较两个 Git Tree Hash 之间的差异，并生成一个类似 `git diff --stat` 的可读摘要。
+4.  我们将比较“最新的历史节点 Tree Hash” (目标状态) 和“当前工作区的 Tree Hash” (待丢弃状态) 。
+5.  将生成的差异摘要输出到终端，用户即可在确认前看到变更列表。
 
-我们将把这部分内容追加到 `01_core_concepts.md` 文件中，因为它深刻地阐释了 Quipu 如何区分“项目历史状态”与“本地开发环境”这两个核心概念。
-
-## 标签
-#docs #core #feature
+#### 标签
+#fix #cli #enhancement
 
 ---
 
 ## Script
 
-### Act 1: 将新文档内容追加到核心概念文件中
+### Act 1: 在 `discard` 命令中集成差异预览功能
 
-我们将创建一篇完整的说明文档，并将其追加到现有的用户指南文件中。
+我将修改 `packages/quipu-cli/src/quipu/cli/main.py` 文件，在 `discard` 函数的用户确认步骤前插入获取并显示差异的逻辑。
 
 ~~~~~act
-append_file docs/03_user_guide/01_core_concepts.md
+replace packages/quipu-cli/src/quipu/cli/main.py
 ~~~~~
 
-~~~~~markdown
+~~~~~python
+    if current_hash == target_tree_hash:
+        typer.secho(f"✅ 工作区已经是干净状态 ({latest_node.short_hash})，无需操作。", fg=typer.colors.GREEN, err=True)
+        ctx.exit(0)
+    if not force:
+        typer.confirm(f"🚨 即将丢弃工作区所有未记录的变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？", abort=True)
+    try:
+        engine.checkout(target_tree_hash)
+~~~~~
 
----
+~~~~~python
+    if current_hash == target_tree_hash:
+        typer.secho(f"✅ 工作区已经是干净状态 ({latest_node.short_hash})，无需操作。", fg=typer.colors.GREEN, err=True)
+        ctx.exit(0)
 
-## 持久化本地忽略规则：保护你的开发环境
+    # 显示将要被丢弃的变更
+    diff_stat = engine.git_db.get_diff_stat(target_tree_hash, current_hash)
+    typer.secho("\n以下是即将被丢弃的变更:", fg=typer.colors.YELLOW, err=True)
+    typer.secho("-" * 20, err=True)
+    typer.echo(diff_stat, err=True)
+    typer.secho("-" * 20, err=True)
 
-### 问题：为什么我的本地文件在 `checkout` 后消失了？
-
-你可能遇到过这样的情况：在使用 `quipu checkout` 或 `quipu discard` 切换到一个旧的状态后，一些不属于项目代码的文件，比如你的 Python 虚拟环境目录 (`.envs/`)、IDE 配置文件 (`.idea/`) 或临时的笔记文件 (`o.md`)，突然不见了。
-
-这并不是一个 Bug，而是一个由 Git 工作机制导致的副作用。原因如下：
-1.  **`checkout` 还原的是完整的项目状态**：这包括项目中的所有文件，也包括 `.gitignore` 文件本身。
-2.  **`.gitignore` 文件是会变化的**：你当前版本的 `.gitignore` 可能配置了忽略 `.envs/`，但你检出的旧版本可能没有这条规则。
-3.  **`git clean` 的作用**：为了确保工作区的纯净，Quipu 在 `checkout` 后会使用 `git clean` 命令来移除所有不属于目标状态、也**未被**当前 `.gitignore` 忽略的文件。
-
-因此，当你切换到一个没有忽略 `.envs/` 规则的旧状态时，`git clean` 会认为 `.envs/` 是一个应该被清理的“多余”目录，并将其删除。
-
-### 解决方案：分离“项目忽略”与“本地忽略”
-
-为了解决这个问题，Quipu 引入了一套基于 Git 标准功能的持久化本地忽略机制。我们认为，忽略规则应该分为两类：
-
-*   **项目级忽略 (`.gitignore`)**: 这些规则是项目的一部分，应该被所有协作者共享，并随项目历史一起变化。例如，`__pycache__/` 或 `build/` 目录。
-*   **本地级忽略 (`.git/info/exclude`)**: 这些规则属于开发者个人的本地配置，不应该被提交或共享。例如，你个人的虚拟环境目录、IDE 配置文件或私人笔记。
-
-Quipu 会自动将你的本地级忽略规则写入到 `.git/info/exclude` 文件中。这个文件中的规则优先级很高，并且独立于任何历史提交，因此无论你 `checkout` 到哪个版本，这些规则都会始终生效，从而保护你的本地文件不被误删。
-
-### 如何使用？
-
-**1. 默认配置 (自动保护)**
-
-开箱即用，Quipu 已经为你提供了一组默认的持久化忽略规则。在每次运行时，Quipu 都会确保以下模式被添加到 `.git/info/exclude` 中：
-
-```
-.idea
-.vscode
-.envs
-__pycache__
-node_modules
-o.md
-```
-
-对于大多数用户来说，你无需进行任何操作，你的开发环境就已经受到了保护。
-
-**2. 自定义规则**
-
-如果你有额外的文件或目录需要被持久化忽略，你可以通过在项目根目录下的 `.quipu/config.yml` 文件中进行配置来扩展默认规则。
-
-例如，假设你习惯在项目根目录创建一个 `temp_notes.txt` 来存放临时笔记，你可以这样配置：
-
-1.  创建或打开 `.quipu/config.yml` 文件。
-2.  添加 `sync.persistent_ignores` 列表，并写入你自己的规则：
-
-    ```yaml
-    sync:
-      # 这里的列表会覆盖默认配置，所以请将默认配置中你需要的部分也一并保留
-      persistent_ignores:
-        - ".idea"
-        - ".vscode"
-        - ".envs"
-        - "__pycache__"
-        - "node_modules"
-        - "o.md"
-        # --- 在下方添加你的自定义规则 ---
-        - "temp_notes.txt"
-        - "*.backup"
-    ```
-
-完成配置后，下次运行任何 `quipu` 命令时，这些新规则就会被自动同步到 `.git/info/exclude` 文件中，为你提供持久化的保护。
+    if not force:
+        typer.confirm(f"🚨 即将丢弃上述所有变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？", abort=True)
+    try:
+        engine.checkout(target_tree_hash)
 ~~~~~
