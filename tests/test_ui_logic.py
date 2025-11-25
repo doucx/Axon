@@ -55,6 +55,23 @@ class TestUiLogic:
         pass
 
     def test_get_node_summary(self):
-        node = QuipuNode("a", "b", datetime.now(), Path("f"), "plan", content="~~~act\nrun\n~~~")
+        """
+        测试 TUI 是否正确使用预加载的 summary 字段，而不是动态解析。
+        """
         app = QuipuUiApp([], None)
-        assert app._get_node_summary(node) == "run"
+
+        # 案例 1: 节点带有预设的 summary
+        # TUI 应该直接使用它。
+        node_with_summary = QuipuNode(
+            "a", "b", datetime.now(), Path("f1"), "plan",
+            summary="This is a pre-calculated summary."
+        )
+        assert app._get_node_summary(node_with_summary) == "This is a pre-calculated summary."
+
+        # 案例 2: 节点的 summary 为空
+        # TUI 应该回退到默认值。
+        node_without_summary = QuipuNode(
+            "c", "d", datetime.now(), Path("f2"), "capture",
+            summary=""  # 明确为空
+        )
+        assert app._get_node_summary(node_without_summary) == "No description"

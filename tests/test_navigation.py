@@ -4,7 +4,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quipu.core.state_machine import Engine
-from quipu.core.file_system_storage import FileSystemHistoryReader, FileSystemHistoryWriter
+from quipu.core.git_object_storage import GitObjectHistoryReader, GitObjectHistoryWriter
+from quipu.core.git_db import GitDB
 from quipu.cli.main import app
 
 # --- Fixtures ---
@@ -17,10 +18,12 @@ def nav_workspace(tmp_path):
     repo_path = tmp_path / "nav_repo"
     repo_path.mkdir()
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
-    
-    history_dir = repo_path / ".quipu" / "history"
-    reader = FileSystemHistoryReader(history_dir)
-    writer = FileSystemHistoryWriter(history_dir)
+    subprocess.run(["git", "config", "user.email", "test@quipu.dev"], cwd=repo_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Quipu Test"], cwd=repo_path, check=True)
+
+    git_db = GitDB(repo_path)
+    reader = GitObjectHistoryReader(git_db)
+    writer = GitObjectHistoryWriter(git_db)
     engine = Engine(repo_path, reader=reader, writer=writer)
     
     # Helper to create distinct states
@@ -125,10 +128,12 @@ class TestNavigationCLI:
         ws = tmp_path / "cli_ws"
         ws.mkdir()
         subprocess.run(["git", "init"], cwd=ws, check=True, capture_output=True)
-        # Create some history nodes for checkout
-        history_dir = ws / ".quipu" / "history"
-        reader = FileSystemHistoryReader(history_dir)
-        writer = FileSystemHistoryWriter(history_dir)
+        subprocess.run(["git", "config", "user.email", "test@quipu.dev"], cwd=ws, check=True)
+        subprocess.run(["git", "config", "user.name", "Quipu Test"], cwd=ws, check=True)
+        
+        git_db = GitDB(ws)
+        reader = GitObjectHistoryReader(git_db)
+        writer = GitObjectHistoryWriter(git_db)
         engine = Engine(ws, reader=reader, writer=writer)
 
         (ws / "a.txt").write_text("A")

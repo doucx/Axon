@@ -71,31 +71,6 @@ class TestStorageSelection:
         legacy_history_dir = git_workspace / ".quipu" / "history"
         assert not legacy_history_dir.exists(), "Legacy file system history should not be used."
 
-    def test_uses_filesystem_storage_on_legacy_project(self, runner, git_workspace):
-        """
-        SCENARIO: A user runs quipu in a project with existing legacy history.
-        EXPECTATION: The system should detect the old format and continue using it.
-        """
-        # Setup: Create a legacy history directory
-        legacy_history_dir = git_workspace / ".quipu" / "history"
-        legacy_history_dir.mkdir(parents=True)
-        (legacy_history_dir / "dummy_history.md").touch()
-        
-        num_files_before = len(list(legacy_history_dir.glob("*.md")))
-
-        # Action: Run a plan
-        result = runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_A)
-        
-        assert result.exit_code == 0, result.stderr
-
-        # Verification
-        # 1. A new file should be added to the legacy directory
-        num_files_after = len(list(legacy_history_dir.glob("*.md")))
-        assert num_files_after == num_files_before + 1, "A new node should be created in the filesystem directory."
-
-        # 2. The new ref format should NOT be created
-        ref_hash = git_rev_parse("refs/quipu/history", git_workspace)
-        assert ref_hash == "", "Git object ref should not be created for a legacy project."
 
     def test_continues_using_git_object_storage(self, runner, git_workspace):
         """

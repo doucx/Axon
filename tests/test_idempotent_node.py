@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from quipu.core.state_machine import Engine
 from quipu.cli.controller import run_quipu
-from quipu.core.file_system_storage import FileSystemHistoryReader, FileSystemHistoryWriter
+from quipu.cli.controller import run_quipu
 
 class TestIdempotentNode:
     
@@ -17,8 +17,6 @@ class TestIdempotentNode:
         # 2. 先执行一个会产生变更的操作 (State A)
         plan_1 = "~~~act\nwrite_file a.txt\n~~~\n~~~content\nA\n~~~"
         run_quipu(plan_1, workspace, yolo=True)
-        
-        history_dir = workspace / ".quipu" / "history"
         
         # 使用正确的 Engine 设置来验证
         from quipu.cli.factory import create_engine

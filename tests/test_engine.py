@@ -4,7 +4,6 @@ from pathlib import Path
 from datetime import datetime
 from quipu.core.state_machine import Engine
 from quipu.core.git_db import GitDB
-from quipu.core.file_system_storage import FileSystemHistoryReader, FileSystemHistoryWriter
 from quipu.core.git_object_storage import GitObjectHistoryReader, GitObjectHistoryWriter
 
 
@@ -26,62 +25,6 @@ def engine_setup(tmp_path):
     engine = Engine(repo_path, reader=reader, writer=writer)
     
     return engine, repo_path
-
-@pytest.fixture
-def fs_engine_setup(tmp_path):
-    """
-    (旧版) 创建一个使用 FileSystem 存储后端的 Engine 实例。
-    """
-    repo_path = tmp_path / "fs_test_repo"
-    repo_path.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
-    
-    history_dir = repo_path / ".quipu" / "history"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    
-    reader = FileSystemHistoryReader(history_dir)
-    writer = FileSystemHistoryWriter(history_dir)
-    engine = Engine(repo_path, reader=reader, writer=writer)
-    
-    return engine, repo_path
-
-
-def test_align_clean_state_fs(fs_engine_setup):
-    """
-    测试场景 (FS Backend)：当工作区状态与最新的历史节点完全匹配时，
-    引擎应能正确识别为 "CLEAN" 状态。
-    """
-    engine, repo_path = fs_engine_setup
-    
-    (repo_path / "main.py").write_text("print('hello')", "utf-8")
-    clean_hash = engine.git_db.get_tree_hash()
-    
-    # 使用 writer 创建节点以模拟真实流程
-    node = engine.writer.create_node("plan", "_" * 40, clean_hash, "# A Plan")
-
-    status = engine.align()
-    
-    assert status == "CLEAN"
-    assert engine.current_node is not None
-    assert engine.current_node.output_tree == clean_hash
-    assert engine.current_node.filename == node.filename
-
-def test_align_dirty_state_fs(fs_engine_setup):
-    """
-    测试场景 (FS Backend)：当工作区被修改，与任何历史节点都不匹配时，
-    引擎应能正确识别为 "DIRTY" 状态。
-    """
-    engine, repo_path = fs_engine_setup
-    
-    past_hash = "a" * 40
-    engine.writer.create_node("plan", "_" * 40, past_hash, "Past plan")
-    
-    (repo_path / "main.py").write_text("print('dirty state')", "utf-8")
-    
-    status = engine.align()
-    
-    assert status == "DIRTY"
-    assert engine.current_node is None
 
 def test_align_orphan_state(engine_setup):
     """

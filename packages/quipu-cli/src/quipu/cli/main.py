@@ -17,7 +17,7 @@ from quipu.core.git_db import GitDB
 import inspect
 import subprocess
 from quipu.core.config import ConfigManager
-from quipu.core.migration import HistoryMigrator
+
 
 # 注意：不要在模块级别直接调用 setup_logging()，
 # 否则会导致 CliRunner 测试中的 I/O 流过早绑定/关闭问题。
@@ -593,54 +593,7 @@ def run_command(
     if result.data: typer.echo(result.data)
     ctx.exit(result.exit_code)
 
-# --- History Management Commands ---
-history_app = typer.Typer(help="管理 Axon 历史记录的高级命令。")
-app.add_typer(history_app, name="history")
 
-@history_app.command("migrate")
-def migrate_history(
-    ctx: typer.Context,
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w",
-            help="操作执行的根目录（工作区）",
-            file_okay=False,
-            dir_okay=True,
-            resolve_path=True
-        )
-    ] = DEFAULT_WORK_DIR,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="仅模拟迁移过程，不写入 Git。")
-    ] = False,
-):
-    """
-    将旧版文件系统历史记录迁移到 Git 对象存储格式 (QDPS v1.0)。
-    """
-    setup_logging()
-    root = resolve_root(work_dir)
-    
-    try:
-        git_db = GitDB(root)
-        migrator = HistoryMigrator(root, git_db)
-        
-        count = migrator.migrate(dry_run=dry_run)
-        
-        if count > 0:
-            if dry_run:
-                typer.secho(f"\n✅ [Dry Run] 模拟完成，将迁移 {count} 个节点。", fg=typer.colors.GREEN)
-            else:
-                typer.secho(f"\n✅ 迁移成功！已转换 {count} 个历史节点。", fg=typer.colors.GREEN)
-                typer.secho("💡 你现在可以使用 'quipu log' 查看新格式的历史记录。", fg=typer.colors.BLUE)
-                typer.secho("⚠️  建议保留 .quipu/history 目录一段时间作为备份，确认无误后再删除。", fg=typer.colors.YELLOW)
-        else:
-            typer.secho("🤔 未发现需要迁移的节点，或迁移未执行。", fg=typer.colors.YELLOW)
-            
-    except Exception as e:
-        typer.secho(f"❌ 迁移失败: {e}", fg=typer.colors.RED)
-        logger.exception(e)
-        ctx.exit(1)
 
 if __name__ == "__main__":
     app()
