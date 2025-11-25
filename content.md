@@ -4,6 +4,6 @@
 
 ### 📝 变更文件摘要:
 ```
-core/controller.py | 28 +++++++++++++++++++---------
- 1 file changed, 19 insertions(+), 9 deletions(-)
+core/controller.py | 21 ++++++++++++++-------
+ 1 file changed, 14 insertions(+), 7 deletions(-)
 ```
