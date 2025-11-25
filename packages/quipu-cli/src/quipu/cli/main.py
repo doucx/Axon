@@ -161,6 +161,39 @@ def save(
         typer.secho(f"❌ 创建快照失败: {e}", fg=typer.colors.RED, err=True)
         ctx.exit(1)
 
+@app.command(name="find")
+def find_command(
+    ctx: typer.Context,
+    summary_regex: Annotated[Optional[str], typer.Option("--summary", "-s", help="用于匹配节点摘要的正则表达式 (不区分大小写)。")] = None,
+    node_type: Annotated[Optional[str], typer.Option("--type", "-t", help="节点类型 ('plan' 或 'capture')。")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-n", help="返回的最大结果数量。")] = 10,
+    work_dir: Annotated[Path, typer.Option("--work-dir", "-w", help="工作区根目录。")] = DEFAULT_WORK_DIR,
+):
+    """
+    根据条件查找历史节点。
+    """
+    setup_logging()
+    engine = create_engine(work_dir)
+    
+    if not engine.history_graph:
+        typer.secho("📜 历史记录为空。", fg=typer.colors.YELLOW, err=True)
+        ctx.exit(0)
+        
+    nodes = engine.find_nodes(summary_regex=summary_regex, node_type=node_type, limit=limit)
+    
+    if not nodes:
+        typer.secho("🤷 未找到符合条件的历史节点。", fg=typer.colors.YELLOW, err=True)
+        ctx.exit(0)
+        
+    typer.secho("--- 查找结果 ---", bold=True, err=True)
+    for node in nodes:
+        ts = node.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        color = typer.colors.CYAN if node.node_type == "plan" else typer.colors.MAGENTA
+        tag = f"[{node.node_type.upper()}]"
+        # 直接打印 output_tree hash，因为这是节点的唯一标识符
+        typer.secho(f"{ts} {tag:<9} {node.output_tree}", fg=color, nl=False, err=True)
+        typer.echo(f" - {node.summary}", err=True)
+
 @app.command()
 def sync(
     ctx: typer.Context,
@@ -575,7 +608,7 @@ def run_command(
         except Exception: pass
     if not content and DEFAULT_ENTRY_FILE.exists():
         content = DEFAULT_ENTRY_FILE.read_text(encoding="utf-8"); source_desc = f"默认文件 ({DEFAULT_ENTRY_FILE.name})"
-    if file and not file.exists() and file.name in ["log", "checkout", "sync", "init", "ui"]:
+    if file and not file.exists() and file.name in ["log", "checkout", "sync", "init", "ui", "find"]:
         typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
         typer.secho(f"💡 提示: 你是不是想执行 'quipu {file.name}' 命令？", fg=typer.colors.YELLOW, err=True)
         ctx.exit(1)

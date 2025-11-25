@@ -87,6 +87,72 @@ def test_capture_drift_git_object(engine_setup):
     ).decode().strip()
     assert parent_of_latest == initial_commit
 
+class TestEngineFindNodes:
+    @pytest.fixture
+    def populated_engine(self, engine_setup):
+        import time
+        engine, repo_path = engine_setup
+
+        def add_commit(filename, content, message, node_type, parent_hash):
+            """辅助函数：创建文件变更并生成一个新节点"""
+            (repo_path / filename).write_text(content)
+            time.sleep(0.01)  # 确保时间戳唯一
+            new_hash = engine.git_db.get_tree_hash()
+            if node_type == 'plan':
+                engine.create_plan_node(parent_hash, new_hash, message)
+            else: # capture
+                # 对于 capture，message 是用户备注，不是 plan content
+                engine.capture_drift(new_hash, message=message)
+            return new_hash
+
+        # 创世状态
+        parent = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        
+        # Node 1 (Plan)
+        parent = add_commit("f_a.txt", "content_a", "# feat: Add feature A", "plan", parent)
+        # Node 2 (Capture)
+        parent = add_commit("f_b.txt", "content_b", "Snapshot after feature A", "capture", parent)
+        # Node 3 (Plan)
+        parent = add_commit("f_c.txt", "content_c", "refactor: Cleanup code", "plan", parent)
+        
+        # 重新对齐以加载完整的图谱
+        engine.align()
+        return engine
+
+    def test_find_by_type(self, populated_engine):
+        plans = populated_engine.find_nodes(node_type="plan")
+        captures = populated_engine.find_nodes(node_type="capture")
+        
+        assert len(plans) == 2
+        assert all(p.node_type == "plan" for p in plans)
+        
+        assert len(captures) == 1
+        assert captures[0].node_type == "capture"
+
+    def test_find_by_summary_regex(self, populated_engine):
+        feat_nodes = populated_engine.find_nodes(summary_regex="feat:")
+        assert len(feat_nodes) == 1
+        assert "Add feature A" in feat_nodes[0].summary
+        
+        snapshot_nodes = populated_engine.find_nodes(summary_regex="snapshot")
+        assert len(snapshot_nodes) == 1
+        assert "Snapshot after" in snapshot_nodes[0].summary
+
+    def test_find_combined_filters(self, populated_engine):
+        results = populated_engine.find_nodes(summary_regex="refactor", node_type="plan")
+        assert len(results) == 1
+        assert "Cleanup code" in results[0].summary
+        
+        # 使用更精确的正则表达式 (^feat:) 避免匹配 'feature'
+        empty_results = populated_engine.find_nodes(summary_regex="^feat:", node_type="capture")
+        assert len(empty_results) == 0
+
+    def test_find_limit(self, populated_engine):
+        results = populated_engine.find_nodes(limit=1)
+        assert len(results) == 1
+        # 应该是最新的节点
+        assert "Cleanup code" in results[0].summary
+
 class TestPersistentIgnores:
     def test_sync_creates_file_if_not_exists(self, engine_setup):
         """测试：如果 exclude 文件不存在，应能根据默认配置创建它。"""

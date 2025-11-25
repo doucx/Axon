@@ -193,6 +193,41 @@ class Engine:
             return "ORPHAN"
         return "DIRTY"
 
+    def find_nodes(
+        self,
+        summary_regex: Optional[str] = None,
+        node_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[QuipuNode]:
+        """
+        在历史图谱中查找符合条件的节点。
+
+        Args:
+            summary_regex: 用于匹配节点摘要的正则表达式。
+            node_type: 节点类型 ('plan' 或 'capture')。
+            limit: 返回的最大节点数量。
+
+        Returns:
+            符合条件的节点列表，按时间戳降序排列。
+        """
+        candidates = list(self.history_graph.values())
+        
+        if summary_regex:
+            try:
+                pattern = re.compile(summary_regex, re.IGNORECASE)
+                candidates = [node for node in candidates if pattern.search(node.summary)]
+            except re.error as e:
+                logger.error(f"无效的正则表达式: {summary_regex} ({e})")
+                return []
+        
+        if node_type:
+            candidates = [node for node in candidates if node.node_type == node_type]
+            
+        # 按时间戳降序排序
+        candidates.sort(key=lambda n: n.timestamp, reverse=True)
+        
+        return candidates[:limit]
+
     def capture_drift(self, current_hash: str, message: Optional[str] = None) -> QuipuNode:
         log_message = f"📸 正在捕获工作区漂移 (Message: {message})" if message else "📸 正在捕获工作区漂移"
         logger.info(f"{log_message}，新状态 Hash: {current_hash[:7]}")
