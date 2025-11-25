@@ -1,434 +1,365 @@
-# feat 实现 Quipu 的历史数据迁移工具。
-
-在这份计划中，我将实现 Quipu 的历史数据迁移工具。
-
-这是 `Quipu` 演进路线图中的关键一步，它负责将旧的、基于文件系统 (`.md` 文件) 的历史记录，无损地转换并升级为符合 `QDPS v1.0` 规范的 Git 对象存储结构。
-
-主要工作包括：
-1.  在 `quipu-engine` 中实现核心迁移逻辑 `HistoryMigrator`，它负责读取旧节点、构建新的元数据（包含迁移标记和环境遥测）并写入 Git 数据库。
-2.  在 `quipu-cli` 中注册新的 `history migrate` 命令。
-3.  添加针对迁移逻辑的单元测试，覆盖线性历史和断链历史等场景。
+# fix-test 修复因存储层重构导致的系列测试失败
 
 ## 用户需求
-用户需要一个自动化的工具，以便将现有的 Quipu 项目从旧版存储架构平滑迁移到新版 Git 对象存储架构，同时保留所有历史信息。
+在实现了 `QDPS v1.0` 存储架构并将其作为默认后端后，`pytest` 测试套件中出现大量失败和错误。需要修复这些测试，确保它们在新架构下能够正确运行，并同时修复测试暴露出的相关代码缺陷。
 
 ## 评论
-这是一个必须的基础设施功能。如果没有迁移路径，老用户将被迫丢失历史或停留在旧版本。迁移工具的实现标志着新存储架构的正式就绪。
+这是存储层重构后的必要收尾工作。测试失败的主要原因是许多旧测试用例直接依赖于文件系统存储 (`.quipu/history/*.md`) 的具体实现细节，而新架构不再创建这些文件。修复这些测试不仅能恢复 CI 的健康状态，还能强制我们编写更健壮、与存储后端解耦的测试代码。
 
 ## 目标
-*   实现 `quipu history migrate` 命令。
-*   确保迁移后的数据符合 `QDPS v1.0` 规范，特别是元数据中的 `migration_info` 和 `generator` 字段。
-*   能够正确处理父子关系，重建历史链条。
+1.  修复所有在 `pytest` 输出中报告的 `FAILED` 和 `ERROR` 状态的测试。
+2.  解决测试暴露出的 `Engine` 初始化、历史文件名解析以及摘要 (Summary) 生成逻辑中的缺陷。
+3.  重构依赖旧存储实现的测试夹具 (fixtures) 和断言，使其与存储后端无关。
 
 ## 基本原理
-*   **读取**: 复用现有的 `FileSystemHistoryReader` 加载旧数据。
-*   **转换**: 在内存中构建新的 `metadata.json`，利用“知情猜测”填充缺失的环境信息，并打上 `migrated` 标记。
-*   **写入**: 直接使用 `GitDB` 的底层接口 (`hash-object`, `mktree`, `commit-tree`) 构建新的 Git 对象，这比复用 `GitObjectHistoryWriter` 更灵活，因为它允许我们注入特定的时间戳和迁移元数据。
-*   **链接**: 使用一个 `tree_map` 字典来维护 `output_tree -> commit_hash` 的映射，从而在转换过程中正确地将旧的 Tree 链接转换为新的 Commit 链接。
+本次修复将遵循以下策略：
+1.  **修复核心缺陷**: 首先修复代码中的明显缺陷，如 `.quipu` 目录未及时创建、历史文件名 `regex` 过于严格、摘要生成逻辑不健壮等问题。
+2.  **重构测试夹具**: 修改 `tests/test_integration_v2.py` 中的 `populated_workspace` 夹具，使其不再直接检查文件系统，而是通过 `Engine` 和 `HistoryReader` 接口来获取历史节点信息。
+3.  **更新测试断言**: 将所有直接检查 `.quipu/history` 目录或文件的断言，替换为通过 `Engine` API 验证历史状态。
 
 ## 标签
-#comp/engine #comp/cli #feat #concept/history #scope/core
+#comp/tests #comp/engine #fix #scope/dx
 
 ---
 
 ## Script
 
-### Acts 1: 实现迁移器核心逻辑
+### Acts 1: 修复 Engine 初始化与历史解析缺陷
 
-在 `quipu-engine` 中创建一个新的模块 `migration.py`，负责将旧的文件系统节点转换为 Git 对象节点。
+首先，修复 `Engine` 初始化时 `.quipu` 目录不存在的问题，并放宽旧历史文件名的解析规则以提高兼容性。
 
 ~~~~~act
-write_file packages/quipu-engine/src/quipu/core/migration.py
+replace packages/quipu-engine/src/quipu/core/state_machine.py
 ~~~~~
 
 ~~~~~python
-import json
-import logging
-import os
-import platform
-import time
-from typing import List, Dict, Optional, Any
-from pathlib import Path
-from datetime import datetime
-import importlib.metadata
+        self.root_dir = root_dir.resolve()
+        self.quipu_dir = self.root_dir / ".quipu"
+        self.history_dir = self.quipu_dir / "history"
+        self.head_file = self.quipu_dir / "HEAD"
 
-from quipu.core.models import QuipuNode
-from quipu.core.git_db import GitDB
-from quipu.core.file_system_storage import FileSystemHistoryReader
+        self.nav_log_file = self.quipu_dir / "nav_log"
+        self.nav_ptr_file = self.quipu_dir / "nav_ptr"
 
+        quipu_gitignore = self.quipu_dir / ".gitignore"
+        if not quipu_gitignore.exists():
+~~~~~
+
+~~~~~python
+        self.root_dir = root_dir.resolve()
+        self.quipu_dir = self.root_dir / ".quipu"
+        self.quipu_dir.mkdir(exist_ok=True)  # 确保 .quipu 目录存在
+        self.history_dir = self.quipu_dir / "history"
+        self.head_file = self.quipu_dir / "HEAD"
+
+        self.nav_log_file = self.quipu_dir / "nav_log"
+        self.nav_ptr_file = self.quipu_dir / "nav_ptr"
+
+        quipu_gitignore = self.quipu_dir / ".gitignore"
+        if not quipu_gitignore.exists():
+~~~~~
+
+~~~~~act
+replace packages/quipu-engine/src/quipu/core/history.py
+~~~~~
+
+~~~~~python
 logger = logging.getLogger(__name__)
 
-class HistoryMigrator:
-    """
-    负责将旧的文件系统历史记录迁移到 Git 对象存储格式。
-    遵循 QDPS v1.0 规范中的迁移策略。
-    """
+FILENAME_PATTERN = re.compile(
+    r"([0-9a-f]{40}|_{40})_([0-9a-f]{40})_(\d{14})\.md"
+)
 
-    def __init__(self, root_dir: Path, git_db: GitDB):
-        self.root_dir = root_dir
-        self.git_db = git_db
-        self.fs_reader = FileSystemHistoryReader(root_dir / ".quipu" / "history")
+def _parse_frontmatter(text: str) -> tuple[Dict, str]:
+~~~~~
 
-    def _get_migrator_version(self) -> str:
-        try:
-            return importlib.metadata.version("quipu-engine")
-        except importlib.metadata.PackageNotFoundError:
-            return "unknown"
+~~~~~python
+logger = logging.getLogger(__name__)
 
-    def _build_metadata(self, node: QuipuNode, assumed_env: List[str]) -> Dict[str, Any]:
-        """根据 QDPS v1.0 迁移规范构建 metadata.json"""
+# 放宽对 input_hash 的校验，以兼容损坏或非标准的历史文件名
+FILENAME_PATTERN = re.compile(
+    r"(.+?)_([0-9a-f]{40})_(\d{14})\.md"
+)
+
+def _parse_frontmatter(text: str) -> tuple[Dict, str]:
+~~~~~
+
+### Acts 2: 改进摘要 (Summary) 生成逻辑
+
+统一并增强 `history.py` (旧格式) 和 `git_object_storage.py` (新格式) 中的摘要生成逻辑，使其更智能地从 `plan` 内容中提取信息。
+
+~~~~~act
+replace packages/quipu-engine/src/quipu/core/history.py
+~~~~~
+
+~~~~~python
+                summary = temp_summary or "Plan executed"
+            elif node_type == 'capture':
+                # Prioritize user message from the body
+~~~~~
+
+~~~~~python
+                summary = temp_summary
+                if not summary:
+                    # Fallback: find first non-empty line
+                    summary = next((line.strip() for line in body_content.strip().split('\n') if line.strip()), "Plan executed")
+            elif node_type == 'capture':
+                # Prioritize user message from the body
+~~~~~
+
+~~~~~act
+replace packages/quipu-engine/src/quipu/core/git_object_storage.py
+~~~~~
+
+~~~~~python
+            match = re.search(r"^\s*#{1,6}\s+(.*)", content, re.MULTILINE)
+            if match:
+                return match.group(1).strip()
+            
+            return "Plan executed"
+
+        elif node_type == "capture":
+            user_message = (kwargs.get("message") or "").strip()
+~~~~~
+
+~~~~~python
+            match = re.search(r"^\s*#{1,6}\s+(.*)", content, re.MULTILINE)
+            if match:
+                return match.group(1).strip()
+            
+            # Fallback to the first non-empty line
+            first_line = next((line.strip() for line in content.strip().splitlines() if line.strip()), "Plan executed")
+            return (first_line[:75] + '...') if len(first_line) > 75 else first_line
+
+        elif node_type == "capture":
+            user_message = (kwargs.get("message") or "").strip()
+~~~~~
+
+### Acts 3: 重构核心集成测试
+
+修改 `test_integration_v2.py` 和其他相关测试，使其不再依赖文件系统存储的具体实现。
+
+~~~~~act
+replace tests/test_integration_v2.py
+~~~~~
+
+~~~~~python
+class TestController:
+
+    def test_run_quipu_success(self, workspace):
+        """测试正常执行流程"""
+        plan = """
+~~~act
+write_file
+~~~
+~~~path
+hello.txt
+~~~
+~~~content
+Hello Quipu
+~~~
+"""
+        result = run_quipu(content=plan, work_dir=workspace, yolo=True)
         
-        # 提取时间戳
-        # 旧文件名格式: {input}_{output}_{YYYYMMDDHHMMSS}.md
-        # 已经在 node.timestamp 中解析好了
-        start_time = node.timestamp.timestamp()
+        assert result.success is True
+        assert result.exit_code == 0
+        assert (workspace / "hello.txt").exists()
+        
+        # 验证 Engine 是否生成了 Plan 节点
+        history_dir = workspace / ".quipu" / "history"
+        assert history_dir.exists()
+        assert len(list(history_dir.glob("*.md"))) >= 1
+~~~~~
 
-        metadata = {
-            "meta_version": "1.0-migrated",
-            "type": node.node_type,
-            "summary": node.summary,
-            "generator": {
-                "id": "manual-migrated",
-                "tool": "quipu-cli-legacy"
-            },
-            "env": {
-                "quipu": "unknown",
-                # 知情猜测
-                "python": platform.python_version(),
-                "os": platform.system().lower()
-            },
-            "exec": {
-                "start": start_time,
-                "duration_ms": -1
-            },
-            "migration_info": {
-                "migrated_at": time.time(),
-                "migrator_version": self._get_migrator_version(),
-                "assumed_env": assumed_env
-            }
-        }
-        return metadata
+~~~~~python
+class TestController:
 
-    def migrate(self, dry_run: bool = False) -> int:
+    def test_run_quipu_success(self, workspace):
+        """测试正常执行流程"""
+        from quipu.cli.main import _setup_engine
+        plan = """
+~~~act
+write_file
+~~~
+~~~path
+hello.txt
+~~~
+~~~content
+Hello Quipu
+~~~
+"""
+        result = run_quipu(content=plan, work_dir=workspace, yolo=True)
+        
+        assert result.success is True
+        assert result.exit_code == 0
+        assert (workspace / "hello.txt").exists()
+        
+        # 验证 Engine 是否生成了 Plan 节点 (后端无关)
+        engine = _setup_engine(workspace)
+        nodes = engine.reader.load_all_nodes()
+        assert len(nodes) >= 1
+~~~~~
+
+~~~~~act
+replace tests/test_integration_v2.py
+~~~~~
+
+~~~~~python
+class TestCheckoutCLI:
+
+    @pytest.fixture
+    def populated_workspace(self, workspace):
         """
-        执行迁移过程。
-        
-        Returns:
-            int: 迁移成功的节点数量
+        Create a workspace with two distinct, non-overlapping history nodes.
+        State A contains only a.txt.
+        State B contains only b.txt.
         """
-        if not (self.root_dir / ".quipu" / "history").exists():
-            logger.warning("未找到旧版历史目录 (.quipu/history)，无需迁移。")
-            return 0
-
-        # 1. 加载所有旧节点
-        # load_all_nodes 会处理排序和父子关系
-        nodes = self.fs_reader.load_all_nodes()
-        if not nodes:
-            logger.info("旧版历史目录为空。")
-            return 0
-
-        logger.info(f"找到 {len(nodes)} 个旧历史节点，准备迁移...")
-
-        # 2. 准备状态映射表: output_tree_hash -> new_commit_hash
-        # 用于将基于 Tree 的链接转换为基于 Commit 的链接
-        tree_to_commit: Dict[str, str] = {}
+        # State A: Create a.txt
+        plan_a = "~~~act\nwrite_file a.txt\n~~~\n~~~content\nState A\n~~~"
+        run_quipu(content=plan_a, work_dir=workspace, yolo=True)
         
-        # 创世哈希 (Empty Tree)
-        GENESIS_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        # Find the hash for State A. It's the latest one at this point.
+        history_nodes_a = list(sorted((workspace / ".quipu" / "history").glob("*.md"), key=lambda p: p.stat().st_mtime))
+        hash_a = history_nodes_a[-1].name.split("_")[1]
+
+        # Manually create State B by removing a.txt and adding b.txt
+        # This ensures State B is distinct from State A, not an addition.
+        (workspace / "a.txt").unlink()
+        plan_b = "~~~act\nwrite_file b.txt\n~~~\n~~~content\nState B\n~~~"
+        run_quipu(content=plan_b, work_dir=workspace, yolo=True)
+
+        # Find the hash for State B. It's the newest node now.
+        history_nodes_b = list(sorted((workspace / ".quipu" / "history").glob("*.md"), key=lambda p: p.stat().st_mtime))
+        hash_b = history_nodes_b[-1].name.split("_")[1]
         
-        migrated_count = 0
-        assumed_env = ["python", "os"]
-
-        # 按照时间顺序处理
-        # 确保父节点先被处理并进入映射表
-        sorted_nodes = sorted(nodes, key=lambda n: n.timestamp)
-
-        for node in sorted_nodes:
-            # 查找父 Commit
-            parent_commit: Optional[str] = None
-            
-            if node.input_tree == GENESIS_HASH:
-                # 根节点，无父 Commit
-                parent_commit = None
-            elif node.input_tree in tree_to_commit:
-                parent_commit = tree_to_commit[node.input_tree]
-            else:
-                # 这是一个断链的节点（input_tree 指向了一个未知的状态，或者之前的节点尚未迁移）
-                # 在旧的线性历史中，这可能意味着它是另一个分支的开始，或者历史不完整
-                # 策略：视为新的根节点
-                logger.warning(f"节点 {node.filename.name} 的输入状态 {node.input_tree[:7]} 未在已迁移历史中找到。将其作为新的根节点处理。")
-                parent_commit = None
-
-            if dry_run:
-                logger.info(f"[Dry Run] Would migrate node: {node.summary} ({node.timestamp})")
-                migrated_count += 1
-                # 模拟更新映射，以便后续节点能找到父节点
-                tree_to_commit[node.output_tree] = f"mock_commit_for_{node.output_tree}"
-                continue
-
-            # --- Git 底层操作 ---
-            
-            # 1. 准备 Metadata
-            meta_data = self._build_metadata(node, assumed_env)
-            meta_bytes = json.dumps(meta_data, sort_keys=False, ensure_ascii=False).encode('utf-8')
-            
-            # 2. 准备 Content
-            # 移除可能存在的 Frontmatter (虽然 fs_reader 已经解析了，但 content 属性可能还保留着纯文本)
-            # QuipuNode.content 是 body_content，已经去除了 Frontmatter
-            content_bytes = node.content.encode('utf-8')
-
-            # 3. Hash Objects
-            meta_blob = self.git_db.hash_object(meta_bytes)
-            content_blob = self.git_db.hash_object(content_bytes)
-
-            # 4. Make Tree
-            # 必须使用 tab 分隔
-            tree_desc = (
-                f"100444 blob {meta_blob}\tmetadata.json\n"
-                f"100444 blob {content_blob}\tcontent.md"
-            )
-            tree_hash = self.git_db.mktree(tree_desc)
-
-            # 5. Commit Tree
-            parents = [parent_commit] if parent_commit else []
-            # Subject
-            message = f"{node.summary}\n\nX-Quipu-Output-Tree: {node.output_tree}"
-            
-            commit_hash = self.git_db.commit_tree(tree_hash, parents, message)
-            
-            # 6. 更新映射
-            tree_to_commit[node.output_tree] = commit_hash
-            
-            # 7. 更新 Ref (每次都更新，确保 HEAD 指向最新的)
-            # 注意：对于分叉的情况，这会导致 HEAD 在不同分支间跳动，最终指向时间戳最新的那个
-            # 这对于单线历史是可以的。对于复杂图谱，我们可能需要更复杂的 ref 管理
-            # 但 QDPS v1.0 暂定使用单一 refs/quipu/history
-            self.git_db.update_ref("refs/quipu/history", commit_hash)
-            
-            migrated_count += 1
-            logger.debug(f"已迁移节点: {node.summary} -> {commit_hash[:7]}")
-
-        logger.info(f"迁移完成。共迁移 {migrated_count} 个节点。")
-        return migrated_count
-~~~~~
-
-### Acts 2: 注册 CLI 命令
-
-在 `packages/quipu-cli/src/quipu/cli/main.py` 中注册 `history` 命令组和 `migrate` 子命令。
-
-~~~~~act
-replace packages/quipu-cli/src/quipu/cli/main.py
+        # The workspace is now physically in State B before the test starts.
+        return workspace, hash_a, hash_b
 ~~~~~
 
 ~~~~~python
-from quipu.core.config import ConfigManager
+class TestCheckoutCLI:
 
-# 注意：不要在模块级别直接调用 setup_logging()，
-~~~~~
+    @pytest.fixture
+    def populated_workspace(self, workspace):
+        """
+        Create a workspace with two distinct, non-overlapping history nodes.
+        State A contains only a.txt.
+        State B contains only b.txt.
+        This fixture is backend-agnostic.
+        """
+        from quipu.cli.main import _setup_engine
 
-~~~~~python
-from quipu.core.config import ConfigManager
-from quipu.core.migration import HistoryMigrator
+        # State A: Create a.txt
+        plan_a = "~~~act\nwrite_file a.txt\n~~~\n~~~content\nState A\n~~~"
+        run_quipu(content=plan_a, work_dir=workspace, yolo=True)
+        
+        engine_after_a = _setup_engine(workspace)
+        nodes_after_a = sorted(engine_after_a.reader.load_all_nodes(), key=lambda n: n.timestamp)
+        node_a = nodes_after_a[-1]
+        hash_a = node_a.output_tree
 
-# 注意：不要在模块级别直接调用 setup_logging()，
+        # Manually create State B by removing a.txt and adding b.txt
+        (workspace / "a.txt").unlink()
+        plan_b = "~~~act\nwrite_file b.txt\n~~~\n~~~content\nState B\n~~~"
+        run_quipu(content=plan_b, work_dir=workspace, yolo=True)
+
+        engine_after_b = _setup_engine(workspace)
+        nodes_after_b = sorted(engine_after_b.reader.load_all_nodes(), key=lambda n: n.timestamp)
+        node_b = nodes_after_b[-1]
+        hash_b = node_b.output_tree
+        
+        return workspace, hash_a, hash_b
 ~~~~~
 
 ~~~~~act
-replace packages/quipu-cli/src/quipu/cli/main.py
+replace tests/test_idempotent_node.py
 ~~~~~
 
 ~~~~~python
-    if result.data: typer.echo(result.data)
-    ctx.exit(result.exit_code)
+        # 此处 Engine 的实例化仅用于验证，非测试核心
+        reader = FileSystemHistoryReader(history_dir)
+        writer = FileSystemHistoryWriter(history_dir)
+        engine = Engine(workspace, reader=reader, writer=writer)
 
-if __name__ == "__main__":
-    app()
+        nodes_1 = list(history_dir.glob("*.md"))
+        assert len(nodes_1) == 1
+        
+        # 3. 执行一个无变更的操作 (State A -> State A)
+        # 例如读取文件或运行 ls
+        plan_2 = "~~~act\nread_file a.txt\n~~~"
+        result = run_quipu(plan_2, workspace, yolo=True)
+        
+        assert result.success is True
+        
+        # 4. 验证是否生成了新节点
+        nodes_2 = list(history_dir.glob("*.md"))
+        assert len(nodes_2) == 2
+        
+        # 验证新节点的 input == output
+        # 加载最新的节点
+        latest_file = max(nodes_2, key=lambda p: p.stat().st_mtime)
+        content = latest_file.read_text("utf-8")
+        
+        # 简单的字符串检查
+        import yaml
+        parts = content.split("---")
+        meta = yaml.safe_load(parts[1])
+        
+        assert meta["input_tree"] == meta["output_tree"]
+        assert meta["type"] == "plan"
 ~~~~~
 
 ~~~~~python
-    if result.data: typer.echo(result.data)
-    ctx.exit(result.exit_code)
-
-# --- History Management Commands ---
-history_app = typer.Typer(help="管理 Axon 历史记录的高级命令。")
-app.add_typer(history_app, name="history")
-
-@history_app.command("migrate")
-def migrate_history(
-    ctx: typer.Context,
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w",
-            help="操作执行的根目录（工作区）",
-            file_okay=False,
-            dir_okay=True,
-            resolve_path=True
-        )
-    ] = DEFAULT_WORK_DIR,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="仅模拟迁移过程，不写入 Git。")
-    ] = False,
-):
-    """
-    将旧版文件系统历史记录迁移到 Git 对象存储格式 (QDPS v1.0)。
-    """
-    setup_logging()
-    root = _resolve_root(work_dir)
-    
-    try:
-        git_db = GitDB(root)
-        migrator = HistoryMigrator(root, git_db)
+        # 使用正确的 Engine 设置来验证
+        from quipu.cli.main import _setup_engine
+        engine1 = _setup_engine(workspace)
+        nodes1 = engine1.reader.load_all_nodes()
+        assert len(nodes1) >= 1
         
-        count = migrator.migrate(dry_run=dry_run)
+        # 3. 执行一个无变更的操作 (State A -> State A)
+        plan_2 = "~~~act\nread_file a.txt\n~~~"
+        result = run_quipu(plan_2, workspace, yolo=True)
         
-        if count > 0:
-            if dry_run:
-                typer.secho(f"\n✅ [Dry Run] 模拟完成，将迁移 {count} 个节点。", fg=typer.colors.GREEN)
-            else:
-                typer.secho(f"\n✅ 迁移成功！已转换 {count} 个历史节点。", fg=typer.colors.GREEN)
-                typer.secho("💡 你现在可以使用 'quipu log' 查看新格式的历史记录。", fg=typer.colors.BLUE)
-                typer.secho("⚠️  建议保留 .quipu/history 目录一段时间作为备份，确认无误后再删除。", fg=typer.colors.YELLOW)
-        else:
-            typer.secho("🤔 未发现需要迁移的节点，或迁移未执行。", fg=typer.colors.YELLOW)
-            
-    except Exception as e:
-        typer.secho(f"❌ 迁移失败: {e}", fg=typer.colors.RED)
-        logger.exception(e)
-        ctx.exit(1)
-
-if __name__ == "__main__":
-    app()
+        assert result.success is True
+        
+        # 4. 验证是否生成了新节点
+        engine2 = _setup_engine(workspace)
+        nodes2 = sorted(engine2.reader.load_all_nodes(), key=lambda n: n.timestamp)
+        assert len(nodes2) == len(nodes1) + 1
+        
+        # 验证新节点的 input == output
+        latest_node = nodes2[-1]
+        assert latest_node.input_tree == latest_node.output_tree
+        assert latest_node.node_type == "plan"
 ~~~~~
-
-### Acts 3: 单元测试
-
-创建一个测试文件 `tests/test_migration.py`，验证迁移逻辑的正确性。
 
 ~~~~~act
-write_file tests/test_migration.py
+replace tests/test_root_invariance.py
 ~~~~~
 
 ~~~~~python
-import pytest
-import subprocess
-import json
-from pathlib import Path
-from datetime import datetime
-from quipu.core.git_db import GitDB
-from quipu.core.migration import HistoryMigrator
-from quipu.core.file_system_storage import FileSystemHistoryWriter
+        # 2. 验证 Engine 状态记录的正确性
+        history_dir = project_root / ".quipu" / "history"
+        assert history_dir.exists(), "历史目录应在项目根目录创建"
+        
+        history_files = list(history_dir.glob("*.md"))
+        assert len(history_files) >= 1, "应至少生成一个历史节点"
+        
+        # 验证生成的 Plan Node 内容正确，证明 Engine 在正确的上下文中计算了 Tree Hash
+        # (简单验证，更复杂的 hash 比较需要固定文件时间戳等，这里验证文件存在即可)
+        assert any("plan" in f.read_text("utf-8") for f in history_files)
+~~~~~
 
-@pytest.fixture
-def legacy_env(tmp_path):
-    """创建一个包含旧版历史记录的 Git 仓库环境"""
-    repo = tmp_path / "legacy_repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "migrator@quipu.dev"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "Migrator Bot"], cwd=repo, check=True)
-    
-    # 模拟旧版写入器
-    fs_writer = FileSystemHistoryWriter(repo / ".quipu" / "history")
-    
-    return repo, fs_writer
-
-def test_migration_linear_history(legacy_env):
-    """测试标准线性历史的迁移"""
-    repo, fs_writer = legacy_env
-    git_db = GitDB(repo)
-    
-    # 1. 创建旧版历史
-    # Genesis -> A
-    h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-    ha = "a" * 40
-    node_a = fs_writer.create_node("plan", h0, ha, "Plan A")
-    
-    # A -> B
-    hb = "b" * 40
-    node_b = fs_writer.create_node("plan", ha, hb, "Plan B")
-    
-    # 2. 执行迁移
-    migrator = HistoryMigrator(repo, git_db)
-    count = migrator.migrate()
-    
-    assert count == 2
-    
-    # 3. 验证 Git 引用
-    ref_head = git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
-    assert len(ref_head) == 40
-    
-    # 4. 验证节点链 (B -> A)
-    # 检查 Head (应该对应 Node B)
-    log_entries = git_db.log_ref("refs/quipu/history")
-    assert len(log_entries) == 2
-    
-    head_entry = log_entries[0] # Newest
-    assert "Plan B" in head_entry["body"]
-    
-    parent_entry = log_entries[1]
-    assert "Plan A" in parent_entry["body"]
-    
-    # 5. 验证 Metadata
-    # 读取 Head Commit 的 Tree -> metadata.json
-    tree_hash = head_entry["tree"]
-    tree_content = git_db.cat_file(tree_hash, "tree").decode()
-    meta_blob_hash = [l.split()[2] for l in tree_content.splitlines() if "metadata.json" in l][0]
-    
-    meta_bytes = git_db.cat_file(meta_blob_hash, "blob")
-    meta = json.loads(meta_bytes)
-    
-    assert meta["meta_version"] == "1.0-migrated"
-    assert meta["generator"]["id"] == "manual-migrated"
-    assert "migration_info" in meta
-    assert meta["type"] == "plan"
-    assert meta["summary"] == "Plan B"
-
-def test_migration_broken_chain(legacy_env):
-    """测试断链节点的处理（应作为新根）"""
-    repo, fs_writer = legacy_env
-    git_db = GitDB(repo)
-    
-    h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-    ha = "a" * 40
-    
-    # 节点 A: 正常根
-    fs_writer.create_node("plan", h0, ha, "Plan A")
-    
-    # 节点 C: 断链 (Input 是 Unknown)
-    hun = "unknown" * 5 # invalid hash but serves as key
-    hc = "c" * 40
-    fs_writer.create_node("plan", hun, hc, "Plan C")
-    
-    migrator = HistoryMigrator(repo, git_db)
-    count = migrator.migrate()
-    
-    assert count == 2
-    
-    # 验证 C 是一个孤立的根 (无 Parent)
-    # 我们需要找到 C 对应的 Commit
-    # 由于 update-ref 会指向最新的，如果时间戳 C > A，Head 是 C
-    # 假设 fs_writer 是按顺序调用的，C 的时间戳确实较新
-    
-    head_commit = git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
-    head_info = git_db.log_ref(head_commit)[0]
-    
-    assert "Plan C" in head_info["body"]
-    # 检查 Parent 字段 (git log output: hash\nparent\n...)
-    # log_ref 解析后的 parent 字段
-    assert head_info["parent"] == "" # 无父节点
-
-def test_migration_dry_run(legacy_env):
-    repo, fs_writer = legacy_env
-    git_db = GitDB(repo)
-    
-    fs_writer.create_node("plan", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "a"*40, "Plan A")
-    
-    migrator = HistoryMigrator(repo, git_db)
-    count = migrator.migrate(dry_run=True)
-    
-    assert count == 1
-    # 验证未创建引用
-    assert not git_db.has_quipu_ref()
+~~~~~python
+        # 2. 验证 Engine 状态记录的正确性 (后端无关)
+        from quipu.cli.main import _setup_engine
+        engine = _setup_engine(project_root)
+        nodes = engine.reader.load_all_nodes()
+        
+        # 应该有一个 drift capture 节点和一个 plan 节点
+        assert len(nodes) >= 2, "应至少生成捕获节点和计划节点"
+        
+        plan_nodes = [n for n in nodes if n.node_type == 'plan']
+        assert len(plan_nodes) >= 1, "应至少有一个 plan 节点"
+        assert "Success from subdir" in plan_nodes[-1].content
 ~~~~~
