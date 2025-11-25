@@ -1,109 +1,23 @@
-好的，这个需求非常棒，可以让历史记录更具可读性。
+好的，现在我将把刚才的两处修复提交到版本历史中。
 
-为了实现这个功能，我需要修改 `ui/tui.py` 文件中的表格渲染逻辑。目前的颜色是根据节点类型（`plan` 或 `capture`）来决定的。我将加入一个新的判断条件：如果一个节点是 `plan` 类型，并且其输入与输出哈希相同，就将其颜色设置为绿色。
-
-这个修改将统一图表符号（`●`）和文本信息的颜色，确保视觉上的一致性。
+首先，添加被修改的两个文件到暂存区。
 
 ~~~~~act
-replace
+git_add core/history.py ui/tui.py
 ~~~~~
 
-~~~~~path
-ui/tui.py
+然后，创建一次提交，清晰地描述这次修复的内容。
+
+~~~~~act
+git_commit
 ~~~~~
 
-~~~~~old_string
-            # --- 2. 生成图形 ---
-            graph_chars = []
-            for i, track_hash in enumerate(tracks):
-                if track_hash is None:
-                    graph_chars.append("  ")
-                    continue
-                
-                # 确定基础符号
-                if i == col_idx:
-                    symbol = "●" if node.node_type == 'plan' else "○"
-                    # 基础颜色
-                    color = "cyan" if node.node_type == 'plan' else "magenta"
-                    symbol = f"[{color}]{symbol}[/]"
-                    
-                    # 组合: Dim + Color + Symbol
-                    # 例如 [dim][cyan]●[/][/dim]
-                    cell_str = f"{dim_tag}{symbol} {end_dim_tag}"
-                    graph_chars.append(cell_str)
-                    
-                elif i in merging_indices:
-                    graph_chars.append(f"{dim_tag}┘ {end_dim_tag}") 
-                else:
-                    graph_chars.append(f"{dim_tag}│ {end_dim_tag}")
+~~~~~commit_message
+feat(ui): 高亮显示幂等节点并修复其在图中的渲染
 
-            graph_str = "".join(graph_chars)
+本次提交包含两项关键改进：
 
-            # --- 3. 更新轨道 ---
-            tracks[col_idx] = parent_hash
-            for i in merging_indices[1:]:
-                tracks[i] = None
-            while tracks and tracks[-1] is None:
-                tracks.pop()
+1.  **修复 (core/history):** 修正了历史图谱加载逻辑。此前，幂等节点（input_tree == output_tree）会错误地将自己识别为父节点，导致循环引用，使其在 UI 中不可见。现在通过增加一个检查来阻止这种情况。
 
-            # --- 4. 文本信息 ---
-            ts_str = node.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            # 时间戳也应用 dim
-            ts_str = f"{dim_tag}{ts_str}{end_dim_tag}"
-            
-            node_type_code = "[P]" if node.node_type == "plan" else "[C]"
-            short_hash = node.short_hash
-            summary = self._get_node_summary(node)
-            
-            # Info 列颜色逻辑
-            base_color = "cyan" if node.node_type == "plan" else "magenta"
-            
-            # 组合 Info 字符串
-            # 结构: [dim] [color][P] hash[/] - summary [/dim]
-            info_str = f"{dim_tag}[{base_color}]{node_type_code} {short_hash}[/] - {summary}{end_dim_tag}"
-~~~~~
-
-~~~~~new_string
-            # --- 2. 颜色与元信息准备 ---
-            base_color = "magenta"  # 默认为 Capture 颜色
-            if node.node_type == "plan":
-                if node.input_tree == node.output_tree:
-                    base_color = "green"  # 幂等节点
-                else:
-                    base_color = "cyan"   # 普通 Plan
-
-            # --- 3. 生成图形 ---
-            graph_chars = []
-            for i, track_hash in enumerate(tracks):
-                if track_hash is None:
-                    graph_chars.append("  ")
-                    continue
-                
-                if i == col_idx:
-                    symbol_char = "●" if node.node_type == 'plan' else "○"
-                    symbol = f"[{base_color}]{symbol_char}[/]"
-                    cell_str = f"{dim_tag}{symbol} {end_dim_tag}"
-                    graph_chars.append(cell_str)
-                elif i in merging_indices:
-                    graph_chars.append(f"{dim_tag}┘ {end_dim_tag}") 
-                else:
-                    graph_chars.append(f"{dim_tag}│ {end_dim_tag}")
-
-            graph_str = "".join(graph_chars)
-
-            # --- 4. 更新轨道 ---
-            tracks[col_idx] = parent_hash
-            for i in merging_indices[1:]:
-                tracks[i] = None
-            while tracks and tracks[-1] is None:
-                tracks.pop()
-
-            # --- 5. 文本信息 ---
-            ts_str = node.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            ts_str = f"{dim_tag}{ts_str}{end_dim_tag}"
-            
-            node_type_code = "[P]" if node.node_type == "plan" else "[C]"
-            short_hash = node.short_hash
-            summary = self._get_node_summary(node)
-            info_str = f"{dim_tag}[{base_color}]{node_type_code} {short_hash}[/] - {summary}{end_dim_tag}"
+2.  **功能 (ui/tui):** 在 TUI 中，为幂等 Plan 节点增加了专门的绿色高亮显示。这使得用户可以快速识别那些没有产生文件变更但具有语义价值的操作（如运行测试、提交代码等），增强了历史记录的可读性。
 ~~~~~
