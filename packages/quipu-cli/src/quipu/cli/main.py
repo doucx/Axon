@@ -41,7 +41,7 @@ def _execute_checkout(ctx: typer.Context, target_node: QuipuNode, work_dir: Path
     """通过子进程调用 checkout 命令以复用逻辑"""
     typer.secho(f"🚀 正在导航到节点: {target_node.short_hash} ({target_node.timestamp})", err=True)
     result = subprocess.run(
-        [sys.executable, __file__, "checkout", target_node.output_tree, "--work-dir", str(work_dir), "--force"],
+        [sys.executable, "-m", "quipu.cli.main", "checkout", target_node.output_tree, "--work-dir", str(work_dir), "--force"],
         capture_output=True, text=True
     )
     if result.returncode != 0:
