@@ -3,6 +3,8 @@ import shutil
 import subprocess
 import sys
 import argparse
+import tempfile
+import os
 from pathlib import Path
 
 # 配置
@@ -35,32 +37,62 @@ def create_venv(path: Path):
 
 def install_packages(env_path: Path, editable: bool):
     """安装包到指定环境"""
-    pip_cmd = ["uv", "pip", "install", "-p", str(env_path)]
     
-    # 安装测试依赖 (pytest 等) 到 dev 环境
+    # 1.如果是 Dev 环境：使用 -e 链接模式安装
     if editable:
-        pip_cmd.extend(["pytest", "pytest-cov"])
+        print(f"📦 [Dev] 正在以可编辑模式(-e)安装到 {env_path.name}...")
+        pip_cmd = ["uv", "pip", "install", "-p", str(env_path), "pytest", "pytest-cov"]
+        
+        pkg_args = []
+        for pkg in PACKAGES:
+            pkg_path = ROOT_DIR / pkg
+            pkg_args.extend(["-e", str(pkg_path)])
+            
+        subprocess.run(pip_cmd + pkg_args, check=True)
 
-    # 构建包路径列表
-    args = []
-    for pkg in PACKAGES:
-        pkg_path = ROOT_DIR / pkg
-        if editable:
-            args.append("-e")
-        args.append(str(pkg_path))
-    
-    print(f"📦 安装依赖到 {env_path.name} (Editable={editable})...")
-    subprocess.run(pip_cmd + args, check=True)
+    # 2.如果是 Stable 环境：先构建 Wheel，再安装 Wheel
+    else:
+        print(f"📦 [Stable] 正在构建 Wheel 并安装到 {env_path.name} (完全隔离)...")
+        
+        # 创建临时目录存放构建好的 .whl 文件
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            
+            # 第一步：构建所有包的 Wheel
+            # 这会将源码编译成 .whl 文件，彻底切断与源码目录的联系
+            for pkg in PACKAGES:
+                pkg_src = ROOT_DIR / pkg
+                print(f"   ⚙️  编译: {pkg} -> .whl")
+                # 使用 uv build 进行构建 (需要 uv >= 0.3)
+                # 如果没有 uv build，可以使用: python3 -m build -w <pkg> -o <tmp>
+                subprocess.run(
+                    ["uv", "build", str(pkg_src), "--out-dir", str(tmp_path)], 
+                    check=True,
+                    capture_output=True # 减少噪音，出错会抛出异常
+                )
+
+            # 获取所有构建好的 whl 文件路径
+            wheels = list(tmp_path.glob("*.whl"))
+            if not wheels:
+                print("❌ 错误: 未能生成 Wheel 文件")
+                sys.exit(1)
+                
+            print(f"   📥 安装 {len(wheels)} 个 Wheel 文件...")
+            
+            # 第二步：安装 Wheel
+            # 安装这些 whl 文件，而不是源码目录
+            install_cmd = ["uv", "pip", "install", "-p", str(env_path)] + [str(w) for w in wheels]
+            subprocess.run(install_cmd, check=True)
 
 def setup():
     """初始化双环境"""
     ENVS_DIR.mkdir(exist_ok=True)
     
-    # 1. Setup Stable (Static Snapshot)
+    # 1. Setup Stable (编译版)
     create_venv(STABLE_DIR)
     install_packages(STABLE_DIR, editable=False)
     
-    # 2. Setup Dev (Dynamic Link)
+    # 2. Setup Dev (链接版)
     create_venv(DEV_DIR)
     install_packages(DEV_DIR, editable=True)
     
@@ -71,13 +103,12 @@ def promote():
     """将当前源码晋升为 Stable 工具"""
     print("🚀 正在晋升 Dev 代码到 Stable 环境...")
     
-    # 1. 简单的自测 (可选，这里先跳过，由用户自觉保证)
-    
-    # 2. 重建 Stable
+    # 重建 Stable
     create_venv(STABLE_DIR)
     install_packages(STABLE_DIR, editable=False)
     
-    print("\n✅ 晋升完成！现在的 'qx' 已经是最新代码的快照。")
+    print("\n✅ 晋升完成！现在的 'qx' 是完全独立的二进制快照。")
+    print("   (即使删除 packages/ 目录，qx 依然可以运行)")
 
 def print_usage():
     print("-" * 50)
@@ -85,8 +116,8 @@ def print_usage():
     print("  source dev_setup.sh")
     print("-" * 50)
     print("命令说明:")
-    print("  qx <args>   -> 使用 Stable 版 Quipu (工具)")
-    print("  qd <args>   -> 使用 Dev 版 Quipu (被测对象)")
+    print("  qx <args>   -> Stable (独立副本，删除源码不影响)")
+    print("  qd <args>   -> Dev    (实时引用，修改源码即刻生效)")
     print("-" * 50)
 
 def main():
@@ -103,7 +134,6 @@ def main():
     elif args.command == "promote":
         promote()
     else:
-        # 默认行为
         if not STABLE_DIR.exists() or not DEV_DIR.exists():
             setup()
         else:
