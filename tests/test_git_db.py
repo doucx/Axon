@@ -88,7 +88,7 @@ class TestGitDBPlumbing:
         tree_hash = db.get_tree_hash()
         
         # 创建锚点
-        commit_hash = db.create_anchor_commit(tree_hash, "Axon Shadow Commit")
+        commit_hash = db.commit_tree(tree_hash, parent_hashes=None, message="Axon Shadow Commit")
         
         # 更新引用
         ref_name = "refs/quipu/history"
@@ -107,6 +107,43 @@ class TestGitDBPlumbing:
         ).decode().strip()
         
         assert commit_tree == tree_hash
+
+    def test_hash_object(self, db):
+        """测试 hash_object 能否正确创建 blob 并返回 hash。"""
+        content = b"hello quipu blob"
+        expected_hash = "9cb67783b5a82481c643efb6897e5412d4c221ea"
+        
+        blob_hash = db.hash_object(content, object_type="blob")
+        assert blob_hash == expected_hash
+
+    def test_mktree_and_commit_tree(self, db):
+        """测试 mktree 和 commit_tree 的协同工作。"""
+        # 1. Create a blob
+        file_content = b"content of file.txt"
+        blob_hash = db.hash_object(file_content)
+        
+        # 2. Create a tree
+        tree_descriptor = f"100644 blob {blob_hash}\tfile.txt"
+        tree_hash = db.mktree(tree_descriptor)
+        
+        # Verify tree content using git command
+        ls_tree_output = subprocess.check_output(
+            ["git", "ls-tree", tree_hash], cwd=db.root
+        ).decode()
+        assert blob_hash in ls_tree_output
+        assert "file.txt" in ls_tree_output
+        
+        # 3. Create a commit
+        commit_message = "feat: Initial commit via commit_tree\n\nThis is the body."
+        commit_hash = db.commit_tree(tree_hash, parent_hashes=None, message=commit_message)
+        
+        # Verify commit content
+        commit_content = subprocess.check_output(
+            ["git", "cat-file", "-p", commit_hash], cwd=db.root
+        ).decode()
+        assert f"tree {tree_hash}" in commit_content
+        assert "feat: Initial commit" in commit_content
+        assert "This is the body" in commit_content
 
     def test_is_ancestor(self, git_repo, db, caplog):
         """测试血统检测，并验证无错误日志"""

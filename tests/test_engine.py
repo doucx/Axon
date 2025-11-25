@@ -96,7 +96,7 @@ def test_capture_drift(engine_setup):
     
     engine.writer.create_node("plan", "_" * 40, initial_hash, "Initial content")
     
-    initial_commit = engine.git_db.create_anchor_commit(initial_hash, "Initial")
+    initial_commit = engine.git_db.commit_tree(initial_hash, parent_hashes=None, message="Initial")
     engine.git_db.update_ref("refs/quipu/history", initial_commit)
     
     # 重新对齐以加载我们刚刚手动创建的节点

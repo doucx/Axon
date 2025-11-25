@@ -3,7 +3,7 @@ import subprocess
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from contextlib import contextmanager
 from quipu.core.exceptions import ExecutionError
 
@@ -28,7 +28,14 @@ class GitDB:
             # 这是一个关键的前置条件检查
             raise ExecutionError(f"工作目录 '{self.root}' 不是一个有效的 Git 仓库。请先运行 'git init'。")
 
-    def _run(self, args: list[str], env: Optional[Dict] = None, check: bool = True, log_error: bool = True) -> subprocess.CompletedProcess:
+    def _run(
+        self,
+        args: list[str],
+        env: Optional[Dict] = None,
+        check: bool = True,
+        log_error: bool = True,
+        input_data: Optional[str] = None
+    ) -> subprocess.CompletedProcess:
         """执行 git 命令的底层封装，返回完整的 CompletedProcess 对象"""
         full_env = os.environ.copy()
         if env:
@@ -41,7 +48,8 @@ class GitDB:
                 env=full_env,
                 capture_output=True,
                 text=True,
-                check=check
+                check=check,
+                input=input_data
             )
             return result
         except subprocess.CalledProcessError as e:
@@ -90,18 +98,41 @@ class GitDB:
             result = self._run(["write-tree"], env=env)
             return result.stdout.strip()
 
-    def create_anchor_commit(self, tree_hash: str, message: str, parent_commits: list[str] = None) -> str:
+    def hash_object(self, content_bytes: bytes, object_type: str = "blob") -> str:
         """
-        创建一个 Commit Object 指向特定的 Tree Hash。
-        这是 Axon 历史链的物理载体。
+        将内容写入 Git 对象数据库并返回对象哈希。
         """
-        cmd = ["commit-tree", tree_hash, "-m", message]
-        
-        if parent_commits:
-            for p in parent_commits:
+        try:
+            result = subprocess.run(
+                ["git", "hash-object", "-w", "-t", object_type, "--stdin"],
+                cwd=self.root,
+                input=content_bytes,
+                capture_output=True,
+                check=True
+            )
+            return result.stdout.decode('utf-8').strip()
+        except subprocess.CalledProcessError as e:
+            stderr_str = e.stderr.decode('utf-8') if e.stderr else "No stderr"
+            logger.error(f"Git hash-object failed: {stderr_str}")
+            raise RuntimeError(f"Git command failed: hash-object\n{stderr_str}") from e
+
+    def mktree(self, tree_descriptor: str) -> str:
+        """
+        从描述符创建 tree 对象并返回其哈希。
+        """
+        result = self._run(["mktree"], input_data=tree_descriptor)
+        return result.stdout.strip()
+
+    def commit_tree(self, tree_hash: str, parent_hashes: Optional[List[str]], message: str) -> str:
+        """
+        创建一个 commit 对象并返回其哈希。
+        """
+        cmd = ["commit-tree", tree_hash]
+        if parent_hashes:
+            for p in parent_hashes:
                 cmd.extend(["-p", p])
-                
-        result = self._run(cmd)
+        
+        result = self._run(cmd, input_data=message)
         return result.stdout.strip()
 
     def update_ref(self, ref_name: str, commit_hash: str):
