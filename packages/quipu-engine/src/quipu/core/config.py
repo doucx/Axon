@@ -8,7 +8,15 @@ logger = logging.getLogger(__name__)
 # 默认配置，为所有可能的设置提供一个基础
 DEFAULTS = {
     "sync": {
-        "remote_name": "origin"
+        "remote_name": "origin",
+        "persistent_ignores": [
+            ".idea",
+            ".vscode",
+            ".envs",
+            "__pycache__",
+            "node_modules",
+            "o.md"
+        ]
     },
     "list_files": {
         "ignore_patterns": [".git", "__pycache__", ".idea", ".vscode", "node_modules", ".quipu"]

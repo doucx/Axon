@@ -2,10 +2,12 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 import yaml
+import re
 from datetime import datetime
 
 from .git_db import GitDB
 from .history import load_history_graph
+from .config import ConfigManager
 from quipu.core.models import QuipuNode
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,44 @@ class Engine:
     Axon 状态引擎。
     负责协调 Git 物理状态和 Axon 逻辑图谱。
     """
+
+    def _sync_persistent_ignores(self):
+        """将 config.yml 中的持久化忽略规则同步到 .git/info/exclude。"""
+        try:
+            config = ConfigManager(self.root_dir)
+            patterns = config.get("sync.persistent_ignores", [])
+            if not patterns:
+                return
+
+            exclude_file = self.root_dir / ".git" / "info" / "exclude"
+            exclude_file.parent.mkdir(exist_ok=True)
+
+            header = "# --- Managed by Quipu ---"
+            footer = "# --- End Managed by Quipu ---"
+            
+            content = ""
+            if exclude_file.exists():
+                content = exclude_file.read_text("utf-8")
+
+            # 使用 re.DOTALL (s) 标志来匹配包括换行符在内的任何字符
+            managed_block_pattern = re.compile(rf"{re.escape(header)}.*{re.escape(footer)}", re.DOTALL)
+            
+            new_block = f"{header}\n" + "\n".join(patterns) + f"\n{footer}"
+
+            new_content, count = managed_block_pattern.subn(new_block, content)
+            if count == 0:
+                # 如果没有找到匹配项，则在末尾追加
+                if content and not content.endswith("\n"):
+                    content += "\n"
+                new_content = content + "\n" + new_block + "\n"
+            
+            if new_content != content:
+                exclude_file.write_text(new_content, "utf-8")
+                logger.debug("✅ .git/info/exclude 已更新。")
+
+        except Exception as e:
+            logger.warning(f"⚠️  无法同步持久化忽略规则: {e}")
+
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir.resolve()
         self.quipu_dir = self.root_dir / ".quipu"
@@ -35,6 +75,9 @@ class Engine:
         self.git_db = GitDB(self.root_dir)
         self.history_graph: Dict[str, QuipuNode] = {}
         self.current_node: Optional[QuipuNode] = None
+
+        # 自动同步本地配置，如持久化忽略规则
+        self._sync_persistent_ignores()
 
     def _read_head(self) -> Optional[str]:
         """读取 .quipu/HEAD 文件中的 Hash"""

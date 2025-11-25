@@ -188,3 +188,90 @@ def test_capture_drift(engine_setup):
         ["git", "rev-parse", f"{latest_ref_commit}^"], cwd=repo_path
     ).decode().strip()
     assert parent_of_latest == initial_commit
+class TestPersistentIgnores:
+    def test_sync_creates_file_if_not_exists(self, engine_setup):
+        """测试：如果 exclude 文件不存在，应能根据默认配置创建它。"""
+        engine, repo_path = engine_setup
+        
+        # 重新初始化 Engine 以触发 _sync... 逻辑
+        # fixture 里的 engine 是在没有任何 quipu 配置的情况下初始化的
+        # 这里我们确保 .quipu 目录存在，并再次初始化
+        (repo_path / ".quipu").mkdir(exist_ok=True)
+        
+        # 触发器
+        engine = Engine(repo_path)
+        
+        exclude_file = repo_path / ".git" / "info" / "exclude"
+        assert exclude_file.exists()
+        content = exclude_file.read_text("utf-8")
+        
+        assert "# --- Managed by Quipu ---" in content
+        assert ".envs" in content  # 检查默认规则之一
+
+    def test_sync_appends_to_existing_file(self, engine_setup):
+        """测试：如果 exclude 文件已存在，应追加 Quipu 块而不是覆盖。"""
+        engine, repo_path = engine_setup
+        
+        exclude_file = repo_path / ".git" / "info" / "exclude"
+        exclude_file.parent.mkdir(exist_ok=True)
+        user_content = "# My personal ignores\n*.log\n"
+        exclude_file.write_text(user_content)
+        
+        # 触发器
+        engine = Engine(repo_path)
+        
+        content = exclude_file.read_text("utf-8")
+        assert user_content in content
+        assert "# --- Managed by Quipu ---" in content
+        assert "o.md" in content
+
+    def test_sync_updates_existing_block(self, engine_setup):
+        """测试：如果 Quipu 块已存在，应更新其内容。"""
+        engine, repo_path = engine_setup
+        
+        exclude_file = repo_path / ".git" / "info" / "exclude"
+        exclude_file.parent.mkdir(exist_ok=True)
+        
+        old_block = (
+            "# --- Managed by Quipu ---\n"
+            "old_rule/\n"
+            "# --- End Managed by Quipu ---"
+        )
+        user_content = f"# My ignores\n{old_block}\n# More ignores"
+        exclude_file.write_text(user_content)
+        
+        # 触发器
+        engine = Engine(repo_path)
+        
+        content = exclude_file.read_text("utf-8")
+        assert "old_rule/" not in content
+        assert ".vscode" in content  # 检查默认规则之一
+        assert "# My ignores" in content
+        assert "# More ignores" in content
+
+    def test_sync_uses_user_config(self, engine_setup):
+        """测试：应优先使用 .quipu/config.yml 中的用户配置。"""
+        import yaml
+        engine, repo_path = engine_setup
+        
+        # 创建用户配置文件
+        config_dir = repo_path / ".quipu"
+        config_dir.mkdir(exist_ok=True)
+        config_file = config_dir / "config.yml"
+        
+        user_ignores = {
+            "sync": {
+                "persistent_ignores": ["custom_dir/", "*.tmp"]
+            }
+        }
+        config_file.write_text(yaml.dump(user_ignores), "utf-8")
+        
+        # 触发器
+        engine = Engine(repo_path)
+        
+        exclude_file = repo_path / ".git" / "info" / "exclude"
+        content = exclude_file.read_text("utf-8")
+        
+        assert "custom_dir/" in content
+        assert "*.tmp" in content
+        assert ".envs" not in content # 默认值应被覆盖
