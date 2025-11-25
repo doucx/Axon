@@ -12,6 +12,7 @@ def register(executor: Executor):
     executor.register("replace", _replace, arg_mode="hybrid")
     executor.register("append_file", _append_file, arg_mode="hybrid")
     executor.register("end", _end, arg_mode="hybrid")
+    executor.register("echo", _echo, arg_mode="hybrid")
 
 def _end(ctx: ActContext, args: List[str]):
     """
@@ -22,6 +23,16 @@ def _end(ctx: ActContext, args: List[str]):
     解析器会将后续的 block 视为 end 的参数，而 end 函数会忽略它们。
     """
     pass
+
+def _echo(ctx: ActContext, args: List[str]):
+    """
+    Act: echo
+    Args: [content]
+    """
+    if len(args) < 1:
+        ctx.fail("echo 需要至少一个参数: [content]")
+
+    print(args[0])
 
 def _write_file(ctx: ActContext, args: List[str]):
     """
