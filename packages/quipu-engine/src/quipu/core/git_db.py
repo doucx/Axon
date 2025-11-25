@@ -154,8 +154,9 @@ class GitDB:
         self._run(["checkout-index", "-a", "-f"])
         
         # 3. 清理工作区中多余的文件和目录
-        # -d: 目录, -f: 强制, -x: 包含忽略文件
+        # -d: 目录, -f: 强制
+        # 移除了 -x 参数，以尊重 .gitignore 规则
         # -e .quipu: 排除 .quipu 目录，防止自毁
-        self._run(["clean", "-dfx", "-e", ".quipu"])
+        self._run(["clean", "-df", "-e", ".quipu"])
         
         logger.info("✅ Workspace reset to target state.")
