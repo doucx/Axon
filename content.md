@@ -1,261 +1,292 @@
-好的，我理解了问题所在。`axon log` 的摘要信息确实不够清晰，而且在空仓库中首次运行时不应该创建一个 `CAPTURE` 节点，这违背了“创世状态是已知的干净状态”这一原则。
+# 🚀 升级 Axon 核心数据模型以支持图导航
 
-我将分两步解决这两个问题：
-1.  **修复创世节点 Bug**：我会修改 `core/engine.py` 和 `core/controller.py`，让引擎正确识别空的 Git 仓库为一个干净的初始状态，从而避免不必要的 `CAPTURE`。
-2.  **优化日志摘要**：我会重写 `main.py` 中的 `log` 命令函数，让它能更智能地解析 `PLAN` 和 `CAPTURE` 节点的内容，以展示更有价值的摘要信息。
-
-请执行以下指令来应用修复：
-
-### 第 1 步：修复创世节点 Bug
-
-首先，我们需要教 `Engine` 识别空的 Git 仓库。
-
-~~~act
-replace
-~~~
-~~~path
-core/engine.py
-~~~
-~~~python
-    def align(self) -> str:
-        """
-        核心对齐方法：确定 "我现在在哪"。
-        
-        1. 加载历史图谱。
-        2. 计算当前工作区的 Tree Hash。
-        3. 在图谱中查找该 Hash。
-        
-        返回状态: "CLEAN", "DIRTY", "ORPHAN"
-        """
-        # 1. 加载或重新加载历史
-        self.history_graph = load_history_graph(self.history_dir)
-        
-        # 2. 获取当前物理状态
-        current_hash = self.git_db.get_tree_hash()
-        
-        # 3. 在逻辑图谱中定位
-        if current_hash in self.history_graph:
-            self.current_node = self.history_graph[current_hash]
-            logger.info(f"✅ 状态对齐：当前工作区匹配节点 {self.current_node.short_hash}")
-            return "CLEAN"
-        
-        # 未找到匹配节点，进入漂移检测
-        # (后续将实现 Capture 逻辑)
-        logger.warning(f"⚠️  状态漂移：当前 Tree Hash {current_hash[:7]} 未在历史中找到。")
-        
-        if not self.history_graph:
-            return "ORPHAN" # 历史为空，无法判断从何而来
-        
-        return "DIRTY"
-~~~
-~~~python
-    def align(self) -> str:
-        """
-        核心对齐方法：确定 "我现在在哪"。
-        
-        1. 加载历史图谱。
-        2. 计算当前工作区的 Tree Hash。
-        3. 在图谱中查找该 Hash。
-        
-        返回状态: "CLEAN", "DIRTY", "ORPHAN"
-        """
-        # 1. 加载或重新加载历史
-        self.history_graph = load_history_graph(self.history_dir)
-        
-        # 2. 获取当前物理状态
-        current_hash = self.git_db.get_tree_hash()
-
-        # 3. 特殊情况：处理创世状态 (空仓库)
-        EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        if current_hash == EMPTY_TREE_HASH and not self.history_graph:
-            logger.info("✅ 状态对齐：检测到创世状态 (空仓库)。")
-            self.current_node = None # 此时没有物理节点
-            return "CLEAN"
-        
-        # 4. 在逻辑图谱中定位
-        if current_hash in self.history_graph:
-            self.current_node = self.history_graph[current_hash]
-            logger.info(f"✅ 状态对齐：当前工作区匹配节点 {self.current_node.short_hash}")
-            return "CLEAN"
-        
-        # 未找到匹配节点，进入漂移检测
-        logger.warning(f"⚠️  状态漂移：当前 Tree Hash {current_hash[:7]} 未在历史中找到。")
-        
-        if not self.history_graph:
-            return "ORPHAN" # 历史为空，但工作区非空
-        
-        return "DIRTY"
-~~~
-
-接着，我们需要让 `Controller` 能够处理 `align` 返回 `CLEAN` 但 `current_node` 为 `None` 的创世情况。
-
-~~~act
-replace
-~~~
-~~~path
-core/controller.py
-~~~
-~~~python
-        # 记录执行前的状态，作为 Plan 的 input_tree
-        if not engine.current_node:
-             # 理论上 capture_drift 后一定有 node，除非极端的 git 错误
-             raise RuntimeError("Engine failed to lock state.")
-             
-        input_tree_hash = engine.current_node.output_tree
-~~~
-~~~python
-        # 记录执行前的状态，作为 Plan 的 input_tree
-        if engine.current_node:
-            input_tree_hash = engine.current_node.output_tree
-        else:
-            # 此处处理创世状态：当 align() 返回 CLEAN 但 current_node 为 None 时。
-            # 输入哈希就是当前的（空的）哈希。
-            input_tree_hash = current_hash
-~~~
-
-### 第 2 步：优化 `axon log` 的输出摘要
-
-现在，我们替换 `main.py` 中的 `log` 函数，使其能够提取更有意义的信息。
-
-~~~act
-replace
-~~~
-~~~path
-main.py
-~~~
-~~~python
-@app.command()
-def log(
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w",
-            help="操作执行的根目录（工作区）",
-            file_okay=False,
-            dir_okay=True,
-            resolve_path=True
-        )
-    ] = DEFAULT_WORK_DIR,
-):
-    """
-    显示 Axon 历史图谱日志。
-    """
-    setup_logging()
-    
-    history_dir = work_dir.resolve() / ".axon" / "history"
-    if not history_dir.exists():
-        typer.secho(f"❌ 在 '{work_dir}' 中未找到 Axon 历史记录 (.axon/history)。", fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
-
-    graph = load_history_graph(history_dir)
-    if not graph:
-        typer.secho("📜 历史记录为空。", fg=typer.colors.YELLOW, err=True)
-        raise typer.Exit(0)
-        
-    # 按时间戳降序排序
-    nodes = sorted(graph.values(), key=lambda n: n.timestamp, reverse=True)
-    
-    typer.secho("--- Axon History Log ---", bold=True, err=True)
-    for node in nodes:
-        ts = node.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-        
-        # 颜色和标签
-        color = typer.colors.CYAN if node.node_type == "plan" else typer.colors.MAGENTA
-        tag = f"[{node.node_type.upper()}]"
-        
-        # 摘要
-        first_line = node.content.strip().split('\n')[0]
-        # 尝试从 plan 中提取 act 名称作为摘要
-        if node.node_type == 'plan' and 'act' in first_line:
-            summary = first_line
-        else:
-             summary = (first_line[:70] + '...') if len(first_line) > 70 else first_line
-
-
-        typer.secho(f"{ts} {tag:<9} {node.short_hash}", fg=color, nl=False, err=True)
-        typer.echo(f" - {summary}", err=True)
-~~~
-~~~python
-@app.command()
-def log(
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w",
-            help="操作执行的根目录（工作区）",
-            file_okay=False,
-            dir_okay=True,
-            resolve_path=True
-        )
-    ] = DEFAULT_WORK_DIR,
-):
-    """
-    显示 Axon 历史图谱日志。
-    """
-    setup_logging()
-    
-    history_dir = work_dir.resolve() / ".axon" / "history"
-    if not history_dir.exists():
-        typer.secho(f"❌ 在 '{work_dir}' 中未找到 Axon 历史记录 (.axon/history)。", fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
-
-    graph = load_history_graph(history_dir)
-    if not graph:
-        typer.secho("📜 历史记录为空。", fg=typer.colors.YELLOW, err=True)
-        raise typer.Exit(0)
-        
-    # 按时间戳降序排序
-    nodes = sorted(graph.values(), key=lambda n: n.timestamp, reverse=True)
-    
-    typer.secho("--- Axon History Log ---", bold=True, err=True)
-    for node in nodes:
-        ts = node.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-        
-        color = typer.colors.CYAN if node.node_type == "plan" else typer.colors.MAGENTA
-        tag = f"[{node.node_type.upper()}]"
-        
-        summary = ""
-        content_lines = node.content.strip().split('\n')
-        
-        if node.node_type == 'plan':
-            # 查找第一个非空的 act 内容行作为摘要
-            in_act_block = False
-            for line in content_lines:
-                if line.strip().startswith(('~~~act', '```act')):
-                    in_act_block = True
-                    continue
-                if in_act_block and line.strip():
-                    summary = line.strip()
-                    break
-            if not summary:
-                summary = "Plan executed" # Fallback
-        
-        elif node.node_type == 'capture':
-            # 查找 diff 摘要
-            in_diff_block = False
-            diff_summary_lines = []
-            for line in content_lines:
-                if "变更文件摘要" in line:
-                    in_diff_block = True
-                    continue
-                if in_diff_block and line.strip().startswith('```'):
-                    break # 结束块
-                if in_diff_block and line.strip():
-                    diff_summary_lines.append(line.strip())
-            
-            if diff_summary_lines:
-                # 只显示文件名和变更统计，忽略插入/删除行数
-                files_changed = [l.split('|')[0].strip() for l in diff_summary_lines]
-                summary = f"Changes captured in: {', '.join(files_changed)}"
-            else:
-                summary = "Workspace changes captured" # Fallback
-
-        summary = (summary[:75] + '...') if len(summary) > 75 else summary
-
-        typer.secho(f"{ts} {tag:<9} {node.short_hash}", fg=color, nl=False, err=True)
-        typer.echo(f" - {summary}", err=True)
-~~~
+本计划将通过三个步骤完成数据模型的升级：
+1.  为 `AxonNode` 数据类添加 `parent` 和 `children` 字段。
+2.  重构 `core/history.py` 中的 `load_history_graph` 函数，使其在加载时构建节点间的连接关系。
+3.  添加一个新的单元测试文件 `tests/test_graph_loader.py` 来验证图构建逻辑的正确性。
 
 ---
 
-执行以上指令后，创世节点问题和日志摘要问题应该都已解决。你可以在一个新的空目录中再次运行 `git init` 和 `axon run ...` 来验证修复效果。
+### 步骤 1: 增强 `AxonNode` 数据模型
+
+我们将使用 `replace` 指令，为 `core/models.py` 中的 `AxonNode` 添加图遍历所需的字段，并顺便添加一个 `siblings` 属性方便后续使用。
+
+~~~~~act
+replace
+~~~~~
+
+~~~~~path
+core/models.py
+~~~~~
+
+~~~~~python
+from __future__ import annotations
+import dataclasses
+from pathlib import Path
+from typing import Optional, Dict
+from datetime import datetime
+
+@dataclasses.dataclass
+class AxonNode:
+    """
+    表示 Axon 历史图谱中的一个节点。
+    
+    这个数据类封装了从文件名和文件内容中解析出的所有元数据和状态信息。
+    """
+    # 从文件名解析
+    input_tree: str
+    output_tree: str
+    timestamp: datetime
+    
+    # 从文件物理路径
+    filename: Path
+    
+    # 从 Frontmatter 解析
+    node_type: str  # "plan" | "capture"
+    parent_hint: Optional[str] = None
+    
+    # 文件主体内容
+    content: str = ""
+
+    @property
+    def short_hash(self) -> str:
+        """返回一个用于UI展示的简短哈希"""
+        return self.output_tree[:7]
+~~~~~
+
+~~~~~python
+from __future__ import annotations
+import dataclasses
+from pathlib import Path
+from typing import Optional, List, Dict # <-- 引入 List
+from datetime import datetime
+
+@dataclasses.dataclass
+class AxonNode:
+    """
+    表示 Axon 历史图谱中的一个节点。
+    
+    这个数据类封装了从文件名和文件内容中解析出的所有元数据和状态信息。
+    """
+    # 从文件名解析
+    input_tree: str
+    output_tree: str
+    timestamp: datetime
+    
+    # 从文件物理路径
+    filename: Path
+    
+    # 从 Frontmatter 解析
+    node_type: str  # "plan" | "capture"
+    parent_hint: Optional[str] = None
+    
+    # 文件主体内容
+    content: str = ""
+    
+    # --- 图遍历字段 (由加载器填充) ---
+    parent: Optional[AxonNode] = None
+    children: List[AxonNode] = dataclasses.field(default_factory=list)
+
+    @property
+    def short_hash(self) -> str:
+        """返回一个用于UI展示的简短哈希"""
+        return self.output_tree[:7]
+
+    @property
+    def siblings(self) -> List[AxonNode]:
+        """获取所有兄弟节点 (包括自身)，按时间排序"""
+        if not self.parent:
+            return [self]
+        return self.parent.children
+~~~~~
+
+---
+
+### 步骤 2: 更新历史加载器以构建图关系
+
+现在，我们重构 `load_history_graph` 函数。它将采用“两遍扫描”的策略：第一遍加载所有节点，第二遍根据 `input_tree` 和 `output_tree` 的关系连接它们。
+
+~~~~~act
+replace
+~~~~~
+
+~~~~~path
+core/history.py
+~~~~~
+
+~~~~~python
+def load_history_graph(history_dir: Path) -> Dict[str, AxonNode]:
+    """
+    扫描历史目录，加载所有节点，构建一个以 output_tree_hash 为键的图。
+    """
+    graph: Dict[str, AxonNode] = {}
+    if not history_dir.exists():
+        return graph
+
+    for file_path in history_dir.glob("*.md"):
+        match = FILENAME_PATTERN.match(file_path.name)
+        if not match:
+            logger.warning(f"跳过格式不匹配的历史文件: {file_path.name}")
+            continue
+        
+        input_hash, output_hash, ts_str = match.groups()
+        
+        try:
+            full_content = file_path.read_text("utf-8")
+            meta, body_content = _parse_frontmatter(full_content)
+            
+            node = AxonNode(
+                input_tree=input_hash,
+                output_tree=output_hash,
+                timestamp=datetime.strptime(ts_str, "%Y%m%d%H%M%S"),
+                filename=file_path,
+                node_type=meta.get("type", "unknown"),
+                parent_hint=meta.get("parent_hint"),
+                content=body_content
+            )
+            graph[output_hash] = node
+        except Exception as e:
+            logger.error(f"加载历史节点失败 {file_path.name}: {e}")
+
+    logger.info(f"从 '{history_dir}' 加载了 {len(graph)} 个历史节点。")
+    return graph
+~~~~~
+
+~~~~~python
+def load_history_graph(history_dir: Path) -> Dict[str, AxonNode]:
+    """
+    扫描历史目录，加载所有节点，并构建一个包含父子关系的图。
+    返回以 output_tree_hash 为键的节点字典。
+    """
+    graph: Dict[str, AxonNode] = {}
+    if not history_dir.exists():
+        return graph
+
+    # --- 第一遍: 加载所有独立的节点 ---
+    for file_path in history_dir.glob("*.md"):
+        match = FILENAME_PATTERN.match(file_path.name)
+        if not match:
+            logger.warning(f"跳过格式不匹配的历史文件: {file_path.name}")
+            continue
+        
+        input_hash, output_hash, ts_str = match.groups()
+        
+        try:
+            full_content = file_path.read_text("utf-8")
+            meta, body_content = _parse_frontmatter(full_content)
+            
+            node = AxonNode(
+                input_tree=input_hash,
+                output_tree=output_hash,
+                timestamp=datetime.strptime(ts_str, "%Y%m%d%H%M%S"),
+                filename=file_path,
+                node_type=meta.get("type", "unknown"),
+                parent_hint=meta.get("parent_hint"),
+                content=body_content
+            )
+            graph[output_hash] = node
+        except Exception as e:
+            logger.error(f"加载历史节点失败 {file_path.name}: {e}")
+
+    # --- 第二遍: 连接父子关系 ---
+    for node in graph.values():
+        # 节点的 input_tree 就是其父节点的 output_tree
+        if node.input_tree in graph:
+            parent_node = graph[node.input_tree]
+            node.parent = parent_node
+            parent_node.children.append(node)
+
+    # 为所有节点的子列表按时间排序，确保导航行为一致
+    for node in graph.values():
+        node.children.sort(key=lambda n: n.timestamp)
+
+    logger.info(f"从 '{history_dir}' 加载并连接了 {len(graph)} 个历史节点。")
+    return graph
+~~~~~
+
+---
+
+### 步骤 3: 为图加载器添加单元测试
+
+这是最关键的一步，确保我们的图构建逻辑是正确的。我们将创建一个新的测试文件 `tests/test_graph_loader.py`。
+
+~~~~~act
+write_file
+~~~~~
+
+~~~~~path
+tests/test_graph_loader.py
+~~~~~
+
+~~~~~python
+import pytest
+from pathlib import Path
+from datetime import datetime
+from core.history import load_history_graph
+
+@pytest.fixture
+def graph_history_dir(tmp_path: Path) -> Path:
+    """
+    创建一个模拟的历史目录，包含一个分叉的图结构：
+    A -> B
+      -> C (C 比 B 新)
+    """
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    
+    hash_a = "a" * 40
+    hash_b = "b" * 40
+    hash_c = "c" * 40
+    genesis = "_" * 40
+
+    # 节点 A (根)
+    (history_dir / f"{genesis}_{hash_a}_20230101000000.md").write_text("---\ntype: plan\n---")
+    # 节点 B (A 的子节点)
+    (history_dir / f"{hash_a}_{hash_b}_20230101010000.md").write_text("---\ntype: plan\n---")
+    # 节点 C (A 的子节点, C is newer than B)
+    (history_dir / f"{hash_a}_{hash_c}_20230101020000.md").write_text("---\ntype: plan\n---")
+    
+    return history_dir
+
+
+class TestGraphLoader:
+
+    def test_graph_loading_and_linking(self, graph_history_dir: Path):
+        graph = load_history_graph(graph_history_dir)
+        
+        assert len(graph) == 3
+        
+        hash_a = "a" * 40
+        hash_b = "b" * 40
+        hash_c = "c" * 40
+        
+        node_a = graph[hash_a]
+        node_b = graph[hash_b]
+        node_c = graph[hash_c]
+        
+        # 1. 验证父子关系
+        assert node_a.parent is None
+        assert node_b.parent == node_a
+        assert node_c.parent == node_a
+        
+        # 2. 验证子节点列表
+        assert len(node_a.children) == 2
+        # 验证子节点已按时间戳排序
+        assert node_a.children == [node_b, node_c]
+        assert len(node_b.children) == 0
+        assert len(node_c.children) == 0
+        
+        # 3. 验证兄弟关系
+        assert node_b.siblings == [node_b, node_c]
+        assert node_c.siblings == [node_b, node_c]
+        # 根节点没有兄弟
+        assert node_a.siblings == [node_a]
+~~~~~
+
+---
+
+## ✅ 完成
+
+执行完这份 Markdown 脚本后，Axon 的核心数据模型和历史加载器就完成了升级，并且有了相应的测试保障。
+
+现在，我们可以基于这个坚实的基础来开发 `undo`, `redo`, `prev`, `next` 等导航命令以及 TUI 界面了。
