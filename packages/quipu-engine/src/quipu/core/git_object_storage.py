@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class GitObjectHistoryReader(HistoryReader):
     """
     一个从 Git 底层对象读取历史的实现。
+    使用批处理优化加载性能。
     """
     def __init__(self, git_db: GitDB):
         self.git_db = git_db
@@ -27,10 +28,54 @@ class GitObjectHistoryReader(HistoryReader):
         match = re.search(r"X-Quipu-Output-Tree:\s*([0-9a-f]{40})", body)
         return match.group(1) if match else None
 
+    def _parse_tree_binary(self, data: bytes) -> Dict[str, str]:
+        """
+        解析 Git 原始二进制 Tree 对象。
+        格式: [mode] [space] [path] [null] [20-byte-hash]
+        返回: { filename: hex_hash }
+        """
+        entries = {}
+        idx = 0
+        length = len(data)
+        while idx < length:
+            # 1. Find space after mode
+            space_idx = data.find(b' ', idx)
+            if space_idx == -1:
+                break
+            
+            # 2. Find null byte after filename
+            null_idx = data.find(b'\0', space_idx + 1)
+            if null_idx == -1:
+                break
+                
+            # 3. Extract filename
+            filename = data[space_idx + 1 : null_idx].decode('utf-8', errors='ignore')
+            
+            # 4. Extract hash (next 20 bytes)
+            hash_start = null_idx + 1
+            if hash_start + 20 > length:
+                break
+            
+            hash_bytes = data[hash_start : hash_start + 20]
+            hex_hash = hash_bytes.hex()
+            
+            entries[filename] = hex_hash
+            
+            # Move to next entry
+            idx = hash_start + 20
+        return entries
+
     def load_all_nodes(self) -> List[QuipuNode]:
         """
-        加载所有节点。为了性能，跳过 content.md 的读取 (Lazy Loading)。
+        加载所有节点。
+        优化策略: Batch cat-file
+        1. 获取所有 commits
+        2. 批量读取所有 Trees
+        3. 解析 Trees 找到 metadata.json Blob Hashes
+        4. 批量读取所有 Metadata Blobs
+        5. 组装 Nodes
         """
+        # Step 1: Get Commits
         all_heads = self.git_db.get_all_ref_heads("refs/quipu/")
         if not all_heads:
             return []
@@ -39,41 +84,63 @@ class GitObjectHistoryReader(HistoryReader):
         if not log_entries:
             return []
 
+        # Step 2: Batch fetch Trees
+        tree_hashes = [entry["tree"] for entry in log_entries]
+        trees_content = self.git_db.batch_cat_file(tree_hashes)
+
+        # Step 3: Parse Trees to find Metadata Blob Hashes
+        # Map tree_hash -> metadata_blob_hash
+        tree_to_meta_blob = {}
+        meta_blob_hashes = []
+
+        for tree_hash, content_bytes in trees_content.items():
+            try:
+                # 使用二进制解析器
+                entries = self._parse_tree_binary(content_bytes)
+                if "metadata.json" in entries:
+                    blob_hash = entries["metadata.json"]
+                    tree_to_meta_blob[tree_hash] = blob_hash
+                    meta_blob_hashes.append(blob_hash)
+            except Exception as e:
+                logger.warning(f"Error parsing tree {tree_hash}: {e}")
+
+        # Step 4: Batch fetch Metadata Blobs
+        metas_content = self.git_db.batch_cat_file(meta_blob_hashes)
+
+        # Step 5: Assemble Nodes
         temp_nodes: Dict[str, QuipuNode] = {}
         parent_map: Dict[str, str] = {}
 
         for entry in log_entries:
             commit_hash = entry["hash"]
+            tree_hash = entry["tree"]
+            
+            # Skip if already processed (though log entries shouldn't duplicate commits usually)
             if commit_hash in temp_nodes:
                 continue
 
-            tree_hash = entry["tree"]
-            
             try:
-                # 1. Read tree content to find metadata
-                tree_content = self.git_db.cat_file(tree_hash, "tree").decode('utf-8')
-                blob_hashes = {}
-                for line in tree_content.splitlines():
-                    parts = line.split()
-                    if len(parts) == 4:
-                        # format: <mode> <type> <hash>\t<filename>
-                        blob_hashes[parts[3]] = parts[2]
-                
-                if "metadata.json" not in blob_hashes:
-                    logger.warning(f"Skipping commit {commit_hash[:7]}: metadata.json not found.")
+                # Retrieve metadata content
+                if tree_hash not in tree_to_meta_blob:
+                    logger.warning(f"Skipping commit {commit_hash[:7]}: metadata.json not found in tree.")
                     continue
                 
-                # 2. Read metadata ONLY (Skip content.md for performance)
-                meta_bytes = self.git_db.cat_file(blob_hashes["metadata.json"])
-                meta_data = json.loads(meta_bytes)
+                meta_blob_hash = tree_to_meta_blob[tree_hash]
                 
-                # Optimization: Content is lazy loaded via get_node_content
-                content = "" 
+                if meta_blob_hash not in metas_content:
+                    logger.warning(f"Skipping commit {commit_hash[:7]}: metadata blob missing.")
+                    continue
+
+                meta_bytes = metas_content[meta_blob_hash]
+                meta_data = json.loads(meta_bytes)
 
                 output_tree = self._parse_output_tree_from_body(entry["body"])
                 if not output_tree:
                     logger.warning(f"Skipping commit {commit_hash[:7]}: X-Quipu-Output-Tree trailer not found.")
                     continue
+
+                # Content is lazy loaded
+                content = "" 
 
                 node = QuipuNode(
                     # Placeholder, will be filled in the linking phase
@@ -94,7 +161,7 @@ class GitObjectHistoryReader(HistoryReader):
             except Exception as e:
                 logger.error(f"Failed to load history node from commit {commit_hash[:7]}: {e}")
 
-        # Phase 2: Link nodes
+        # Phase 2: Link nodes (Same as before)
         for commit_hash, node in temp_nodes.items():
             parent_commit_hash = parent_map.get(commit_hash)
             if parent_commit_hash and parent_commit_hash in temp_nodes:
@@ -132,19 +199,20 @@ class GitObjectHistoryReader(HistoryReader):
             tree_hash = tree_line.split()[1]
 
             # 2. Get content.md Blob Hash from Tree
-            tree_content = self.git_db.cat_file(tree_hash, "tree").decode('utf-8')
-            blob_hash = None
-            for line in tree_content.splitlines():
-                # format: <mode> <type> <hash>\t<filename>
-                parts = line.split()
-                if len(parts) == 4 and parts[3] == "content.md":
-                    blob_hash = parts[2]
-                    break
+            # Use batch_cat_file to get RAW binary tree content, compatible with _parse_tree_binary
+            tree_content_map = self.git_db.batch_cat_file([tree_hash])
+            if tree_hash not in tree_content_map:
+                return ""
+            
+            tree_content = tree_content_map[tree_hash]
+            entries = self._parse_tree_binary(tree_content)
+            
+            blob_hash = entries.get("content.md")
             
             if not blob_hash:
                 return "" # No content found
             
-            # 3. Read Blob
+            # 3. Read Blob (also raw binary)
             content_bytes = self.git_db.cat_file(blob_hash)
             content = content_bytes.decode('utf-8', errors='ignore')
             

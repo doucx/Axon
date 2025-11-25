@@ -244,6 +244,89 @@ class GitDB:
         result = self._run(cmd)
         return result.stdout.encode('utf-8')
 
+    def batch_cat_file(self, object_hashes: List[str]) -> Dict[str, bytes]:
+        """
+        批量读取 Git 对象。
+        解决 N+1 查询性能问题。
+        
+        Args:
+            object_hashes: 需要读取的对象哈希列表 (可以重复，内部会自动去重)
+            
+        Returns:
+            Dict[hash, content_bytes]: 哈希到内容的映射。
+            如果对象不存在，则不会出现在返回字典中。
+        """
+        if not object_hashes:
+            return {}
+            
+        # Deduplicate
+        unique_hashes = list(set(object_hashes))
+        
+        # Prepare input: <hash>\n
+        input_str = "\n".join(unique_hashes) + "\n"
+        
+        results = {}
+        
+        try:
+            # git cat-file --batch format:
+            # <hash> <type> <size>\n
+            # <content>\n
+            with subprocess.Popen(
+                ["git", "cat-file", "--batch"],
+                cwd=self.root,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                # bufsize=0 is often recommended for binary streams but careful buffering is usually fine
+            ) as proc:
+                
+                # Write requests and close stdin to signal EOF
+                if proc.stdin:
+                    proc.stdin.write(input_str.encode('utf-8'))
+                    proc.stdin.close()
+                
+                if not proc.stdout:
+                    return {}
+
+                while True:
+                    # Read header line
+                    header_line = proc.stdout.readline()
+                    if not header_line:
+                        break
+                    
+                    header_parts = header_line.strip().split()
+                    if not header_parts:
+                        continue
+                        
+                    obj_hash_bytes = header_parts[0]
+                    obj_hash = obj_hash_bytes.decode('utf-8')
+                    
+                    # Check for missing object: "<hash> missing"
+                    if len(header_parts) == 2 and header_parts[1] == b"missing":
+                        continue
+                    
+                    if len(header_parts) < 3:
+                        logger.warning(f"Unexpected git cat-file header: {header_line}")
+                        continue
+                        
+                    # size is at index 2
+                    try:
+                        size = int(header_parts[2])
+                    except ValueError:
+                        logger.warning(f"Invalid size in header: {header_line}")
+                        continue
+                    
+                    # Read content bytes + trailing newline
+                    content = proc.stdout.read(size)
+                    proc.stdout.read(1) # Consume the trailing LF
+                    
+                    results[obj_hash] = content
+                    
+        except Exception as e:
+            logger.error(f"Batch cat-file failed: {e}")
+            raise RuntimeError(f"Git batch operation failed: {e}") from e
+
+        return results
+
     def get_all_ref_heads(self, prefix: str) -> List[str]:
         """查找指定前缀下的所有 ref heads 并返回其 commit 哈希。"""
         res = self._run(["for-each-ref", f"--format=%(objectname)", prefix], check=False)

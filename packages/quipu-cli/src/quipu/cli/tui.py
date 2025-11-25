@@ -135,17 +135,8 @@ class QuipuUiApp(App):
             table.add_row(ts_str, "".join(graph_chars), info_str, key=str(node.filename))
 
     def _get_node_summary(self, node: QuipuNode) -> str:
-        content = node.content.strip()
-        lines = content.split('\n')
-        summary = "No description"
-        if node.node_type == 'plan':
-            for line in lines:
-                clean_line = line.strip()
-                if clean_line.startswith(('~~~', '```')): continue
-                if clean_line: summary = clean_line; break
-        elif node.node_type == 'capture':
-            summary = next((line.strip() for line in lines if line.strip() and not line.startswith(('#', '`', '-', "###"))), "Workspace Snapshot")
-        return (summary[:60] + '...') if len(summary) > 60 else summary
+        # 直接使用预加载的 summary 字段，避免昂贵的 content 解析
+        return node.summary or "No description"
 
     def _focus_current_node(self, table: DataTable):
         if not self.current_hash: return

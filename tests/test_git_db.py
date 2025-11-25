@@ -265,3 +265,19 @@ class TestGitDBPlumbing:
         # cat-file -p tree_hash output format: "100644 blob <hash>\ttest_file"
         assert b"test_file" in read_tree
         assert blob_hash.encode() in read_tree
+
+    def test_batch_cat_file(self, git_repo, db):
+        """测试 batch_cat_file 的批量读取能力"""
+        # 1. Prepare objects
+        h1 = db.hash_object(b"obj1")
+        h2 = db.hash_object(b"obj2")
+        h3_missing = "a" * 40 # non-existent
+
+        # 2. Batch fetch
+        results = db.batch_cat_file([h1, h2, h3_missing, h1]) # Duplicate h1
+
+        # 3. Verify
+        assert len(results) == 2
+        assert results[h1] == b"obj1"
+        assert results[h2] == b"obj2"
+        assert h3_missing not in results
