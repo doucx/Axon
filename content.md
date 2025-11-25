@@ -1,36 +1,11 @@
-您是对的，`Cell` 并不是 `textual` 公开 API 的一部分（至少在常用版本中不是）。在 `DataTable` 中添加样式化内容的标准方式是使用 `rich.text.Text` 对象。
+这是一个明确的 API 兼容性问题。`textual` 的 `DataTable` 组件使用 `move_cursor` 即可实现滚动，不需要（也不支持）`scroll_to_row`。
 
-此外，您的 `textual` 版本（6.6.0）似乎是一个非常新的或者非标准的版本号（通常 textual 版本号为 0.x.y），但在任何情况下，使用 `rich` 对象是兼容性最好的做法。
+同时，为了回应您关于“侧枝”显示的需求，我在这次修复中也会稍微优化一下 `_flatten_graph` 的逻辑，给非主线节点一点缩进，以便在视觉上区分。
 
-这里是修复方案：
+### 修复 `ui/tui.py`
 
-1.  **移除** 错误的 `Cell` 导入。
-2.  **添加** `rich.text.Text` 导入。
-3.  **修改** `add_row` 调用，使用 `Text` 对象来应用样式（我将使用 "bold reverse" 来高亮当前节点，这比依赖 CSS 类更直接且兼容）。
-
-~~~act
-replace
-~~~
-~~~path
-ui/tui.py
-~~~
-~~~old_string
-from typing import List, Optional, Dict, Tuple
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, Cell # 尝试从顶层导入 Cell
-from textual.app import ScreenStackError
-from textual.binding import Binding
-from textual.message import Message
-~~~
-~~~new_string
-from typing import List, Optional, Dict, Tuple
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable
-from textual.app import ScreenStackError
-from textual.binding import Binding
-from textual.message import Message
-from rich.text import Text
-~~~
+1.  **移除** 导致崩溃的 `table.scroll_to_row`。
+2.  **优化** 视觉显示：为主线外的节点添加简单的缩进前缀 `└─ `。
 
 ~~~act
 replace
@@ -39,23 +14,59 @@ replace
 ui/tui.py
 ~~~
 ~~~old_string
-            # 样式
-            style_class = ""
-            if node.output_tree == self.current_hash:
-                style_class = "current"
-                current_node_row_index = i
-            
-            # 将 AxonNode 实例作为行的用户数据 (UserData) 存储
-            row_key = table.add_row(
-                time_str,
-                type_label,
-                hash_str,
-                Cell(summary_str, style=style_class),
-                key=node.output_tree,
-                label=node # 存储整个节点对象
-            )
+    # 追踪主线 (Mainline)
+    mainline_hashes = set()
+    current = newest_node
+    while current:
+        mainline_hashes.add(current.output_tree)
+        # 确保沿着时间最晚的父节点走（如果父节点有多个子节点）
+        # 这里简化：我们总是沿着唯一的父指针走，如果父节点有多个孩子，当前节点是主线。
+        current = current.parent 
+
+    # 3. 构造最终的列表 (node, depth)
+    final_list: List[Tuple[AxonNode, int]] = []
+    
+    for node in sorted_nodes:
+        # 深度逻辑: 
+        # 如果节点在主线，深度为 0 (无需缩进)。
+        # 如果不在主线，则需要计算其分支深度。
+        # 简化：因为 Textual DataTable 不提供连接线，我们依赖用户视觉理解。
+        # 暂时只返回 (node, 0) 来表示每个节点都是独立一行。
+        final_list.append((node, 0)) # 忽略深度，让 TUI 负责渲染。
+
+    return final_list
 ~~~
 ~~~new_string
+    # 追踪主线 (Mainline)
+    mainline_hashes = set()
+    current = newest_node
+    while current:
+        mainline_hashes.add(current.output_tree)
+        current = current.parent 
+
+    # 3. 构造最终的列表 (node, depth)
+    final_list: List[Tuple[AxonNode, int]] = []
+    
+    for node in sorted_nodes:
+        # 简化的深度逻辑:
+        # 主线节点 depth=0
+        # 其他节点 depth=1 (简单的向右分支)
+        depth = 0 if node.output_tree in mainline_hashes else 1
+        final_list.append((node, depth))
+
+    return final_list
+~~~
+
+~~~act
+replace
+~~~
+~~~path
+ui/tui.py
+~~~
+~~~old_string
+            # 摘要
+            summary_str = node.summary
+
             # 样式与内容构建
             if node.output_tree == self.current_hash:
                 current_node_row_index = i
@@ -80,6 +91,47 @@ ui/tui.py
                 summary_cell,
                 key=node.output_tree
             )
+
+        # 2. 设置焦点
+        if current_node_row_index is not None:
+            # DataTable 使用 row_index 来设置游标
+            table.move_cursor(row=current_node_row_index, animate=False)
+            # Textual v0.58+ 使用 scroll_to_row
+            table.scroll_to_row(current_node_row_index, top=True)
+        
+        table.focus()
+~~~
+~~~new_string
+            # 摘要 (处理缩进)
+            indent = "   " * depth
+            prefix = "└─ " if depth > 0 else ""
+            final_summary_str = f"{indent}{prefix}{node.summary}"
+
+            # 样式与内容构建
+            if node.output_tree == self.current_hash:
+                current_node_row_index = i
+                # 使用 Rich Text 进行高亮 (bold reverse)
+                summary_cell = Text(final_summary_str, style="bold reverse")
+            else:
+                summary_cell = final_summary_str
+            
+            # 添加行
+            table.add_row(
+                time_str,
+                type_label,
+                hash_str,
+                summary_cell,
+                key=node.output_tree
+            )
+
+        # 2. 设置焦点
+        if current_node_row_index is not None:
+            # DataTable 使用 row_index 来设置游标
+            table.move_cursor(row=current_node_row_index, animate=False)
+            # 注意：move_cursor 通常会自动滚动视图。
+            # 移除了不支持的 scroll_to_row 调用。
+        
+        table.focus()
 ~~~
 
-请应用这两个修改。这样应该能彻底解决导入错误，并实现高亮功能。
+请应用修改。这次移除了不支持的 API 调用，并添加了基础的分支视觉区分。
