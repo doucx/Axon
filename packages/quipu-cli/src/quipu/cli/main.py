@@ -1,6 +1,7 @@
 import typer
 import logging
 import sys
+import click # 导入 click 库
 from pathlib import Path
 from typing import Annotated, Optional, Dict
 
@@ -21,6 +22,30 @@ from quipu.core.config import ConfigManager
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(add_completion=False, name="quipu")
+
+def _prompt_for_confirmation(message: str, default: bool = False) -> bool:
+    """
+    使用单字符输入请求用户确认，无需回车。
+    """
+    prompt_suffix = " [Y/n]: " if default else " [y/N]: "
+    typer.secho(message + prompt_suffix, nl=False, err=True)
+    
+    # click.getchar() 不适用于非 TTY 环境 (如 CI/CD 或管道)
+    # 在这种情况下，我们回退到 False，强制使用 --force
+    if not sys.stdin.isatty():
+        typer.echo(" (non-interactive)", err=True)
+        return False # 在非交互环境中，安全起见总是拒绝
+
+    char = click.getchar()
+    click.echo(char, err=True) # 回显用户输入
+
+    if char.lower() == 'y':
+        return True
+    if char.lower() == 'n':
+        return False
+    
+    # 对于回车或其他键，返回默认值
+    return default
 
 def _resolve_root(work_dir: Path) -> Path:
     """辅助函数：解析项目根目录，如果未找到则回退到 work_dir"""
@@ -231,7 +256,11 @@ def discard(
     typer.secho("-" * 20, err=True)
 
     if not force:
-        typer.confirm(f"🚨 即将丢弃上述所有变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？", abort=True)
+        prompt = f"🚨 即将丢弃上述所有变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？"
+        if not _prompt_for_confirmation(prompt, default=False):
+            typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
+            raise typer.Abort()
+
     try:
         engine.checkout(target_tree_hash)
         typer.secho(f"✅ 工作区已成功恢复到节点 {latest_node.short_hash}。", fg=typer.colors.GREEN, err=True)
@@ -287,7 +316,11 @@ def checkout(
         engine.capture_drift(current_hash)
         typer.secho("✅ 变更已捕获。", fg=typer.colors.GREEN, err=True)
     if not force:
-        typer.confirm(f"🚨 即将重置工作区到状态 {target_node.short_hash} ({target_node.timestamp})。\n此操作会覆盖未提交的更改。是否继续？", abort=True)
+        prompt = f"🚨 即将重置工作区到状态 {target_node.short_hash} ({target_node.timestamp})。\n此操作会覆盖未提交的更改。是否继续？"
+        if not _prompt_for_confirmation(prompt, default=False):
+            typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
+            raise typer.Abort()
+
     try:
         engine.checkout(target_tree_hash)
         typer.secho(f"✅ 已成功将工作区恢复到节点 {target_node.short_hash}。", fg=typer.colors.GREEN, err=True)
