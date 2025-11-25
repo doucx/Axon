@@ -227,6 +227,12 @@ class GitDB:
             return []
         return res.stdout.strip().splitlines()
 
+    def has_quipu_ref(self) -> bool:
+        """检查是否存在任何 'refs/quipu/' 引用，用于判断存储格式。"""
+        # We use show-ref and check the exit code. Exit 0 if refs exist, 1 otherwise.
+        res = self._run(["show-ref", "--verify", "--quiet", "refs/quipu/"], check=False, log_error=False)
+        return res.returncode == 0
+
     def log_ref(self, ref_names: Union[str, List[str]]) -> List[Dict[str, str]]:
         """获取指定引用的日志，并解析为结构化数据列表。"""
         # A unique delimiter that's unlikely to appear in commit messages

@@ -225,15 +225,6 @@ class Engine:
             message=message
         )
 
-        last_commit_hash = None
-        res = self.git_db._run(["rev-parse", "refs/quipu/history"], check=False)
-        if res.returncode == 0:
-            last_commit_hash = res.stdout.strip()
-        commit_msg = f"Axon Save: {message}" if message else f"Axon Capture: {current_hash[:7]}"
-        parents = [last_commit_hash] if last_commit_hash else None
-        new_commit_hash = self.git_db.commit_tree(current_hash, parent_hashes=parents, message=commit_msg)
-        self.git_db.update_ref("refs/quipu/history", new_commit_hash)
-
         self.history_graph[current_hash] = new_node
         self.current_node = new_node
         self._write_head(current_hash)
@@ -254,17 +245,6 @@ class Engine:
             output_tree=output_tree,
             content=plan_content
         )
-
-        parent_commit = None
-        try:
-            res = self.git_db._run(["rev-parse", "refs/quipu/history"], check=False)
-            if res.returncode == 0:
-                parent_commit = res.stdout.strip()
-        except Exception: pass
-        commit_msg = f"Axon Plan: {output_tree[:7]}"
-        parents = [parent_commit] if parent_commit else None
-        new_commit_hash = self.git_db.commit_tree(output_tree, parent_hashes=parents, message=commit_msg)
-        self.git_db.update_ref("refs/quipu/history", new_commit_hash)
 
         self.history_graph[output_tree] = new_node
         self.current_node = new_node

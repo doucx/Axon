@@ -14,6 +14,8 @@ from quipu.core.state_machine import Engine
 from quipu.core.history import load_all_history_nodes
 from quipu.core.models import QuipuNode
 from quipu.core.file_system_storage import FileSystemHistoryReader, FileSystemHistoryWriter
+from quipu.core.git_object_storage import GitObjectHistoryReader, GitObjectHistoryWriter
+from quipu.core.git_db import GitDB
 import inspect
 import subprocess
 from quipu.core.config import ConfigManager
@@ -54,12 +56,34 @@ def _resolve_root(work_dir: Path) -> Path:
     return root if root else work_dir
 
 def _setup_engine(work_dir: Path) -> Engine:
-    """辅助函数：实例化完整的 Engine 堆栈"""
+    """
+    辅助函数：实例化完整的 Engine 堆栈。
+    自动检测存储格式 (Git Object vs. File System) 并加载相应后端。
+    """
     real_root = _resolve_root(work_dir)
-    # 注意: 当前硬编码为文件系统存储。未来这里可以加入逻辑来检测项目类型。
-    history_dir = real_root / ".quipu" / "history"
-    reader = FileSystemHistoryReader(history_dir)
-    writer = FileSystemHistoryWriter(history_dir)
+    
+    # 1. 创建 GitDB 实例用于检测和注入
+    git_db = GitDB(real_root)
+    
+    # 2. 检测存储格式并选择策略
+    # 优先检测新格式 (Git refs)
+    if git_db.has_quipu_ref():
+        logger.debug("Detected Git Object storage format.")
+        reader = GitObjectHistoryReader(git_db)
+        writer = GitObjectHistoryWriter(git_db)
+    # 回退检测旧格式 (FS directory)
+    elif (real_root / ".quipu" / "history").exists():
+        logger.debug("Detected File System storage format (legacy).")
+        history_dir = real_root / ".quipu" / "history"
+        reader = FileSystemHistoryReader(history_dir)
+        writer = FileSystemHistoryWriter(history_dir)
+    # 默认在新项目中使用新格式
+    else:
+        logger.debug("No existing history found. Defaulting to Git Object storage format.")
+        reader = GitObjectHistoryReader(git_db)
+        writer = GitObjectHistoryWriter(git_db)
+
+    # 3. 注入依赖并实例化 Engine
     engine = Engine(real_root, reader=reader, writer=writer)
     engine.align()  # 对齐以加载历史图谱
     return engine

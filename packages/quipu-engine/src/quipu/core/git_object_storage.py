@@ -163,7 +163,7 @@ class GitObjectHistoryWriter(HistoryWriter):
             return "Plan executed"
 
         elif node_type == "capture":
-            user_message = kwargs.get("message", "").strip()
+            user_message = (kwargs.get("message") or "").strip()
             
             changes = self.git_db.get_diff_name_status(input_tree, output_tree)
             if not changes:
