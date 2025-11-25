@@ -1,63 +1,98 @@
-# fix-install-strategy 调整安装策略
+# env-standardize 标准化开发环境配置
 
 ## 目标
-通过仅安装子包（Sub-packages）而不安装根包（Root Package），来避免 `pip` 将子包作为普通依赖复制到 `site-packages`，从而破坏 Editable 状态和命名空间合并。
+将开发环境的安装方式固化为标准文件，并移除根目录 `pyproject.toml` 中的包定义以消除隐患。
 
 ## 基本原理
-根目录的 `quipu-dev` 包定义了对子包的本地文件依赖。当执行 `pip install -e .` 时，`pip` 可能会优先满足这些依赖，将其构建为 wheel 并安装到 `site-packages`，这会覆盖我们之前手动执行的 `pip install -e packages/...`。
-由于 `quipu` CLI 入口点已在 `quipu-cli` 包中定义，我们实际上不需要安装根包即可拥有完整的开发环境。
+通过移除 `[project]` 部分，根目录将不再被 `pip` 视为一个软件包，从而物理上杜绝了“安装根包导致依赖冲突”的可能性。同时，`dev-requirements.txt` 提供了清晰、可重复的开发环境搭建方式。
 
 ## 标签
-#fix #env #install-strategy
+#chore #env #standardization
 
 ---
 
 ## Script
 
-### Act 1: 彻底清理环境
+### Act 1: 创建标准开发依赖清单
 
-卸载所有相关的包，并手动删除残留目录，确保从零开始。
+创建 `dev-requirements.txt`，显式列出所有子包的 Editable 安装路径。这是以后初始化环境的唯一真理来源。
+
+~~~~~act
+write_file
+~~~~~
+
+~~~~~path
+dev-requirements.txt
+~~~~~
+
+~~~~~text
+-e packages/quipu-interfaces
+-e packages/quipu-engine
+-e packages/quipu-runtime
+-e packages/quipu-cli
+~~~~~
+
+### Act 2: 净化根目录配置
+
+修改 `pyproject.toml`，删除 `[project]` 及其相关部分，仅保留 `[tool.*]` 配置。这将防止根目录被意外安装。
+
+~~~~~act
+replace
+~~~~~
+
+~~~~~path
+pyproject.toml
+~~~~~
+
+~~~~~toml
+[project]
+name = "quipu-dev"
+version = "0.1.0"
+description = "Metapackage for the Quipu monorepo development environment."
+requires-python = ">=3.8"
+dependencies = [
+    "quipu-interfaces @ file:./packages/quipu-interfaces",
+    "quipu-engine @ file:./packages/quipu-engine",
+    "quipu-runtime @ file:./packages/quipu-runtime",
+    "quipu-cli @ file:./packages/quipu-cli",
+]
+
+[project.scripts]
+quipu = "quipu.cli.main:app"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+~~~~~
+
+~~~~~toml
+# Root configuration for tools only.
+# To install the development environment, run: pip install -r dev-requirements.txt
+
+[tool.pytest.ini_options]
+~~~~~
+
+### Act 3: 删除遗留的构建信息
+
+清理可能残留的 `quipu_dev.egg-info`，避免 pip 仍然认为它是一个包。
 
 ~~~~~act
 run_command
 ~~~~~
 
 ~~~~~bash
-pip uninstall -y quipu-cli quipu-engine quipu-runtime quipu-interfaces quipu-dev
-rm -rf /home/doucx/pyvenv/lib/python3.13/site-packages/quipu
-rm -rf /home/doucx/pyvenv/lib/python3.13/site-packages/quipu*
+rm -rf quipu_dev.egg-info
 ~~~~~
 
-### Act 2: 仅安装子包
+### Act 4: 验证操作流程
 
-以 Editable 模式安装四个核心子包。**不安装根目录**。
+模拟一次标准的“新环境搭建”流程：使用新生成的 `dev-requirements.txt` 进行安装，并运行测试。
 
 ~~~~~act
 run_command
 ~~~~~
 
 ~~~~~bash
-pip install -e packages/quipu-interfaces -e packages/quipu-engine -e packages/quipu-runtime -e packages/quipu-cli
-~~~~~
-
-### Act 3: 验证安装与导入
-
-运行诊断脚本。如果策略正确，`quipu.__path__` 应该包含四个 `src/quipu` 路径。
-
-~~~~~act
-run_command
-~~~~~
-
-~~~~~bash
-python3 debug_quipu.py
-~~~~~
-
-### Act 4: 运行测试
-
-~~~~~act
-run_command
-~~~~~
-
-~~~~~bash
-pytest
+pip install -r dev-requirements.txt && pytest
 ~~~~~
