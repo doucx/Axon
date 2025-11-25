@@ -82,6 +82,7 @@ class GitObjectHistoryReader(HistoryReader):
                     filename=Path(f".quipu/git_objects/{commit_hash}"),
                     node_type=meta_data.get("type", "unknown"),
                     content=content,
+                    summary=meta_data.get("summary", "No summary available"),
                 )
                 
                 temp_nodes[commit_hash] = node
@@ -151,15 +152,30 @@ class GitObjectHistoryWriter(HistoryWriter):
     ) -> str:
         """根据节点类型生成单行摘要。"""
         if node_type == "plan":
-            # 尝试从 Markdown 的第一个标题中提取
+            # 优先从 act 块中提取摘要
+            summary = ""
+            in_act_block = False
+            for line in content.strip().splitlines():
+                clean_line = line.strip()
+                if clean_line.startswith(('~~~act', '```act')):
+                    in_act_block = True
+                    continue
+                
+                if in_act_block:
+                    if clean_line.startswith(('~~~', '```')):
+                        break  # 块结束
+                    if clean_line:
+                        summary = clean_line
+                        break  # 找到摘要
+            
+            if summary:
+                return (summary[:75] + '...') if len(summary) > 75 else summary
+
+            # 回退：尝试从 Markdown 的第一个标题中提取
             match = re.search(r"^\s*#{1,6}\s+(.*)", content, re.MULTILINE)
             if match:
                 return match.group(1).strip()
-            # 如果找不到标题，则从第一个非空行提取
-            for line in content.strip().splitlines():
-                clean_line = line.strip()
-                if clean_line:
-                    return (clean_line[:75] + '...') if len(clean_line) > 75 else clean_line
+            
             return "Plan executed"
 
         elif node_type == "capture":

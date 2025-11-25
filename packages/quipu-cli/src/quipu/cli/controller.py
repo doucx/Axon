@@ -11,6 +11,8 @@ from quipu.core.exceptions import ExecutionError as CoreExecutionError
 from quipu.core.parser import get_parser, detect_best_parser
 from quipu.core.plugin_loader import load_plugins
 from quipu.core.file_system_storage import FileSystemHistoryReader, FileSystemHistoryWriter
+from quipu.core.git_object_storage import GitObjectHistoryReader, GitObjectHistoryWriter
+from quipu.core.git_db import GitDB
 
 # 从配置导入，注意为了解耦，未来可能需要将 config 注入而不是直接导入
 from .config import PROJECT_ROOT
@@ -90,11 +92,22 @@ def run_quipu(
 
         # --- Phase 1: Engine Initialization & Perception ---
         # 注意：所有核心组件都必须使用规范化后的 project_root 初始化！
-        history_dir = project_root / ".quipu" / "history"
-        reader = FileSystemHistoryReader(history_dir)
-        writer = FileSystemHistoryWriter(history_dir)
-        engine = Engine(project_root, reader=reader, writer=writer)
+        git_db = GitDB(project_root)
+        if git_db.has_quipu_ref():
+            logger.debug("Detected Git Object storage format.")
+            reader = GitObjectHistoryReader(git_db)
+            writer = GitObjectHistoryWriter(git_db)
+        elif (project_root / ".quipu" / "history").exists():
+            logger.debug("Detected File System storage format (legacy).")
+            history_dir = project_root / ".quipu" / "history"
+            reader = FileSystemHistoryReader(history_dir)
+            writer = FileSystemHistoryWriter(history_dir)
+        else:
+            logger.debug("No existing history found. Defaulting to Git Object storage format.")
+            reader = GitObjectHistoryReader(git_db)
+            writer = GitObjectHistoryWriter(git_db)
 
+        engine = Engine(project_root, reader=reader, writer=writer)
         status = engine.align() # "CLEAN", "DIRTY", "ORPHAN"
         
         current_hash = engine.git_db.get_tree_hash()

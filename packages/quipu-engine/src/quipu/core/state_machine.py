@@ -62,8 +62,6 @@ class Engine:
         self.nav_log_file = self.quipu_dir / "nav_log"
         self.nav_ptr_file = self.quipu_dir / "nav_ptr"
 
-        self.history_dir.mkdir(parents=True, exist_ok=True)
-
         quipu_gitignore = self.quipu_dir / ".gitignore"
         if not quipu_gitignore.exists():
             try:

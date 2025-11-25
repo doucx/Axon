@@ -25,6 +25,9 @@ class QuipuNode:
     
     # 文件主体内容
     content: str = ""
+
+    # 从元数据或内容生成的单行摘要
+    summary: str = ""
     
     # --- 图遍历字段 (由加载器填充) ---
     parent: Optional[QuipuNode] = None

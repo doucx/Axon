@@ -17,6 +17,7 @@ class FileSystemHistoryReader(HistoryReader):
     """
     def __init__(self, history_dir: Path):
         self.history_dir = history_dir
+        self.history_dir.mkdir(parents=True, exist_ok=True)
 
     def load_all_nodes(self) -> List[QuipuNode]:
         """

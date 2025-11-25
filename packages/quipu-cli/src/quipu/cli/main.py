@@ -564,25 +564,7 @@ def log(
         ts = node.timestamp.strftime('%Y-%m-%d %H:%M:%S')
         color = typer.colors.CYAN if node.node_type == "plan" else typer.colors.MAGENTA
         tag = f"[{node.node_type.upper()}]"
-        summary = ""
-        content_lines = node.content.strip().split('\n')
-        if node.node_type == 'plan':
-            in_act_block = False
-            for line in content_lines:
-                if line.strip().startswith(('~~~act', '```act')): in_act_block = True; continue
-                if in_act_block and line.strip(): summary = line.strip(); break
-            if not summary: summary = "Plan executed"
-        elif node.node_type == 'capture':
-            in_diff_block = False; diff_summary_lines = []
-            for line in content_lines:
-                if "变更文件摘要" in line: in_diff_block = True; continue
-                if in_diff_block and line.strip().startswith('```'): break
-                if in_diff_block and line.strip(): diff_summary_lines.append(line.strip())
-            if diff_summary_lines:
-                files_changed = [l.split('|')[0].strip() for l in diff_summary_lines]
-                summary = f"Changes captured in: {', '.join(files_changed)}"
-            else: summary = "Workspace changes captured"
-        summary = (summary[:75] + '...') if len(summary) > 75 else summary
+        summary = node.summary # Use the authoritative summary from the node object
         typer.secho(f"{ts} {tag:<9} {node.short_hash}", fg=color, nl=False, err=True)
         typer.echo(f" - {summary}", err=True)
 

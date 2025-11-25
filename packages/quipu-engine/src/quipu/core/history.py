@@ -44,11 +44,39 @@ def load_all_history_nodes(history_dir: Path) -> List[QuipuNode]:
             full_content = file_path.read_text("utf-8")
             meta, body_content = _parse_frontmatter(full_content)
             
+            node_type = meta.get("type", "unknown")
+            # For legacy nodes, we generate a summary on the fly.
+            summary = "No description"
+            if node_type == 'plan':
+                # Robust heuristic: find the first non-empty, non-fence line inside `act` block
+                in_act_block = False
+                temp_summary = ""
+                for line in body_content.strip().split('\n'):
+                    clean_line = line.strip()
+                    if clean_line.startswith(('~~~act', '```act')):
+                        in_act_block = True
+                        continue
+                    if in_act_block:
+                        if clean_line.startswith(('~~~', '```')):
+                            break
+                        if clean_line:
+                            temp_summary = clean_line
+                            break
+                summary = temp_summary or "Plan executed"
+            elif node_type == 'capture':
+                # Prioritize user message from the body
+                match = re.search(r"### 💬 备注:\n(.*?)\n\n", body_content, re.DOTALL)
+                if match:
+                    summary = match.group(1).strip()
+                else:
+                    summary = "Workspace changes captured"
+
             node = QuipuNode(
                 input_tree=input_hash, output_tree=output_hash,
                 timestamp=datetime.strptime(ts_str, "%Y%m%d%H%M%S"),
-                filename=file_path, node_type=meta.get("type", "unknown"),
-                content=body_content
+                filename=file_path, node_type=node_type,
+                content=body_content,
+                summary=(summary[:75] + '...') if len(summary) > 75 else summary
             )
             all_nodes.append(node)
             nodes_by_output.setdefault(output_hash, []).append(node)
