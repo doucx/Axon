@@ -107,16 +107,31 @@ def ui(
     graph = engine.history_graph
     current_hash = engine.git_db.get_tree_hash()
     
-    app_instance = QuipuUiApp(all_nodes, current_hash=current_hash)
-    selected_hash = app_instance.run()
+    # 定义内容加载器闭包，供 UI 按需调用
+    def content_loader(node: QuipuNode) -> str:
+        return engine.reader.get_node_content(node)
+    
+    # 注入 loader
+    app_instance = QuipuUiApp(all_nodes, content_loader=content_loader, current_hash=current_hash)
+    result = app_instance.run()
 
-    if selected_hash:
-        if selected_hash in graph:
-            typer.secho(f"\n> TUI 请求检出到: {selected_hash[:7]}", err=True)
-            _execute_visit(ctx, engine, selected_hash, f"正在导航到 TUI 选定节点: {selected_hash[:7]}")
-        else:
-            typer.secho(f"❌ 错误: 无法在历史图谱中找到目标哈希 {selected_hash[:7]}", fg=typer.colors.RED, err=True)
-            ctx.exit(1)
+    # 处理 UI 返回结果
+    if result:
+        action, data = result
+        
+        if action == "checkout":
+            target_hash = data
+            if target_hash in graph:
+                typer.secho(f"\n> TUI 请求检出到: {target_hash[:7]}", err=True)
+                _execute_visit(ctx, engine, target_hash, f"正在导航到 TUI 选定节点: {target_hash[:7]}")
+            else:
+                typer.secho(f"❌ 错误: 无法在历史图谱中找到目标哈希 {target_hash[:7]}", fg=typer.colors.RED, err=True)
+                ctx.exit(1)
+                
+        elif action == "dump":
+            # 直接将内容打印到 stdout，方便用户通过管道处理 (e.g. quipu ui | less)
+            print(data)
+            ctx.exit(0)
 
 
 @app.command()

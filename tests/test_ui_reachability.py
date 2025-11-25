@@ -33,7 +33,7 @@ class TestUiReachability:
         # Scenario 1: Focus on 'curr'
         # Reachable should be: curr, a, root (Ancestors) + (Descendants: None)
         # Unreachable: b
-        app = QuipuUiApp([root, node_a, node_b, node_current], current_hash="curr")
+        app = QuipuUiApp([root, node_a, node_b, node_current], content_loader=lambda n: "mock", current_hash="curr")
         reachable = app.reachable_hashes
         
         assert "curr" in reachable
@@ -43,7 +43,7 @@ class TestUiReachability:
         
         # Scenario 2: Focus on 'root'
         # Reachable: root + all descendants (a, b, curr)
-        app_root = QuipuUiApp([root, node_a, node_b, node_current], current_hash="root")
+        app_root = QuipuUiApp([root, node_a, node_b, node_current], content_loader=lambda n: "mock", current_hash="root")
         reachable_root = app_root.reachable_hashes
         
         assert "curr" in reachable_root
@@ -66,7 +66,7 @@ class TestUiReachability:
         node_c = QuipuNode("root", "c", datetime(2023,1,3), Path("f"), "plan")
         
         nodes = [node_a, node_b, node_c]
-        app = QuipuUiApp(nodes, current_hash="a")
+        app = QuipuUiApp(nodes, content_loader=lambda n: "mock", current_hash="a")
         
         # 1. Default: Show all, but C is dim (logic handled in rendering string, hard to test here without inspecting Textual widgets deep state)
         # But we can check internal logic

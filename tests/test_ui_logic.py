@@ -14,7 +14,7 @@ class TestUiLogic:
         node_b = QuipuNode("a", "b", datetime(2023,1,2), Path("f"), "plan")
         node_c = QuipuNode("b", "c", datetime(2023,1,3), Path("f"), "plan")
         
-        app = QuipuUiApp([node_a, node_b, node_c])
+        app = QuipuUiApp([node_a, node_b, node_c], content_loader=lambda n: "mock")
         
         # 我们可以通过 mock table 来验证，或者简单地运行 _populate_table 看是否报错
         # 由于 Textual 组件需要在 App 运行上下文中才能完整工作 (query_one)，
@@ -31,7 +31,7 @@ class TestUiLogic:
         node_b = QuipuNode("a", "b", datetime(2023,1,2), Path("f"), "plan")
         node_c = QuipuNode("a", "c", datetime(2023,1,3), Path("f"), "plan") # Branch C is newer
         
-        app = QuipuUiApp([node_a, node_b, node_c])
+        app = QuipuUiApp([node_a, node_b, node_c], content_loader=lambda n: "mock")
         
         # 验证排序: C (newest), B, A
         assert app.sorted_nodes[0].output_tree == "c"
@@ -58,7 +58,7 @@ class TestUiLogic:
         """
         测试 TUI 是否正确使用预加载的 summary 字段，而不是动态解析。
         """
-        app = QuipuUiApp([], None)
+        app = QuipuUiApp([], content_loader=lambda n: "mock", current_hash=None)
 
         # 案例 1: 节点带有预设的 summary
         # TUI 应该直接使用它。
