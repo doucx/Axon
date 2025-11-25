@@ -1,256 +1,189 @@
-# refactor: 实现 Git 对象历史写入器
+# test: 为 GitObjectHistoryWriter 和 GitDB 增强功能添加测试
 
 ## 用户需求
-根据 [Quipu 储存架构最终规范](Quipu%20储存架构最终规范.md) 和 [实施计划](Quipu%20储存架构改造实施计划%20(TODO).md) ，实现 `QDPS v1.0` 规范中定义的、基于 Git 底层命令的全新历史记录存储机制。具体任务是实现 `GitObjectHistoryWriter`。
+分析为新实现的 `GitObjectHistoryWriter` 模块创建测试的必要性，并在确定需要后，编写相应的测试用例。
 
 ## 评论
-这是存储层改造的核心步骤。通过将历史记录的写入逻辑封装到一个遵循 `QDPS v1.0` 规范的新类中，我们为彻底替换旧的文件系统存储方式奠定了基础。这使得系统的历史记录功能将具备版本控制、高效存储和协作同步的能力。
+这是确保新存储层稳定性的关键步骤。新模块包含了复杂的业务逻辑（摘要生成）和对底层 `GitDB` 的精密编排，这些都必须经过严格验证。通过编写测试，我们可以确保：
+1.  `GitDB` 的新辅助方法 `get_diff_name_status` 能正确解析 Git 输出。
+2.  `_generate_summary` 方法能为不同类型的节点和场景生成符合预期的摘要。
+3.  `create_node` 的完整流程能正确地创建符合 `QDPS v1.0` 规范的 Git 对象 (Commit, Tree, Blobs) 。
+4.  未来的重构不会意外破坏这一核心功能。
 
 ## 目标
-1.  在 `quipu.core.git_db` 模块中增加一个辅助方法，用于获取两个 Git Tree 之间的文件状态变更列表。
-2.  创建一个新的模块 `quipu.core.git_object_storage`。
-3.  在该新模块中，实现 `GitObjectHistoryWriter` 类，该类遵循 `HistoryWriter` 接口，并能将历史节点作为 Git 对象（Blobs, Tree, Commit）写入仓库。
+1.  为 `quipu.core.git_db.GitDB` 中新增的 `get_diff_name_status` 方法添加测试用例。
+2.  为 `quipu.core.git_object_storage.GitObjectHistoryWriter` 的 `_generate_summary` 方法编写全面的单元测试。
+3.  为 `GitObjectHistoryWriter.create_node` 方法编写一个集成测试，验证其能正确地在 Git 仓库中创建符合规范的历史节点。
 
 ## 基本原理
-我们遵循“策略模式”和“依赖注入”的设计原则。`GitObjectHistoryWriter` 将作为一个具体的“写入策略”实现，它封装了所有与 Git 底层对象交互的复杂逻辑。`Engine` 模块未来将通过依赖注入的方式使用这个写入器，而无需关心其内部实现细节。这种解耦使得 `Engine` 的核心业务逻辑（状态协调）与数据持久化方式完全分离，提高了系统的可维护性和可扩展性。
+我们将遵循标准的测试实践，利用 `pytest` 框架和固件 (fixtures) 来创建一个隔离的、可重复的测试环境。
+*   对于 `GitDB` 的测试，我们将在一个临时的 Git 仓库中创建两种不同的状态，然后调用 `get_diff_name_status` 并断言其输出的准确性。
+*   对于 `_generate_summary` 的单元测试，我们将通过 `pytest.mark.parametrize` 高效地覆盖多种输入情况，并使用 `mocker` 来模拟 `git_db` 的行为，从而将业务逻辑与底层 Git 操作解耦。
+*   对于 `create_node` 的集成测试，我们将真实地调用该方法，然后使用 `subprocess` 执行 `git` 命令来检查生成的 Commit、Tree 和 Blob 对象的内容，确保它们完全符合 `QDPS v1.0` 规范。
 
 ## 标签
-#comp/engine #concept/history #scope/core
+#comp/engine #comp/tests #concept/history #scope/dx
 
 ---
 
 ## Script
 
-### Acts 1: 增强 GitDB 模块
+### Acts 1: 为 `GitDB.get_diff_name_status` 添加测试
 
-为了支持 `capture` 类型节点摘要的自动生成，我们需要在 `GitDB` 中添加一个新方法 `get_diff_name_status`，用于获取两个 tree 之间的文件变更状态列表。
-
-~~~~~act
-replace
-~~~~~
-~~~~~path
-packages/quipu-engine/src/quipu/core/git_db.py
-~~~~~
-~~~~~python
-import os
-import subprocess
-import logging
-import shutil
-from pathlib import Path
-from typing import Optional, Dict, List
-from contextlib import contextmanager
-from quipu.core.exceptions import ExecutionError
-~~~~~
-~~~~~python
-import os
-import subprocess
-import logging
-import shutil
-from pathlib import Path
-from typing import Optional, Dict, List, Tuple
-from contextlib import contextmanager
-from quipu.core.exceptions import ExecutionError
-~~~~~
+我们将增强 `tests/test_git_db.py` 文件，为新增的 `get_diff_name_status` 方法添加一个测试用例，验证其能否正确解析文件变更状态。
 
 ~~~~~act
 replace
 ~~~~~
 ~~~~~path
-packages/quipu-engine/src/quipu/core/git_db.py
+tests/test_git_db.py
 ~~~~~
 ~~~~~python
-    def get_diff_stat(self, old_tree: str, new_tree: str) -> str:
-        """
-        获取两个 Tree 之间的差异统计 (Human Readable)。
-        """
-        result = self._run(["diff-tree", "--stat", old_tree, new_tree])
-        return result.stdout.strip()
+        assert (quipu_dir / "preserve.me").exists(), ".quipu directory should be preserved"
 ~~~~~
 ~~~~~python
-    def get_diff_stat(self, old_tree: str, new_tree: str) -> str:
-        """
-        获取两个 Tree 之间的差异统计 (Human Readable)。
-        """
-        result = self._run(["diff-tree", "--stat", old_tree, new_tree])
-        return result.stdout.strip()
+        assert (quipu_dir / "preserve.me").exists(), ".quipu directory should be preserved"
 
-    def get_diff_name_status(self, old_tree: str, new_tree: str) -> List[Tuple[str, str]]:
-        """
-        获取两个 Tree 之间的文件变更状态列表 (M, A, D, etc.)。
-        """
-        result = self._run(["diff-tree", "--name-status", "--no-commit-id", "-r", old_tree, new_tree])
-        changes = []
-        for line in result.stdout.strip().splitlines():
-            if not line:
-                continue
-            parts = line.split("\t", 1)
-            if len(parts) == 2:
-                status, path = parts
-                changes.append((status, path))
-        return changes
+    def test_get_diff_name_status(self, git_repo: Path, db: GitDB):
+        """Test the file status diffing functionality."""
+        # State A
+        (git_repo / "modified.txt").write_text("v1", "utf-8")
+        (git_repo / "deleted.txt").write_text("delete me", "utf-8")
+        hash_a = db.get_tree_hash()
+
+        # State B
+        (git_repo / "modified.txt").write_text("v2", "utf-8")
+        (git_repo / "deleted.txt").unlink()
+        (git_repo / "added.txt").write_text("new file", "utf-8")
+        hash_b = db.get_tree_hash()
+
+        changes = db.get_diff_name_status(hash_a, hash_b)
+        
+        # Convert to a dictionary for easier assertion
+        changes_dict = {path: status for status, path in changes}
+
+        assert "M" == changes_dict.get("modified.txt")
+        assert "A" == changes_dict.get("added.txt")
+        assert "D" == changes_dict.get("deleted.txt")
+        assert len(changes) == 3
 ~~~~~
 
-### Acts 2: 实现 GitObjectHistoryWriter
+### Acts 2: 创建新的测试文件 `test_storage_writer.py`
 
-现在，我们创建新的 `git_object_storage.py` 文件，并实现 `GitObjectHistoryWriter` 类。这个类将严格遵循 `QDPS v1.0` 规范，完成从构建元数据到创建 Git Commit 的完整流程。
+为了更好地组织代码，我们将为所有 `HistoryWriter` 的实现创建一个专门的测试文件。
 
 ~~~~~act
 write_file
 ~~~~~
 ~~~~~path
-packages/quipu-engine/src/quipu/core/git_object_storage.py
+tests/test_storage_writer.py
 ~~~~~
 ~~~~~python
 import json
-import logging
-import os
-import platform
-import re
-import time
-from datetime import datetime
+import pytest
+import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-import importlib.metadata
+from unittest.mock import MagicMock
 
 from quipu.core.git_db import GitDB
-from quipu.core.models import QuipuNode
-from quipu.core.storage import HistoryWriter
+from quipu.core.git_object_storage import GitObjectHistoryWriter
 
-logger = logging.getLogger(__name__)
-
-
-class GitObjectHistoryWriter(HistoryWriter):
+@pytest.fixture
+def git_writer_setup(tmp_path):
     """
-    一个将历史节点作为 Git 底层对象写入存储的实现。
-    遵循 Quipu 数据持久化协议规范 (QDPS) v1.0。
+    创建一个包含 Git 仓库、GitDB 和 GitObjectHistoryWriter 实例的测试环境。
     """
+    repo_path = tmp_path / "test_repo"
+    repo_path.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@quipu.dev"], cwd=repo_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Quipu Test"], cwd=repo_path, check=True)
+    
+    git_db = GitDB(repo_path)
+    writer = GitObjectHistoryWriter(git_db)
+    
+    return writer, git_db, repo_path
 
-    def __init__(self, git_db: GitDB):
-        self.git_db = git_db
+class TestGitObjectHistoryWriterUnit:
+    """对 GitObjectHistoryWriter 的内部逻辑进行单元测试。"""
 
-    def _get_generator_info(self) -> Dict[str, str]:
-        """根据 QDPS v1.0 规范，通过环境变量获取生成源信息。"""
-        return {
-            "id": os.getenv("QUIPU_GENERATOR_ID", "manual"),
-            "tool": os.getenv("QUIPU_TOOL", "quipu-cli"),
-        }
-
-    def _get_env_info(self) -> Dict[str, str]:
-        """获取运行时环境指纹。"""
-        try:
-            quipu_version = importlib.metadata.version("quipu-engine")
-        except importlib.metadata.PackageNotFoundError:
-            quipu_version = "unknown"
-
-        return {
-            "quipu": quipu_version,
-            "python": platform.python_version(),
-            "os": platform.system().lower(),
-        }
-
-    def _generate_summary(
-        self,
-        node_type: str,
-        content: str,
-        input_tree: str,
-        output_tree: str,
-        **kwargs: Any,
-    ) -> str:
-        """根据节点类型生成单行摘要。"""
-        if node_type == "plan":
-            # 尝试从 Markdown 的第一个标题中提取
-            match = re.search(r"^\s*#{1,6}\s+(.*)", content, re.MULTILINE)
-            if match:
-                return match.group(1).strip()
-            # 如果找不到标题，则从第一个非空行提取
-            for line in content.strip().splitlines():
-                clean_line = line.strip()
-                if clean_line:
-                    return (clean_line[:75] + '...') if len(clean_line) > 75 else clean_line
-            return "Plan executed"
-
-        elif node_type == "capture":
-            user_message = kwargs.get("message", "").strip()
-            
-            changes = self.git_db.get_diff_name_status(input_tree, output_tree)
-            if not changes:
-                auto_summary = "Capture: No changes detected"
-            else:
-                formatted_changes = [f"{status} {Path(path).name}" for status, path in changes[:3]]
-                summary_part = ", ".join(formatted_changes)
-                if len(changes) > 3:
-                    summary_part += f" ... and {len(changes) - 3} more files"
-                auto_summary = f"Capture: {summary_part}"
-
-            return f"{user_message} {auto_summary}".strip() if user_message else auto_summary
+    @pytest.mark.parametrize(
+        "node_type, content, kwargs, expected_summary",
+        [
+            ("plan", "# feat: Implement feature\nDetails here.", {}, "feat: Implement feature"),
+            ("plan", "Just a simple plan content line.", {}, "Just a simple plan content line."),
+            ("capture", "", {"message": "Initial capture"}, "Capture: No changes detected"),
+            ("capture", "", {"message": "UI fix"}, "UI fix Capture: No changes detected"),
+            ("capture", "", {}, "Capture: M file1.py, A file2.js ... and 1 more files"),
+        ]
+    )
+    def test_generate_summary(self, mocker, node_type, content, kwargs, expected_summary):
+        mock_git_db = MagicMock(spec=GitDB)
+        mock_git_db.get_diff_name_status.return_value = [
+            ("M", "path/to/file1.py"), 
+            ("A", "file2.js"), 
+            ("D", "old.css")
+        ]
         
-        return "Unknown node type"
+        if "No changes" in expected_summary:
+            mock_git_db.get_diff_name_status.return_value = []
 
-    def create_node(
-        self,
-        node_type: str,
-        input_tree: str,
-        output_tree: str,
-        content: str,
-        **kwargs: Any,
-    ) -> QuipuNode:
-        """
-        在 Git 对象数据库中创建并持久化一个新的历史节点。
-        """
-        start_time = kwargs.get("start_time", time.time())
-        end_time = time.time()
-        duration_ms = int((end_time - start_time) * 1000)
+        writer = GitObjectHistoryWriter(mock_git_db)
+        summary = writer._generate_summary(node_type, content, "hash_a", "hash_b", **kwargs)
+        
+        assert summary == expected_summary
 
-        summary = self._generate_summary(
-            node_type, content, input_tree, output_tree, **kwargs
-        )
+class TestGitObjectHistoryWriterIntegration:
+    """对 GitObjectHistoryWriter 与真实 Git 仓库的交互进行集成测试。"""
+    
+    def test_create_node_end_to_end(self, git_writer_setup):
+        writer, git_db, repo_path = git_writer_setup
 
-        metadata = {
-            "meta_version": "1.0",
-            "summary": summary,
-            "type": node_type,
-            "generator": self._get_generator_info(),
-            "env": self._get_env_info(),
-            "exec": {"start": start_time, "duration_ms": duration_ms},
-        }
-
-        meta_json_bytes = json.dumps(
-            metadata, sort_keys=False, ensure_ascii=False
-        ).encode("utf-8")
-        content_md_bytes = content.encode("utf-8")
-
-        meta_blob_hash = self.git_db.hash_object(meta_json_bytes)
-        content_blob_hash = self.git_db.hash_object(content_md_bytes)
-
-        # 使用 100444 权限 (只读文件)
-        tree_descriptor = (
-            f"100444 blob {meta_blob_hash}\tmetadata.json\n"
-            f"100444 blob {content_blob_hash}\tcontent.md"
-        )
-        tree_hash = self.git_db.mktree(tree_descriptor)
-
-        last_commit_hash: Optional[str] = None
-        res = self.git_db._run(["rev-parse", "refs/quipu/history"], check=False, log_error=False)
-        if res.returncode == 0:
-            last_commit_hash = res.stdout.strip()
-
-        parents = [last_commit_hash] if last_commit_hash else None
-        commit_message = f"{summary}\n\nX-Quipu-Output-Tree: {output_tree}"
-        new_commit_hash = self.git_db.commit_tree(
-            tree_hash=tree_hash, parent_hashes=parents, message=commit_message
-        )
-
-        self.git_db.update_ref("refs/quipu/history", new_commit_hash)
-        logger.info(f"✅ History node created as commit {new_commit_hash[:7]}")
-
-        # 返回一个 QuipuNode 实例以兼容现有接口
-        return QuipuNode(
-            input_tree=input_tree,
+        # 1. 准备工作区状态
+        (repo_path / "main.py").write_text("print('hello')", "utf-8")
+        output_tree = git_db.get_tree_hash()
+        
+        # 2. 调用 create_node
+        plan_content = "# feat: Initial implementation\nThis is the first version."
+        node = writer.create_node(
+            node_type="plan",
+            input_tree="4b825dc642cb6eb9a060e54bf8d69288fbee4904", # Empty tree
             output_tree=output_tree,
-            timestamp=datetime.fromtimestamp(start_time),
-            # 使用 Commit Hash 作为唯一标识符，因为它不再对应单个文件
-            filename=Path(f".quipu/git_objects/{new_commit_hash}"),
-            node_type=node_type,
-            content=content,
+            content=plan_content,
         )
+
+        # 3. 验证 Git 状态
+        # 3.1 检查引用是否更新
+        commit_hash = subprocess.check_output(
+            ["git", "rev-parse", "refs/quipu/history"], cwd=repo_path, text=True
+        ).strip()
+        assert len(commit_hash) == 40
+
+        # 3.2 检查 Commit 内容
+        commit_data = subprocess.check_output(
+            ["git", "cat-file", "-p", commit_hash], cwd=repo_path, text=True
+        )
+        assert f"tree " in commit_data
+        assert "feat: Initial implementation" in commit_data
+        assert f"X-Quipu-Output-Tree: {output_tree}" in commit_data
+        
+        # 3.3 检查 Tree 内容
+        tree_hash = commit_data.splitlines()[0].split(" ")[1]
+        tree_data = subprocess.check_output(
+            ["git", "ls-tree", tree_hash], cwd=repo_path, text=True
+        )
+        assert "metadata.json" in tree_data
+        assert "content.md" in tree_data
+
+        # 3.4 检查 Blob 内容
+        meta_blob_hash = [line.split()[2] for line in tree_data.splitlines() if "metadata.json" in line][0]
+        meta_content_str = subprocess.check_output(
+            ["git", "cat-file", "blob", meta_blob_hash], cwd=repo_path, text=True
+        )
+        meta_data = json.loads(meta_content_str)
+        
+        assert meta_data["meta_version"] == "1.0"
+        assert meta_data["type"] == "plan"
+        assert meta_data["summary"] == "feat: Initial implementation"
+        assert meta_data["generator"]["id"] == "manual"
 ~~~~~
