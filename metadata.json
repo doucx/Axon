@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "Capture: M main.py, M git_object_storage.py, M hydrator.py ... and 8 more files", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764163739.4896717, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "refactor: 引入 GraphViewModel 以解耦 UI 与数据层", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764163795.0753217, "duration_ms": 0}}
