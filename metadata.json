@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "feat: 激活 SQLite 读取路径以提升性能", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764154772.890353, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "test: 为 SQLiteHistoryReader 添加单元测试", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764154920.150249, "duration_ms": 0}}
