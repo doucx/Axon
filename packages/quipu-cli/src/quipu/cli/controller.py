@@ -152,17 +152,21 @@ def run_quipu(content: str, work_dir: Path, parser_name: str = "auto", yolo: boo
     Quipu 核心业务逻辑的入口包装器。
 
     实例化并运行 QuipuApplication，捕获所有异常并转化为 QuipuResult。
+    确保资源被安全释放。
     """
+    app = None
     try:
         app = QuipuApplication(work_dir=work_dir, yolo=yolo)
         return app.run(content=content, parser_name=parser_name)
 
     except CoreExecutionError as e:
-        # 预期的执行错误 (如文件找不到，Git 冲突等)
         logger.error(f"❌ 操作失败: {e}")
         return QuipuResult(success=False, exit_code=1, message=str(e), error=e)
 
     except Exception as e:
-        # 意外的运行时错误
         logger.error(f"运行时错误: {e}", exc_info=True)
         return QuipuResult(success=False, exit_code=1, message=f"系统错误: {e}", error=e)
+    finally:
+        # 确保无论成功或失败，引擎资源都被关闭
+        if app and hasattr(app, "engine") and app.engine:
+            app.engine.close()

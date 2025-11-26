@@ -9,6 +9,12 @@ from .config import ConfigManager
 from quipu.core.models import QuipuNode
 from quipu.core.storage import HistoryReader, HistoryWriter
 
+# 导入类型以进行类型提示
+try:
+    from .sqlite_db import DatabaseManager
+except ImportError:
+    DatabaseManager = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,10 +59,17 @@ class Engine:
         except Exception as e:
             logger.warning(f"⚠️  无法同步持久化忽略规则: {e}")
 
-    def __init__(self, root_dir: Path, db: Any, reader: HistoryReader, writer: HistoryWriter):
+    def __init__(
+        self,
+        root_dir: Path,
+        db: Any,
+        reader: HistoryReader,
+        writer: HistoryWriter,
+        db_manager: Optional[Any] = None,
+    ):
         self.root_dir = root_dir.resolve()
         self.quipu_dir = self.root_dir / ".quipu"
-        self.quipu_dir.mkdir(exist_ok=True)  # 确保 .quipu 目录存在
+        self.quipu_dir.mkdir(exist_ok=True)
         self.history_dir = self.quipu_dir / "history"
         self.head_file = self.quipu_dir / "HEAD"
 
@@ -70,15 +83,20 @@ class Engine:
             except Exception as e:
                 logger.warning(f"无法创建隔离文件 {quipu_gitignore}: {e}")
 
-        self.git_db = db  # <-- 依赖注入
+        self.git_db = db
         self.reader = reader
         self.writer = writer
+        self.db_manager = db_manager  # 持有数据库管理器引用
         self.history_graph: Dict[str, QuipuNode] = {}
         self.current_node: Optional[QuipuNode] = None
 
-        # Only sync ignores if it's a real git repo
         if isinstance(db, GitDB):
             self._sync_persistent_ignores()
+
+    def close(self):
+        """关闭引擎持有的所有资源，如数据库连接。"""
+        if self.db_manager:
+            self.db_manager.close()
 
     def _read_head(self) -> Optional[str]:
         if self.head_file.exists():

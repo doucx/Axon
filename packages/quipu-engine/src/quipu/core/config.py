@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 # 默认配置，为所有可能的设置提供一个基础
 DEFAULTS = {
     "storage": {
-        "type": "git_object",
+        "type": "git_object",  # 可选: "git_object", "sqlite"
     },
     "sync": {
         "remote_name": "origin",
