@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "chore: 为 find 命令重构创建 Git 提交", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764155277.2591214, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[Refactor] 扩展 HistoryReader 接口以支持分页与私有数据", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764157187.3691807, "duration_ms": 0}}
