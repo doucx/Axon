@@ -6,6 +6,7 @@ from datetime import datetime
 
 from .git_db import GitDB
 from .config import ConfigManager
+from .hydrator import Hydrator
 from quipu.core.models import QuipuNode
 from quipu.core.storage import HistoryReader, HistoryWriter
 
@@ -187,6 +188,14 @@ class Engine:
         return None
 
     def align(self) -> str:
+        # 如果使用 SQLite，先进行数据补水
+        if self.db_manager:
+            try:
+                hydrator = Hydrator(self.git_db, self.db_manager)
+                hydrator.sync()
+            except Exception as e:
+                logger.error(f"❌ 自动数据补水失败: {e}", exc_info=True)
+
         all_nodes = self.reader.load_all_nodes()
         final_graph: Dict[str, QuipuNode] = {}
         for node in all_nodes:

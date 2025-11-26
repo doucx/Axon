@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Set, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -107,4 +107,40 @@ class DatabaseManager:
                 conn.execute(sql, params)
         except sqlite3.Error as e:
             logger.error(f"❌ 数据库写入失败: {e} | SQL: {sql}")
+            raise
+
+    def get_all_node_hashes(self) -> Set[str]:
+        """获取数据库中所有节点的 commit_hash。"""
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute("SELECT commit_hash FROM nodes;")
+            return {row[0] for row in cursor.fetchall()}
+        except sqlite3.Error as e:
+            logger.error(f"❌ 查询节点哈希失败: {e}")
+            return set()
+
+    def batch_insert_nodes(self, nodes: List[Tuple]):
+        """批量插入节点。"""
+        conn = self._get_conn()
+        sql = """
+            INSERT OR IGNORE INTO nodes 
+            (commit_hash, output_tree, node_type, timestamp, summary, generator_id, meta_json, plan_md_cache)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        try:
+            with conn:
+                conn.executemany(sql, nodes)
+        except sqlite3.Error as e:
+            logger.error(f"❌ 批量插入节点失败: {e}")
+            raise
+
+    def batch_insert_edges(self, edges: List[Tuple]):
+        """批量插入边。"""
+        conn = self._get_conn()
+        sql = "INSERT OR IGNORE INTO edges (child_hash, parent_hash) VALUES (?, ?)"
+        try:
+            with conn:
+                conn.executemany(sql, edges)
+        except sqlite3.Error as e:
+            logger.error(f"❌ 批量插入边失败: {e}")
             raise
