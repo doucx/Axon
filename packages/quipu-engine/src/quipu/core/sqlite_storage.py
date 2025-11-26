@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -97,6 +97,56 @@ class SQLiteHistoryReader(HistoryReader):
                 logger.warning(f"回填缓存失败: {commit_hash[:7]}: {e}")
         
         return content
+
+    def find_nodes(
+        self,
+        summary_regex: Optional[str] = None,
+        node_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[QuipuNode]:
+        """
+        直接在 SQLite 数据库中执行高效的节点查找。
+        """
+        query = "SELECT * FROM nodes"
+        conditions = []
+        params = []
+
+        if node_type:
+            conditions.append("node_type = ?")
+            params.append(node_type)
+        
+        # 注意: 标准 SQLite 不支持 REGEXP。
+        # 此处使用 LIKE 实现简单的子字符串匹配作为替代。
+        # 完整的正则支持需要加载扩展或在 Python 端进行二次过滤。
+        if summary_regex:
+            conditions.append("summary LIKE ?")
+            params.append(f"%{summary_regex}%")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+
+        conn = self.db_manager._get_conn()
+        cursor = conn.execute(query, tuple(params))
+        rows = cursor.fetchall()
+
+        # 将查询结果行映射回 QuipuNode 对象 (不含父子关系)
+        results = []
+        for row in rows:
+            node = QuipuNode(
+                input_tree="",  # 查找结果是扁平列表，不包含父子关系
+                output_tree=row["output_tree"],
+                timestamp=datetime.fromtimestamp(row["timestamp"]),
+                filename=Path(f".quipu/git_objects/{row['commit_hash']}"),
+                node_type=row["node_type"],
+                summary=row["summary"],
+                content=row["plan_md_cache"] if row["plan_md_cache"] is not None else "",
+            )
+            results.append(node)
+            
+        return results
 
 
 class SQLiteHistoryWriter(HistoryWriter):

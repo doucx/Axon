@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import List, Any
+from typing import List, Any, Optional
+import re
 from .models import QuipuNode
 
 
@@ -22,6 +23,18 @@ class HistoryReader(ABC):
         """
         获取指定节点的完整内容 (Lazy Loading)。
         如果节点内容已加载，直接返回；否则从存储后端读取。
+        """
+        pass
+
+    @abstractmethod
+    def find_nodes(
+        self,
+        summary_regex: Optional[str] = None,
+        node_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[QuipuNode]:
+        """
+        根据条件查找历史节点。
         """
         pass
 

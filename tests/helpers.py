@@ -1,4 +1,5 @@
 import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -143,3 +144,29 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
 
         self.db.nodes[output_tree] = node
         return node
+
+    def find_nodes(
+        self,
+        summary_regex: Optional[str] = None,
+        node_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[QuipuNode]:
+        """
+        内存后端的节点查找实现，通过在内存中过滤所有节点来工作。
+        """
+        candidates = self.load_all_nodes()
+
+        if summary_regex:
+            try:
+                pattern = re.compile(summary_regex, re.IGNORECASE)
+                candidates = [node for node in candidates if pattern.search(node.summary)]
+            except re.error:
+                return []  # 在测试中，无效的正则表达式直接返回空列表
+
+        if node_type:
+            candidates = [node for node in candidates if node.node_type == node_type]
+
+        # 按时间戳降序排序
+        candidates.sort(key=lambda n: n.timestamp, reverse=True)
+
+        return candidates[:limit]

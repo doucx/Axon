@@ -227,6 +227,35 @@ class GitObjectHistoryReader(HistoryReader):
             logger.error(f"Failed to lazy load content for node {node.short_hash}: {e}")
             return ""
 
+    def find_nodes(
+        self,
+        summary_regex: Optional[str] = None,
+        node_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[QuipuNode]:
+        """
+        GitObject 后端的查找实现。
+        由于没有索引，此实现加载所有节点并在内存中进行过滤。
+        """
+        # 这是一个高成本操作，因为它需要加载整个图
+        candidates = self.load_all_nodes()
+
+        if summary_regex:
+            try:
+                pattern = re.compile(summary_regex, re.IGNORECASE)
+                candidates = [node for node in candidates if pattern.search(node.summary)]
+            except re.error as e:
+                logger.error(f"无效的正则表达式: {summary_regex} ({e})")
+                return []
+
+        if node_type:
+            candidates = [node for node in candidates if node.node_type == node_type]
+
+        # 按时间戳降序排序
+        candidates.sort(key=lambda n: n.timestamp, reverse=True)
+
+        return candidates[:limit]
+
 
 class GitObjectHistoryWriter(HistoryWriter):
     """
