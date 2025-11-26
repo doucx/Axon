@@ -40,12 +40,12 @@ class TestWorkDirIsolation:
 
         # 一个简单的 plan，用于触发历史记录的创建
         plan_content = """
-~~~act
+```act
 write_file result.txt
-~~~
-~~~content
+```
+```content
 isolation test
-~~~
+```
 """
 
         # 关键：调用 run_quipu，将 work_dir 设置为没有 .git 的子目录

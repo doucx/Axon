@@ -25,7 +25,7 @@ def nav_workspace(tmp_path):
     git_db = GitDB(repo_path)
     reader = GitObjectHistoryReader(git_db)
     writer = GitObjectHistoryWriter(git_db)
-    engine = Engine(repo_path, reader=reader, writer=writer)
+    engine = Engine(repo_path, db=git_db, reader=reader, writer=writer)
 
     # Helper to create distinct states
     def create_state(content: str) -> str:
@@ -138,7 +138,7 @@ class TestNavigationCLI:
         git_db = GitDB(ws)
         reader = GitObjectHistoryReader(git_db)
         writer = GitObjectHistoryWriter(git_db)
-        engine = Engine(ws, reader=reader, writer=writer)
+        engine = Engine(ws, db=git_db, reader=reader, writer=writer)
 
         (ws / "a.txt").write_text("A")
         hash_a = engine.git_db.get_tree_hash()

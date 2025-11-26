@@ -24,15 +24,15 @@ def project_with_subdir(tmp_path):
     subdir.mkdir()
 
     plan_content = """
-~~~act
+```act
 write_file
-~~~
-~~~path
+```
+```path
 result.txt
-~~~
-~~~content
+```
+```content
 Success from subdir
-~~~
+```
 """
     (root / "plan.md").write_text(plan_content, "utf-8")
 

@@ -24,15 +24,15 @@ def setup_sandbox():
 
 def run_test_plan():
     plan_content = """
-~~~act
+```act
 write_file
-~~~
-~~~path
+```
+```path
 hello.txt
-~~~
-~~~content
+```
+```content
 Hello from Sandbox
-~~~
+```
 """
     plan_path = SANDBOX_DIR / "test_plan.md"
     plan_path.write_text(plan_content, encoding="utf-8")

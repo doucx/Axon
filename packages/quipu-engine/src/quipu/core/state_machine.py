@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 from datetime import datetime
 
 from .git_db import GitDB
@@ -53,7 +53,7 @@ class Engine:
         except Exception as e:
             logger.warning(f"⚠️  无法同步持久化忽略规则: {e}")
 
-    def __init__(self, root_dir: Path, reader: HistoryReader, writer: HistoryWriter):
+    def __init__(self, root_dir: Path, db: Any, reader: HistoryReader, writer: HistoryWriter):
         self.root_dir = root_dir.resolve()
         self.quipu_dir = self.root_dir / ".quipu"
         self.quipu_dir.mkdir(exist_ok=True)  # 确保 .quipu 目录存在
@@ -70,13 +70,15 @@ class Engine:
             except Exception as e:
                 logger.warning(f"无法创建隔离文件 {quipu_gitignore}: {e}")
 
-        self.git_db = GitDB(self.root_dir)
+        self.git_db = db  # <-- 依赖注入
         self.reader = reader
         self.writer = writer
         self.history_graph: Dict[str, QuipuNode] = {}
         self.current_node: Optional[QuipuNode] = None
 
-        self._sync_persistent_ignores()
+        # Only sync ignores if it's a real git repo
+        if isinstance(db, GitDB):
+            self._sync_persistent_ignores()
 
     def _read_head(self) -> Optional[str]:
         if self.head_file.exists():

@@ -22,7 +22,7 @@ def engine_setup(tmp_path):
     git_db = GitDB(repo_path)
     reader = GitObjectHistoryReader(git_db)
     writer = GitObjectHistoryWriter(git_db)
-    engine = Engine(repo_path, reader=reader, writer=writer)
+    engine = Engine(repo_path, db=git_db, reader=reader, writer=writer)
 
     return engine, repo_path
 
@@ -166,7 +166,7 @@ class TestPersistentIgnores:
         (repo_path / ".quipu").mkdir(exist_ok=True)
 
         # 重新初始化 Engine 以触发同步逻辑
-        engine = Engine(repo_path, reader=engine.reader, writer=engine.writer)
+        engine = Engine(repo_path, db=engine.git_db, reader=engine.reader, writer=engine.writer)
 
         exclude_file = repo_path / ".git" / "info" / "exclude"
         assert exclude_file.exists()
@@ -185,7 +185,7 @@ class TestPersistentIgnores:
         exclude_file.write_text(user_content)
 
         # 重新初始化 Engine 以触发同步逻辑
-        engine = Engine(repo_path, reader=engine.reader, writer=engine.writer)
+        engine = Engine(repo_path, db=engine.git_db, reader=engine.reader, writer=engine.writer)
 
         content = exclude_file.read_text("utf-8")
         assert user_content in content
@@ -204,7 +204,7 @@ class TestPersistentIgnores:
         exclude_file.write_text(user_content)
 
         # 重新初始化 Engine 以触发同步逻辑
-        engine = Engine(repo_path, reader=engine.reader, writer=engine.writer)
+        engine = Engine(repo_path, db=engine.git_db, reader=engine.reader, writer=engine.writer)
 
         content = exclude_file.read_text("utf-8")
         assert "old_rule/" not in content
@@ -226,7 +226,7 @@ class TestPersistentIgnores:
         config_file.write_text(yaml.dump(user_ignores), "utf-8")
 
         # 重新初始化 Engine 以触发同步逻辑
-        engine = Engine(repo_path, reader=engine.reader, writer=engine.writer)
+        engine = Engine(repo_path, db=engine.git_db, reader=engine.reader, writer=engine.writer)
 
         exclude_file = repo_path / ".git" / "info" / "exclude"
         content = exclude_file.read_text("utf-8")

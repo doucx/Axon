@@ -23,7 +23,7 @@ class TestHeadTracking:
         git_db = GitDB(repo)
         reader = GitObjectHistoryReader(git_db)
         writer = GitObjectHistoryWriter(git_db)
-        return Engine(repo, reader=reader, writer=writer)
+        return Engine(repo, db=git_db, reader=reader, writer=writer)
 
     def test_head_persistence(self, engine_with_repo):
         """测试 HEAD 指针的创建和更新"""

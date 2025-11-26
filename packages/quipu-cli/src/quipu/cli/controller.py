@@ -37,7 +37,9 @@ class QuipuApplication:
         current_hash = self.engine.git_db.get_tree_hash()
 
         # 1. 正常 Clean: current_node 存在且与当前 hash 一致
-        is_node_clean = (self.engine.current_node is not None) and (self.engine.current_node.output_tree == current_hash)
+        is_node_clean = (self.engine.current_node is not None) and (
+            self.engine.current_node.output_tree == current_hash
+        )
 
         # 2. 创世 Clean: 历史为空 且 当前是空树 (即没有任何文件被追踪)
         EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"

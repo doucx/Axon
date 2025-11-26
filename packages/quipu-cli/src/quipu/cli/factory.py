@@ -41,7 +41,7 @@ def create_engine(work_dir: Path) -> Engine:
         raise NotImplementedError(f"Storage type '{storage_type}' is not supported.")
 
     # 5. 注入依赖并实例化 Engine
-    engine = Engine(project_root, reader=reader, writer=writer)
+    engine = Engine(project_root, db=git_db, reader=reader, writer=writer)
     engine.align()  # 对齐以加载历史图谱
 
     return engine
