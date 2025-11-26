@@ -1,14 +1,17 @@
 import logging
 import difflib
-import typer
-import shlex
-import sys
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Callable
+import shlex
+
 from quipu.core.types import Statement, ActFunction, ActContext
 from quipu.core.exceptions import ExecutionError
 
 logger = logging.getLogger(__name__)
+
+
+# 定义确认处理器的签名: (diff_lines: List[str], prompt_message: str) -> bool
+ConfirmationHandler = Callable[[List[str], str], bool]
 
 
 class Executor:
@@ -17,9 +20,15 @@ class Executor:
     维护文件操作的安全边界。
     """
 
-    def __init__(self, root_dir: Path, yolo: bool = False):
+    def __init__(
+        self,
+        root_dir: Path,
+        yolo: bool = False,
+        confirmation_handler: Optional[ConfirmationHandler] = None,
+    ):
         self.root_dir = root_dir.resolve()
         self.yolo = yolo
+        self.confirmation_handler = confirmation_handler
         # Map: name -> (func, arg_mode, summarizer)
         self._acts: Dict[str, tuple[ActFunction, str, Any]] = {}
 
@@ -63,6 +72,9 @@ class Executor:
         if not tokens:
             return None
 
+        if not tokens:
+            return None
+
         act_name = tokens[0]
         inline_args = tokens[1:]
         contexts = stmt["contexts"]
@@ -98,6 +110,7 @@ class Executor:
         """
         生成 diff 并请求用户确认。
         如果 self.yolo 为 True,则自动返回 True。
+        如果没有提供 confirmation_handler，则安全地返回 False。
         """
         if self.yolo:
             return True
@@ -115,32 +128,12 @@ class Executor:
             logger.info("⚠️  内容无变化")
             return True
 
-        typer.echo("\n🔍 变更预览:")
-        for line in diff:
-            if line.startswith("+"):
-                typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
-            elif line.startswith("-"):
-                typer.secho(line.strip("\n"), fg=typer.colors.RED)
-            elif line.startswith("^"):
-                typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
-            else:
-                typer.echo(line.strip("\n"))
-
-        typer.echo("")
-        prompt = f"❓ 是否对 {file_path.name} 执行上述修改?"
-
-        if sys.stdin.isatty():
-            return typer.confirm(prompt, default=True)
-
-        try:
-            with open("/dev/tty", "r") as tty:
-                typer.echo(f"{prompt} [Y/n]: ", nl=False)
-                answer = tty.readline().strip().lower()
-                return not answer or answer in ("y", "yes")
-        except Exception as e:
-            logger.error(f"❌ 无法获取交互输入 (非 TTY 环境且无法访问 /dev/tty): {e}")
-            logger.warning("提示: 在非交互式环境中使用，请考虑添加 --yolo 参数以自动确认。")
+        if not self.confirmation_handler:
+            logger.warning("无确认处理器，已跳过需要用户确认的操作。")
             return False
+
+        prompt = f"❓ 是否对 {file_path.name} 执行上述修改?"
+        return self.confirmation_handler(diff, prompt)
 
     def execute(self, statements: List[Statement]):
         """执行一系列语句"""

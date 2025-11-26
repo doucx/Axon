@@ -1,5 +1,8 @@
 import logging
+import sys
 from pathlib import Path
+from typing import List
+import typer
 
 from quipu.core.exceptions import ExecutionError as CoreExecutionError
 from quipu.core.executor import Executor
@@ -50,8 +53,34 @@ class QuipuApplication:
             return current_hash
 
     def _setup_executor(self) -> Executor:
-        """创建、配置并返回一个 Executor 实例。"""
-        executor = Executor(root_dir=self.work_dir, yolo=self.yolo)
+        """创建、配置并返回一个 Executor 实例，并注入 UI 依赖。"""
+
+        def typer_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+            """一个封装了 Typer UI 逻辑的确认处理器。"""
+            typer.echo("\n🔍 变更预览:")
+            for line in diff_lines:
+                if line.startswith("+"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
+                elif line.startswith("-"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.RED)
+                elif line.startswith("^"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
+                else:
+                    typer.echo(line.strip("\n"))
+            typer.echo("")
+
+            # 处理非交互式环境
+            if not sys.stdin.isatty():
+                logger.warning("非交互式环境，自动跳过确认。使用 --yolo 参数可自动批准。")
+                return False
+
+            return typer.confirm(prompt, default=True)
+
+        executor = Executor(
+            root_dir=self.work_dir,
+            yolo=self.yolo,
+            confirmation_handler=typer_confirmation_handler,
+        )
 
         # 加载核心 acts
         register_core_acts(executor)
