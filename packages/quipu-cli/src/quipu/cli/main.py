@@ -8,7 +8,8 @@ from typing import Annotated, Optional, Dict
 from .logger_config import setup_logging
 from .controller import run_quipu
 from .config import DEFAULT_WORK_DIR, DEFAULT_ENTRY_FILE, PROJECT_ROOT
-from .factory import create_engine, find_project_root  # 导入工厂方法
+from .factory import create_engine
+from .utils import find_project_root
 from quipu.core.plugin_loader import load_plugins
 from quipu.core.executor import Executor
 from quipu.core.state_machine import Engine

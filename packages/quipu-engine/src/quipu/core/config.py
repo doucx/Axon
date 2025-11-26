@@ -7,6 +7,9 @@ logger = logging.getLogger(__name__)
 
 # 默认配置，为所有可能的设置提供一个基础
 DEFAULTS = {
+    "storage": {
+        "type": "git_object",
+    },
     "sync": {
         "remote_name": "origin",
         "persistent_ignores": [".idea", ".vscode", ".envs", "__pycache__", "node_modules", "o.md"],
