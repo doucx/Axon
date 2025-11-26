@@ -10,6 +10,7 @@ dependencies = []
 workspace.members = ["packages/*"]
 
 [tool.pytest.ini_options]
+addopts = "-ra --cov=quipu --cov-report=term-missing"
 pythonpath = [
   "packages/quipu-interfaces/src",
   "packages/quipu-engine/src",

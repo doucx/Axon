@@ -163,6 +163,24 @@ class TestCLIWrapper:
         assert result.exit_code == 0
         assert "write_file" in result.stderr
 
+    def test_cli_run_file_not_found(self):
+        """测试 `run` 命令在文件不存在时的行为"""
+        result = runner.invoke(app, ["run", "non_existent_plan.md"])
+        assert result.exit_code == 1
+        assert "错误: 找不到指令文件" in result.stderr
+
+    def test_cli_save_on_clean_workspace(self, workspace):
+        """测试 `save` 命令在工作区干净时的行为"""
+        result = runner.invoke(app, ["save", "-w", str(workspace)])
+        assert result.exit_code == 0
+        assert "工作区状态未发生变化" in result.stderr
+
+    def test_cli_discard_no_history(self, workspace):
+        """测试 `discard` 命令在没有历史记录时的行为"""
+        result = runner.invoke(app, ["discard", "-f", "-w", str(workspace)])
+        assert result.exit_code == 1
+        assert "找不到任何历史记录" in result.stderr
+
 
 class TestCheckoutCLI:
     @pytest.fixture

@@ -155,13 +155,18 @@ def save(
     # create_engine 内部已经调用了 align
 
     # 判断是否 clean
-    status = "DIRTY"
-    if engine.current_node:
-        current_tree_hash = engine.git_db.get_tree_hash()
-        if engine.current_node.output_tree == current_tree_hash:
-            status = "CLEAN"
+    current_tree_hash = engine.git_db.get_tree_hash()
 
-    if status == "CLEAN":
+    # 1. 正常 Clean: current_node 存在且与当前 hash 一致
+    is_node_clean = (engine.current_node is not None) and (
+        engine.current_node.output_tree == current_tree_hash
+    )
+
+    # 2. 创世 Clean: 历史为空 且 当前是空树
+    EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    is_genesis_clean = (not engine.history_graph) and (current_tree_hash == EMPTY_TREE_HASH)
+
+    if is_node_clean or is_genesis_clean:
         typer.secho("✅ 工作区状态未发生变化，无需创建快照。", fg=typer.colors.GREEN, err=True)
         ctx.exit(0)
 
