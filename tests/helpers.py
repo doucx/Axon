@@ -2,7 +2,7 @@ import hashlib
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 
 from quipu.core.models import QuipuNode
 from quipu.core.storage import HistoryReader, HistoryWriter
@@ -114,6 +114,26 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
 
     def load_all_nodes(self) -> List[QuipuNode]:
         return list(self.db.nodes.values())
+
+    def get_node_count(self) -> int:
+        return len(self.db.nodes)
+
+    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+        all_nodes = sorted(self.db.nodes.values(), key=lambda n: n.timestamp, reverse=True)
+        return all_nodes[offset : offset + limit]
+
+    def get_ancestor_hashes(self, commit_hash: str) -> Set[str]:
+        # In memory DB uses output_tree as key
+        ancestors = set()
+        if commit_hash in self.db.nodes:
+            curr = self.db.nodes[commit_hash]
+            while curr.parent:
+                ancestors.add(curr.parent.output_tree)
+                curr = curr.parent
+        return ancestors
+
+    def get_private_data(self, commit_hash: str) -> Optional[str]:
+        return None
 
     def get_node_content(self, node: QuipuNode) -> str:
         return node.content

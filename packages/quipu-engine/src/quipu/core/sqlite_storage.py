@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Set
 from datetime import datetime
 from pathlib import Path
 
@@ -72,6 +72,22 @@ class SQLiteHistoryReader(HistoryReader):
             node.children.sort(key=lambda n: n.timestamp)
             
         return list(temp_nodes.values())
+
+    def get_node_count(self) -> int:
+        # 待实现
+        return 0
+
+    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+        # 待实现
+        return []
+
+    def get_ancestor_hashes(self, commit_hash: str) -> Set[str]:
+        # 待实现
+        return set()
+
+    def get_private_data(self, commit_hash: str) -> Optional[str]:
+        # 待实现
+        return None
 
     def get_node_content(self, node: QuipuNode) -> str:
         """

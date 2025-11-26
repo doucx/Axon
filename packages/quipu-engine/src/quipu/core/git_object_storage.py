@@ -6,7 +6,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import importlib.metadata
 
 from quipu.core.git_db import GitDB
@@ -180,6 +180,49 @@ class GitObjectHistoryReader(HistoryReader):
             node.children.sort(key=lambda n: n.timestamp)
 
         return list(temp_nodes.values())
+
+    def get_node_count(self) -> int:
+        """Git后端: 低效实现，加载所有节点后计数"""
+        return len(self.load_all_nodes())
+
+    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+        """Git后端: 低效实现，加载所有节点后切片"""
+        all_nodes = self.load_all_nodes()
+        # load_all_nodes 通常按时间倒序返回
+        return all_nodes[offset : offset + limit]
+
+    def get_ancestor_hashes(self, commit_hash: str) -> Set[str]:
+        """Git后端: 在内存中遍历图谱"""
+        all_nodes = self.load_all_nodes()
+        node_map = {n.output_tree: n for n in all_nodes}
+        
+        ancestors = set()
+        queue = []
+        
+        # 查找起始节点 (commit_hash 在这里对应 output_tree)
+        # 注意: load_all_nodes 返回的 node.output_tree 是 key
+        # 但传入的可能是 commit_hash (对于 GitObject 后端，output_tree 和 commit_hash 不一样)
+        # 这里假设 commit_hash 参数实际上是指 output_tree (因为 HistoryGraph key 是 output_tree)
+        # 或者我们需要建立 commit -> node 的映射。
+        # 鉴于 GitObjectHistoryReader.load_all_nodes 返回的 nodes filename 实际上包含了 commit hash
+        
+        # 为了简化兼容性实现，我们假设这里的 commit_hash 指的是 output_tree (与 UI 行为一致)
+        if commit_hash in node_map:
+            queue.append(node_map[commit_hash])
+            
+        while queue:
+            current_node = queue.pop(0)
+            if current_node.parent:
+                p_hash = current_node.parent.output_tree
+                if p_hash not in ancestors:
+                    ancestors.add(p_hash)
+                    queue.append(current_node.parent)
+        
+        return ancestors
+
+    def get_private_data(self, commit_hash: str) -> Optional[str]:
+        """Git后端: 不支持私有数据"""
+        return None
 
     def get_node_content(self, node: QuipuNode) -> str:
         """
