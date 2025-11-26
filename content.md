@@ -1,12 +1,9 @@
 # 📸 Snapshot Capture
 
-### 💬 备注:
-add licnse
-
 检测到工作区发生变更。
 
 ### 📝 变更文件摘要:
 ```
-LICENSE | 201 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 201 insertions(+)
+README.md | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
 ```
