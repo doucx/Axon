@@ -29,7 +29,7 @@ class SQLiteHistoryReader(HistoryReader):
         从 SQLite 数据库高效加载所有节点元数据和关系。
         """
         conn = self.db_manager._get_conn()
-        
+
         # 1. 一次性获取所有节点元数据
         nodes_cursor = conn.execute("SELECT * FROM nodes ORDER BY timestamp DESC;")
         nodes_data = nodes_cursor.fetchall()
@@ -52,26 +52,26 @@ class SQLiteHistoryReader(HistoryReader):
         # 2. 一次性获取所有边关系
         edges_cursor = conn.execute("SELECT child_hash, parent_hash FROM edges;")
         edges_data = edges_cursor.fetchall()
-        
+
         # 3. 在内存中构建图
         for row in edges_data:
             child_hash, parent_hash = row["child_hash"], row["parent_hash"]
             if child_hash in temp_nodes and parent_hash in temp_nodes:
                 child_node = temp_nodes[child_hash]
                 parent_node = temp_nodes[parent_hash]
-                
+
                 child_node.parent = parent_node
                 parent_node.children.append(child_node)
                 # 根据父节点设置 input_tree
                 child_node.input_tree = parent_node.output_tree
-        
+
         # 4. 填充根节点的 input_tree 并排序子节点
         genesis_hash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
         for node in temp_nodes.values():
             if node.parent is None:
                 node.input_tree = genesis_hash
             node.children.sort(key=lambda n: n.timestamp)
-            
+
         return list(temp_nodes.values())
 
     def get_node_count(self) -> int:
@@ -94,10 +94,7 @@ class SQLiteHistoryReader(HistoryReader):
         conn = self.db_manager._get_conn()
         try:
             # 1. Fetch nodes
-            cursor = conn.execute(
-                "SELECT * FROM nodes ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                (limit, offset)
-            )
+            cursor = conn.execute("SELECT * FROM nodes ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
             rows = cursor.fetchall()
 
             if not rows:
@@ -122,11 +119,10 @@ class SQLiteHistoryReader(HistoryReader):
             # 2. Fetch edges to identify parents
             placeholders = ",".join("?" * len(node_hashes))
             edges_cursor = conn.execute(
-                f"SELECT child_hash, parent_hash FROM edges WHERE child_hash IN ({placeholders})",
-                tuple(node_hashes)
+                f"SELECT child_hash, parent_hash FROM edges WHERE child_hash IN ({placeholders})", tuple(node_hashes)
             )
             edges = edges_cursor.fetchall()
-            
+
             child_to_parent = {row["child_hash"]: row["parent_hash"] for row in edges}
             parent_hashes = [row["parent_hash"] for row in edges]
 
@@ -136,10 +132,10 @@ class SQLiteHistoryReader(HistoryReader):
                 p_placeholders = ",".join("?" * len(parent_hashes))
                 p_cursor = conn.execute(
                     f"SELECT commit_hash, output_tree FROM nodes WHERE commit_hash IN ({p_placeholders})",
-                    tuple(parent_hashes)
+                    tuple(parent_hashes),
                 )
                 parent_info = {row["commit_hash"]: row["output_tree"] for row in p_cursor.fetchall()}
-            
+
             genesis_hash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
             results = []
@@ -150,7 +146,7 @@ class SQLiteHistoryReader(HistoryReader):
                 if parent_hash:
                     # Set input_tree from parent's output_tree
                     node.input_tree = parent_info.get(parent_hash, genesis_hash)
-                    
+
                     # Link objects if parent is in the same page
                     if parent_hash in nodes_map:
                         parent_node = nodes_map[parent_hash]
@@ -158,13 +154,13 @@ class SQLiteHistoryReader(HistoryReader):
                         parent_node.children.append(node)
                 else:
                     node.input_tree = genesis_hash
-                
+
                 results.append(node)
-            
+
             # Sort children for consistency (though partial)
             for node in results:
                 node.children.sort(key=lambda n: n.timestamp)
-            
+
             return results
 
         except sqlite3.Error as e:
@@ -198,10 +194,7 @@ class SQLiteHistoryReader(HistoryReader):
         """
         conn = self.db_manager._get_conn()
         try:
-            cursor = conn.execute(
-                "SELECT intent_md FROM private_data WHERE node_hash = ?", 
-                (commit_hash,)
-            )
+            cursor = conn.execute("SELECT intent_md FROM private_data WHERE node_hash = ?", (commit_hash,))
             row = cursor.fetchone()
             return row[0] if row else None
         except sqlite3.Error as e:
@@ -214,23 +207,22 @@ class SQLiteHistoryReader(HistoryReader):
         """
         if node.content:
             return node.content
-        
+
         commit_hash = node.filename.name
-        
+
         # 尝试从 Git 加载内容
         content = self._git_reader.get_node_content(node)
-        
+
         # 如果成功加载，回填到缓存
         if content:
             try:
                 self.db_manager.execute_write(
-                    "UPDATE nodes SET plan_md_cache = ? WHERE commit_hash = ?",
-                    (content, commit_hash)
+                    "UPDATE nodes SET plan_md_cache = ? WHERE commit_hash = ?", (content, commit_hash)
                 )
                 logger.debug(f"缓存已回填: {commit_hash[:7]}")
             except Exception as e:
                 logger.warning(f"回填缓存失败: {commit_hash[:7]}: {e}")
-        
+
         return content
 
     def find_nodes(
@@ -249,7 +241,7 @@ class SQLiteHistoryReader(HistoryReader):
         if node_type:
             conditions.append("node_type = ?")
             params.append(node_type)
-        
+
         # 注意: 标准 SQLite 不支持 REGEXP。
         # 此处使用 LIKE 实现简单的子字符串匹配作为替代。
         # 完整的正则支持需要加载扩展或在 Python 端进行二次过滤。
@@ -259,7 +251,7 @@ class SQLiteHistoryReader(HistoryReader):
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        
+
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
 
@@ -280,7 +272,7 @@ class SQLiteHistoryReader(HistoryReader):
                 content=row["plan_md_cache"] if row["plan_md_cache"] is not None else "",
             )
             results.append(node)
-            
+
         return results
 
 
@@ -305,9 +297,7 @@ class SQLiteHistoryWriter(HistoryWriter):
     ) -> QuipuNode:
         # 步骤 1: 调用底层 Git 写入器创建 Git Commit
         # 它会返回一个包含所有必要信息的 QuipuNode 实例
-        git_node = self.git_writer.create_node(
-            node_type, input_tree, output_tree, content, **kwargs
-        )
+        git_node = self.git_writer.create_node(node_type, input_tree, output_tree, content, **kwargs)
         commit_hash = git_node.filename.name
 
         # 步骤 2: 将元数据写入 SQLite
@@ -315,16 +305,14 @@ class SQLiteHistoryWriter(HistoryWriter):
             # 2.1 提取元数据 (从 Git 写入器内部逻辑中获取)
             # 这部分有些重复，未来可以优化 writer 的返回值
             start_time = kwargs.get("start_time", git_node.timestamp.timestamp())
-            summary = self.git_writer._generate_summary(
-                node_type, content, input_tree, output_tree, **kwargs
-            )
+            summary = self.git_writer._generate_summary(node_type, content, input_tree, output_tree, **kwargs)
             metadata = {
                 "meta_version": "1.0",
                 "summary": summary,
                 "type": node_type,
                 "generator": self.git_writer._get_generator_info(),
                 "env": self.git_writer._get_env_info(),
-                "exec": {"start": start_time, "duration_ms": 0}, # 持续时间暂时无法精确计算
+                "exec": {"start": start_time, "duration_ms": 0},  # 持续时间暂时无法精确计算
             }
             meta_json_str = json.dumps(metadata)
 
@@ -354,7 +342,7 @@ class SQLiteHistoryWriter(HistoryWriter):
                     "INSERT OR IGNORE INTO edges (child_hash, parent_hash) VALUES (?, ?)",
                     (commit_hash, parent_commit),
                 )
-            
+
             # 2.4 (未来) 写入 'private_data' 表
             # intent = kwargs.get("intent_md")
             # if intent: ...

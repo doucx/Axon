@@ -32,9 +32,9 @@ class Hydrator:
 
         git_log_entries = self.git_db.log_ref(all_git_heads)
         git_hashes = {entry["hash"] for entry in git_log_entries}
-        
+
         db_hashes = self.db_manager.get_all_node_hashes()
-        
+
         missing_hashes = git_hashes - db_hashes
         logger.info(f"发现 {len(missing_hashes)} 个需要补水的节点。")
         return missing_hashes
@@ -75,7 +75,7 @@ class Hydrator:
         for commit_hash in missing_hashes:
             log_entry = log_map[commit_hash]
             tree_hash = log_entry["tree"]
-            
+
             meta_blob_hash = tree_to_meta_blob.get(tree_hash)
             if not meta_blob_hash:
                 logger.warning(f"跳过 {commit_hash[:7]}: 找不到 metadata.json")
@@ -85,7 +85,7 @@ class Hydrator:
             if not meta_bytes:
                 logger.warning(f"跳过 {commit_hash[:7]}: 找不到 metadata blob")
                 continue
-            
+
             output_tree = self._parser._parse_output_tree_from_body(log_entry["body"])
             if not output_tree:
                 logger.warning(f"跳过 {commit_hash[:7]}: 找不到 Output-Tree trailer")
@@ -93,16 +93,18 @@ class Hydrator:
 
             try:
                 meta_data = json.loads(meta_bytes)
-                nodes_to_insert.append((
-                    commit_hash,
-                    output_tree,
-                    meta_data.get("type", "unknown"),
-                    float(meta_data.get("exec", {}).get("start") or log_entry["timestamp"]),
-                    meta_data.get("summary", "No summary"),
-                    meta_data.get("generator", {}).get("id"),
-                    meta_bytes.decode('utf-8'),
-                    None  # plan_md_cache is NULL for cold data
-                ))
+                nodes_to_insert.append(
+                    (
+                        commit_hash,
+                        output_tree,
+                        meta_data.get("type", "unknown"),
+                        float(meta_data.get("exec", {}).get("start") or log_entry["timestamp"]),
+                        meta_data.get("summary", "No summary"),
+                        meta_data.get("generator", {}).get("id"),
+                        meta_bytes.decode("utf-8"),
+                        None,  # plan_md_cache is NULL for cold data
+                    )
+                )
 
                 # 处理边关系
                 parent_hashes = log_entry["parent"].split()

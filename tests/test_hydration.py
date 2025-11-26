@@ -7,6 +7,7 @@ from quipu.core.sqlite_db import DatabaseManager
 from quipu.core.hydrator import Hydrator
 from quipu.core.git_object_storage import GitObjectHistoryWriter
 
+
 @pytest.fixture
 def hydrator_setup(tmp_path: Path):
     """
@@ -21,11 +22,12 @@ def hydrator_setup(tmp_path: Path):
     git_db = GitDB(repo_path)
     db_manager = DatabaseManager(repo_path)
     db_manager.init_schema()
-    
+
     writer = GitObjectHistoryWriter(git_db)
     hydrator = Hydrator(git_db, db_manager)
 
     return hydrator, writer, git_db, db_manager, repo_path
+
 
 class TestHydration:
     def test_full_hydration_from_scratch(self, hydrator_setup):
@@ -36,7 +38,7 @@ class TestHydration:
         (repo / "a.txt").touch()
         hash_a = git_db.get_tree_hash()
         writer.create_node("plan", "genesis", hash_a, "Node A")
-        
+
         (repo / "b.txt").touch()
         hash_b = git_db.get_tree_hash()
         writer.create_node("plan", hash_a, hash_b, "Node B")
@@ -50,7 +52,7 @@ class TestHydration:
         # 4. 验证
         db_hashes = db_manager.get_all_node_hashes()
         assert len(db_hashes) == 2
-        
+
         conn = db_manager._get_conn()
         # 验证 Node B 的内容
         node_b_row = conn.execute("SELECT * FROM nodes WHERE summary = ?", ("Node B",)).fetchone()
@@ -76,13 +78,13 @@ class TestHydration:
         (repo / "b.txt").touch()
         hash_b = git_db.get_tree_hash()
         writer.create_node("plan", hash_a, hash_b, "Node B")
-        
+
         # 3. 再次补水
         hydrator.sync()
 
         # 4. 验证，总数应为 2
         assert len(db_manager.get_all_node_hashes()) == 2
-        
+
         conn = db_manager._get_conn()
         node_b_row = conn.execute("SELECT * FROM nodes WHERE summary = ?", ("Node B",)).fetchone()
         assert node_b_row is not None
@@ -90,7 +92,7 @@ class TestHydration:
     def test_hydration_idempotency(self, hydrator_setup):
         """测试重复运行补水不会产生副作用。"""
         hydrator, writer, git_db, db_manager, repo = hydrator_setup
-        
+
         (repo / "a.txt").touch()
         hash_a = git_db.get_tree_hash()
         writer.create_node("plan", "genesis", hash_a, "Node A")

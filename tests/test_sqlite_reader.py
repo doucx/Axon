@@ -24,7 +24,7 @@ def sqlite_reader_setup(tmp_path: Path):
     git_db = GitDB(repo_path)
     db_manager = DatabaseManager(repo_path)
     db_manager.init_schema()
-    
+
     # Git-only writer to create commits
     git_writer = GitObjectHistoryWriter(git_db)
     # The reader we want to test
@@ -44,23 +44,23 @@ class TestSQLiteHistoryReader:
         (repo / "a.txt").touch()
         hash_a = git_db.get_tree_hash()
         node_a_git = git_writer.create_node("plan", "genesis", hash_a, "Content A")
-        
+
         (repo / "b.txt").touch()
         hash_b = git_db.get_tree_hash()
         node_b_git = git_writer.create_node("plan", hash_a, hash_b, "Content B")
 
         # 2. 补水到数据库
         hydrator.sync()
-        
+
         # 3. 使用 SQLite Reader 读取
         nodes = reader.load_all_nodes()
-        
+
         # 4. 验证
         assert len(nodes) == 2
         nodes_by_summary = {n.summary: n for n in nodes}
         node_a = nodes_by_summary["Content A"]
         node_b = nodes_by_summary["Content B"]
-        
+
         assert node_b.parent == node_a
         assert node_a.children == [node_b]
         assert node_b.input_tree == node_a.output_tree
@@ -87,30 +87,31 @@ class TestSQLiteHistoryReader:
         # 4. 使用 Reader 加载节点并触发 get_node_content
         nodes = reader.load_all_nodes()
         node_c = [n for n in nodes if n.filename.name == commit_hash_c][0]
-        
+
         # 首次读取前，内存中的 content 应该是空的
         assert node_c.content == ""
-        
+
         # 触发读取
         content = reader.get_node_content(node_c)
         assert content == "Cache Test Content"
-        
+
         # 5. 再次验证数据库：缓存应该已被回填
         cursor_after = conn.execute("SELECT plan_md_cache FROM nodes WHERE commit_hash = ?", (commit_hash_c,))
         row_after = cursor_after.fetchone()
         assert row_after["plan_md_cache"] == "Cache Test Content", "Cache was not written back to DB."
 
+
 @pytest.fixture
 def populated_db(sqlite_reader_setup):
     """一个预填充了15个节点和一些私有数据的数据库环境。"""
     reader, git_writer, hydrator, db_manager, repo, git_db = sqlite_reader_setup
-    
+
     parent_hash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
     commit_hashes = []
-    
+
     for i in range(15):
         (repo / f"file_{i}.txt").write_text(f"v{i}")
-        time.sleep(0.01) # Ensure unique timestamps
+        time.sleep(0.01)  # Ensure unique timestamps
         output_hash = git_db.get_tree_hash()
         node = git_writer.create_node("plan", parent_hash, output_hash, f"Node {i}")
         commit_hashes.append(node.filename.name)
@@ -122,10 +123,11 @@ def populated_db(sqlite_reader_setup):
     # Now, with nodes in the DB, we can add private data referencing them
     db_manager.execute_write(
         "INSERT OR IGNORE INTO private_data (node_hash, intent_md) VALUES (?, ?)",
-        (commit_hashes[3], "This is a secret intent.")
+        (commit_hashes[3], "This is a secret intent."),
     )
-    
+
     return reader, db_manager, commit_hashes
+
 
 class TestSQLiteReaderPaginated:
     def test_get_node_count(self, populated_db):
@@ -150,10 +152,10 @@ class TestSQLiteReaderPaginated:
     def test_load_last_page_partial(self, populated_db):
         reader, _, _ = populated_db
         nodes = reader.load_nodes_paginated(limit=5, offset=12)
-        assert len(nodes) == 3 # 15 - 12 = 3
+        assert len(nodes) == 3  # 15 - 12 = 3
         assert nodes[0].summary == "Node 2"
         assert nodes[2].summary == "Node 0"
-        
+
     def test_load_out_of_bounds(self, populated_db):
         reader, _, _ = populated_db
         nodes = reader.load_nodes_paginated(limit=5, offset=20)
@@ -173,9 +175,9 @@ class TestSQLiteReaderPaginated:
         reader, db_manager, commit_hashes = populated_db
         # We want ancestors of the last created node (Node 14, which is commit_hashes[14])
         ancestors = reader.get_ancestor_hashes(commit_hashes[14])
-        
+
         # It should contain all previous 14 commit hashes
         assert len(ancestors) == 14
         assert commit_hashes[0] in ancestors
         assert commit_hashes[13] in ancestors
-        assert commit_hashes[14] not in ancestors # Should not contain itself
+        assert commit_hashes[14] not in ancestors  # Should not contain itself

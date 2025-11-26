@@ -160,9 +160,7 @@ def save(
     current_tree_hash = engine.git_db.get_tree_hash()
 
     # 1. 正常 Clean: current_node 存在且与当前 hash 一致
-    is_node_clean = (engine.current_node is not None) and (
-        engine.current_node.output_tree == current_tree_hash
-    )
+    is_node_clean = (engine.current_node is not None) and (engine.current_node.output_tree == current_tree_hash)
 
     # 2. 创世 Clean: 历史为空 且 当前是空树
     EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -710,7 +708,7 @@ def cache_rebuild(
     这将删除现有的数据库文件，并从 Git 历史中完全重新生成。
     """
     setup_logging()
-    
+
     db_path = work_dir.resolve() / ".quipu" / "history.sqlite"
     if not db_path.exists():
         typer.secho("🤷 数据库文件不存在，将直接创建。无需重建。", fg=typer.colors.YELLOW, err=True)
@@ -722,7 +720,7 @@ def cache_rebuild(
         if not _prompt_for_confirmation(prompt, default=False):
             typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
             raise typer.Abort()
-    
+
     try:
         db_path.unlink()
         typer.secho("🗑️  旧数据库已删除。", err=True)
