@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "fix: 修复内存测试后端未实现 find_nodes 接口导致的 TypeError", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764155211.60634, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "chore: 为 find 命令重构创建 Git 提交", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764155277.2591214, "duration_ms": 0}}
