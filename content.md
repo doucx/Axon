@@ -1,27 +1,16 @@
-# fix: 纠正 Executor 中的回归错误导致的 TypeError
+# fix(runtime): Resolve TypeError regression in Executor
 
 ## 用户需求
-在上次对 `Executor` 进行解耦重构后，测试套件暴露出大量失败。最核心的错误是 `TypeError: unhashable type: 'list'`，这个错误导致了连锁反应，引发了多个测试中的 `AssertionError` 和 `IndexError`。
-
-你需要定位并修复这个回归错误。
+在修复了 `Executor` 的回归错误并通过所有测试后，你需要将这个修复提交到版本控制中。
 
 ## 评论
-经过分析，这是一个典型的回归错误。在重构 `executor.py` 时，一个关键的变量赋值被错误地修改，导致程序试图将一个列表用作字典的键，从而触发了 `TypeError`。由于 `Executor` 是核心组件，这个单一的错误点影响了几乎所有依赖指令执行功能的测试。修复此问题将使测试套件恢复正常。
+这是一个关键的修复提交。它纠正了在上一次重构中引入的严重回归错误，使整个测试套件和应用程序恢复到稳定和可用的状态。提交信息清晰地记录了问题的根本原因，有助于未来的代码审查和维护。
 
 ## 目标
-1.  定位 `executor.py` 中导致 `TypeError` 的根本原因。
-2.  修复 `execute` 和 `summarize_statement` 方法中的错误逻辑。
-3.  修复 `get_registered_acts` 方法中的一个次要错误。
-4.  确保所有测试都能通过。
+使用 `git_add` 和 `git_commit` 指令，将对 `executor.py` 的修复创建一个原子性的、符合规范的 Git 提交。
 
 ## 基本原理
-错误发生在 `executor.py` 的 `execute` 和 `summarize_statement` 方法中。在解析命令行参数后，代码错误地将整个 `tokens` 列表赋值给了 `act_name` 变量 (`act_name = tokens`)。
-
-正确的行为应该是将 `tokens` 列表的第一个元素赋值给 `act_name` (`act_name = tokens[0]`)。
-
-当错误的 `act_name` (一个列表) 被用于在 `self._acts` 字典中查找指令时 (`if act_name not in self._acts`)，Python 尝试对列表进行哈希计算，从而引发了 `TypeError: unhashable type: 'list'`。
-
-修复方案是找到所有错误赋值的地方，并将其恢复为正确的 `tokens[0]`。
+通过 `git_add .` 暂存所有变更（在这种情况下，主要是 `executor.py` 的修复），然后使用 `git_commit` 附带一个详细的提交信息来固化这次修复。提交信息遵循 `Conventional Commits` 规范，类型为 `fix`，作用域为 `runtime`，清晰地说明了问题的起因和解决方案。
 
 ## 标签
 #intent/fix #flow/ready #priority/critical
@@ -33,63 +22,23 @@
 
 ## Script
 
-### Acts 1: 修复 Executor 的核心错误
+### Acts 1: 提交修复
 
-我们将通过三次精确的 `replace` 操作来修复 `executor.py` 中的三个问题。
-
-首先，修复 `get_registered_acts` 中访问文档字符串的错误。
+暂存所有变更并创建提交。
 
 ~~~~~act
-replace packages/quipu-runtime/src/quipu/core/executor.py
+git_add .
 ~~~~~
-~~~~~python
-    def get_registered_acts(self) -> Dict[str, str]:
-        """获取所有已注册的 Act 及其文档字符串"""
-        return {name: data.__doc__ for name, data in self._acts.items()}
-~~~~~
-~~~~~python
-    def get_registered_acts(self) -> Dict[str, str]:
-        """获取所有已注册的 Act 及其文档字符串"""
-        return {name: data[0].__doc__ for name, data in self._acts.items()}
-~~~~~
-
-其次，修复 `summarize_statement` 方法中的 `TypeError` 根源。
 
 ~~~~~act
-replace packages/quipu-runtime/src/quipu/core/executor.py
+git_commit
 ~~~~~
-~~~~~python
-        act_name = tokens
-        inline_args = tokens[1:]
-        contexts = stmt["contexts"]
-
-        if act_name not in self._acts:
 ~~~~~
-~~~~~python
-        if not tokens:
-            return None
+fix(runtime): Resolve TypeError regression in Executor
 
-        act_name = tokens[0]
-        inline_args = tokens[1:]
-        contexts = stmt["contexts"]
+This commit fixes a critical regression introduced during the recent decoupling of the Executor from the Typer UI framework.
 
-        if act_name not in self._acts:
-~~~~~
+The root cause of the `TypeError: unhashable type: 'list'` was an incorrect assignment in the `execute` and `summarize_statement` methods. The entire `tokens` list was being assigned to `act_name` instead of just the first element (`tokens[0]`). This caused a fatal error when the list was used as a dictionary key to look up the registered act.
 
-最后，修复 `execute` 方法中完全相同的 `TypeError` 根源。
-
-~~~~~act
-replace packages/quipu-runtime/src/quipu/core/executor.py
-~~~~~
-~~~~~python
-            act_name = tokens
-            inline_args = tokens[1:]
-
-            if act_name not in self._acts:
-~~~~~
-~~~~~python
-            act_name = tokens[0]
-            inline_args = tokens[1:]
-
-            if act_name not in self._acts:
+This commit corrects the assignments, restoring the intended logic and resolving the widespread test failures. It also includes a minor fix for the `get_registered_acts` method's docstring access.
 ~~~~~
