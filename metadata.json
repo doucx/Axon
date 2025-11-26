@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "Capture: M basic.py, M test_ops.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764167153.3593888, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "`refactor`: 适配 ViewModel 实现 UI 分页加载", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764167201.7965078, "duration_ms": 0}}
