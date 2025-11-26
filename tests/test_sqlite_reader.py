@@ -1,5 +1,6 @@
 import pytest
 import subprocess
+import time
 from pathlib import Path
 
 from quipu.core.git_db import GitDB
@@ -98,3 +99,83 @@ class TestSQLiteHistoryReader:
         cursor_after = conn.execute("SELECT plan_md_cache FROM nodes WHERE commit_hash = ?", (commit_hash_c,))
         row_after = cursor_after.fetchone()
         assert row_after["plan_md_cache"] == "Cache Test Content", "Cache was not written back to DB."
+
+@pytest.fixture
+def populated_db(sqlite_reader_setup):
+    """一个预填充了15个节点和一些私有数据的数据库环境。"""
+    reader, git_writer, hydrator, db_manager, repo, git_db = sqlite_reader_setup
+    
+    parent_hash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    commit_hashes = []
+    
+    for i in range(15):
+        (repo / f"file_{i}.txt").write_text(f"v{i}")
+        time.sleep(0.01) # Ensure unique timestamps
+        output_hash = git_db.get_tree_hash()
+        node = git_writer.create_node("plan", parent_hash, output_hash, f"Node {i}")
+        commit_hashes.append(node.filename.name)
+        parent_hash = output_hash
+
+    # First, hydrate the nodes table from git objects
+    hydrator.sync()
+
+    # Now, with nodes in the DB, we can add private data referencing them
+    db_manager.execute_write(
+        "INSERT OR IGNORE INTO private_data (node_hash, intent_md) VALUES (?, ?)",
+        (commit_hashes[3], "This is a secret intent.")
+    )
+    
+    return reader, db_manager, commit_hashes
+
+class TestSQLiteReaderPaginated:
+    def test_get_node_count(self, populated_db):
+        reader, _, _ = populated_db
+        assert reader.get_node_count() == 15
+
+    def test_load_first_page(self, populated_db):
+        reader, _, _ = populated_db
+        nodes = reader.load_nodes_paginated(limit=5, offset=0)
+        assert len(nodes) == 5
+        # Nodes are ordered by timestamp DESC, so newest is first
+        assert nodes[0].summary == "Node 14"
+        assert nodes[4].summary == "Node 10"
+
+    def test_load_middle_page(self, populated_db):
+        reader, _, _ = populated_db
+        nodes = reader.load_nodes_paginated(limit=5, offset=5)
+        assert len(nodes) == 5
+        assert nodes[0].summary == "Node 9"
+        assert nodes[4].summary == "Node 5"
+
+    def test_load_last_page_partial(self, populated_db):
+        reader, _, _ = populated_db
+        nodes = reader.load_nodes_paginated(limit=5, offset=12)
+        assert len(nodes) == 3 # 15 - 12 = 3
+        assert nodes[0].summary == "Node 2"
+        assert nodes[2].summary == "Node 0"
+        
+    def test_load_out_of_bounds(self, populated_db):
+        reader, _, _ = populated_db
+        nodes = reader.load_nodes_paginated(limit=5, offset=20)
+        assert len(nodes) == 0
+
+    def test_get_private_data_found(self, populated_db):
+        reader, _, commit_hashes = populated_db
+        private_data = reader.get_private_data(commit_hashes[3])
+        assert private_data == "This is a secret intent."
+
+    def test_get_private_data_not_found(self, populated_db):
+        reader, _, commit_hashes = populated_db
+        private_data = reader.get_private_data(commit_hashes[4])
+        assert private_data is None
+
+    def test_get_ancestors_with_cte(self, populated_db):
+        reader, db_manager, commit_hashes = populated_db
+        # We want ancestors of the last created node (Node 14, which is commit_hashes[14])
+        ancestors = reader.get_ancestor_hashes(commit_hashes[14])
+        
+        # It should contain all previous 14 commit hashes
+        assert len(ancestors) == 14
+        assert commit_hashes[0] in ancestors
+        assert commit_hashes[13] in ancestors
+        assert commit_hashes[14] not in ancestors # Should not contain itself
