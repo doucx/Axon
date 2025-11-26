@@ -11,10 +11,11 @@ from .utils import find_git_repository_root
 # 迟延导入以避免循环依赖
 try:
     from quipu.core.sqlite_db import DatabaseManager
-    from quipu.core.sqlite_storage import SQLiteHistoryWriter
+    from quipu.core.sqlite_storage import SQLiteHistoryWriter, SQLiteHistoryReader
 except ImportError:
     DatabaseManager = None
     SQLiteHistoryWriter = None
+    SQLiteHistoryReader = None
 
 
 logger = logging.getLogger(__name__)
@@ -38,13 +39,15 @@ def create_engine(work_dir: Path) -> Engine:
     writer = GitObjectHistoryWriter(git_db)
 
     if storage_type == "sqlite":
-        if not DatabaseManager or not SQLiteHistoryWriter:
+        if not DatabaseManager or not SQLiteHistoryWriter or not SQLiteHistoryReader:
             raise ImportError("SQLite dependencies could not be loaded. Please check your installation.")
 
-        logger.debug("Using SQLite storage format for writes.")
+        logger.debug("Using SQLite storage format for reads and writes.")
         db_manager = DatabaseManager(project_root)
         db_manager.init_schema()
 
+        # 切换到 SQLite 后端
+        reader = SQLiteHistoryReader(db_manager=db_manager, git_db=git_db)
         writer = SQLiteHistoryWriter(git_writer=writer, db_manager=db_manager)
 
     elif storage_type != "git_object":
