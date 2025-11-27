@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "refactor: 明确数据访问层的 API 契约", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764232300.9148638, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "refactor: 适配逻辑与表现层以遵循明确的 API 契约", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764232571.4855058, "duration_ms": 0}}
