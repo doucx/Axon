@@ -1,322 +1,57 @@
-好的，我分析了你的截图和反馈。你的判断是正确的。
+你做的分析非常出色，直指问题的核心。你说得完全正确，我的上一个实现方案存在缺陷。
 
-## fix+refactor 修复 TUI 布局溢出问题并将分页信息移至标题栏
+## fix 修复 TUI 标题更新逻辑以符合 Textual 框架规范
 
 ### 错误分析
 
-根据你提供的截图和描述，你的分析是正确的。`Footer` 本身没有消失，但是被一个水平滚动条“挤出”了可视区域。
+你提供的 `textual` 源码文档清楚地说明了 `TITLE` 和 `SUB_TITLE` 是 `App` 类的**类变量**，用于设置**默认值**。而要在运行时动态更新它们，应该直接修改 `App` **实例**的属性，即 `self.title` 和 `self.sub_title`。
 
-**根本原因**:
-1.  **布局溢出**: `DataTable` 的容器 (`#main-container`) 与 `Header` 和 `Footer` 在垂直方向上布局。当 `#main-container` 的 `height` 设置为 `100%` 时，它会占据整个屏幕的高度，而不是“剩余”的高度。这导致应用的总高度变为 `Header高度 + 屏幕高度 + Footer高度`，超出了屏幕范围。
-2.  **终端行为**: 为了应对超出的内容，你的终端模拟器（或 Textual 框架）自动添加了一个滚动条，让我们能“滚动”到被挤出去的 `Footer` 部分。这就是你看到的水平滚动条。
+我之前的代码 `header.sub_title = ...` 是直接操作 `Header` 这个 Widget 的属性。虽然在某些情况下这可能有效，但这绕过了 `App` 类提供的状态管理机制。`textual` 框架的设计是让 `App` 的 `title` 和 `sub_title` 状态自动同步到其管理的 `Header` Widget 上。因此，最规范、最健壮的做法是更新 `App` 自身的属性，而不是直接去“手动”修改子组件。
 
-你提出的将分页信息移至 `Header` 的方案是一个非常好的解决思路，因为它不仅能解决当前的显示问题，而且将动态信息放在顶部标题栏，在交互上更清晰、更稳定。
+你的怀疑是完全正确的，我的实现不符合 `textual` 的最佳实践。
 
 ### 用户需求
-1.  修复UI布局溢出，消除底部的水平滚动条。
-2.  将分页信息（"Page P / T"）从 `Footer` 移动到 `Header` 中，确保它始终可见。
+
+严格按照 `textual` 框架的官方文档和设计模式，正确地在运行时更新 `Header` 的副标题。
 
 ### 评论
-这是一个常见的终端 UI 布局问题。将动态状态信息（如页码）放在始终可见的 `Header` 中，是一种比依赖 `Footer` 更健壮的设计，可以避免未来因屏幕尺寸或组件变化再次出现类似问题。
+感谢你提供的源码信息，这让问题变得非常清晰。遵循框架的设计模式不仅能解决当前的问题，也能让代码在未来框架升级时更具韧性。这次我们将采用最规范的方式来管理标题状态。
 
 ### 目标
-1.  修改 `tui.css`，使用更稳健的布局方式（如 `dock` 或 `grid`）来防止主内容区域溢出。
-2.  重构 `tui.py`，将更新分页信息的逻辑从 `_update_footer` 迁移到 `_update_header` 方法，并修改 `Header` 的 `sub_title` 属性。
+修改 `tui.py` 中的 `_update_header` 方法，使其通过修改 `self.sub_title` 来更新副标题，而不是直接操作 `Header` Widget。
 
 ### 基本原理
-我们将使用 Textual 的 `dock` 布局属性来修复 CSS。通过将 `Header` `dock` 在顶部，`Footer` `dock` 在底部，中间的内容区域会自动填充剩余空间，从而完美解决溢出问题。同时，在 Python 代码中，我们将不再操作 `Footer.sub_title`，而是转为更新 `Header.sub_title`，这在 Textual 中是标准用法。
+我们将遵循 `textual` 的状态管理模型。`_update_header` 方法将不再需要查询 `Header` Widget。它只需要更新 `self.title` 和 `self.sub_title` 这两个 `App` 实例的属性。Textual 框架的响应式系统会自动检测到这些属性的变化，并重新渲染 `Header` Widget 以反映新的状态。
 
 ### 标签
-#intent/fix #intent/refine #flow/ready #priority/high #comp/cli #concept/ui #scope/ux #ai/instruct #task/domain/ui #task/object/tui #task/action/bug-fix #task/state/continue
+#intent/fix #flow/ready #priority/high #comp/cli #concept/ui #scope/dx #ai/instruct #task/domain/ui #task/object/tui #task/action/bug-fix #task/state/end #task/status/completed
 
 ---
 
 ### Script
 
-我将分两步执行：首先修复 CSS 布局，然后修改 Python 代码以更新 Header。
+#### Acts 1: 修正 `_update_header` 的实现方式
 
-#### Acts 1: 修复 `tui.css` 布局
-
-我将修改 CSS 文件，移除导致问题的 `height: 100%`，并为 `Header` 和 `Footer` 添加 `dock` 属性，这是 Textual 中实现此布局的最佳实践。
+我将修改 `tui.py` 中的 `_update_header` 方法，使其符合 `textual` 的规范。
 
 ~~~~~act
 patch_file
 ~~~~~
 ~~~~~path
-packages/quipu-cli/src/quipu/cli/tui.css
-~~~~~
-~~~~~css
-#main-container {
-    height: 100%;
-}
-~~~~~
-~~~~~css
-Header {
-    dock: top;
-}
-
-Footer {
-    dock: bottom;
-}
-
-#main-container {
-    /* The main container will now automatically fill the space
-       between the docked header and footer. */
-    width: 100%;
-}
-~~~~~
-
-#### Acts 2: 将分页信息逻辑迁移到 Header
-
-现在，我将重写 `tui.py` 中的 `QuipuUiApp` 类，将所有与页脚相关的逻辑都迁移到页眉。
-
-~~~~~act
-write_file
-~~~~~
-~~~~~path
 packages/quipu-cli/src/quipu/cli/tui.py
 ~~~~~
 ~~~~~python
-import sys
-import logging
-from pathlib import Path
-from typing import List, Optional
-
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, Markdown, Static
-from textual.containers import Horizontal, Vertical
-from textual.binding import Binding
-from textual.coordinate import Coordinate
-from textual import on
-
-from quipu.core.models import QuipuNode
-from quipu.core.state_machine import Engine
-from .view_model import GraphViewModel
-from .factory import create_engine
-
-logger = logging.getLogger(__name__)
-
-# 定义 UI 返回类型: (动作类型, 数据)
-# 动作: "checkout" | "dump"
-UiResult = tuple[str, str]
-
-
-class QuipuUiApp(App[Optional[UiResult]]):
-    CSS_PATH = "tui.css"
-    TITLE = "Quipu History Explorer"
-
-    BINDINGS = [
-        Binding("q", "quit", "退出"),
-        Binding("c", "checkout_node", "检出节点"),
-        Binding("enter", "checkout_node", "检出节点"),
-        Binding("v", "toggle_view", "切换内容视图"),
-        Binding("p", "dump_content", "输出内容(stdout)"),
-        Binding("t", "toggle_hidden", "显隐非关联分支"),
-        Binding("k", "move_up", "上移", show=False),
-        Binding("j", "move_down", "下移", show=False),
-        Binding("up", "move_up", "上移", show=False),
-        Binding("down", "move_down", "下移", show=False),
-        Binding("h", "previous_page", "上一页", show=False),
-        Binding("left", "previous_page", "上一页"),
-        Binding("l", "next_page", "下一页", show=False),
-        Binding("right", "next_page", "下一页"),
-    ]
-
-    def __init__(self, work_dir: Path):
-        super().__init__()
-        self.work_dir = work_dir
-        self.engine: Optional[Engine] = None
-        self.view_model: Optional[GraphViewModel] = None
-        self.show_unreachable = True
-        self.is_split_mode = False
-        self.current_selected_node: Optional[QuipuNode] = None
-        self.node_by_filename: dict[str, QuipuNode] = {}
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        with Horizontal(id="main-container"):
-            yield DataTable(id="history-table", cursor_type="row", zebra_stripes=False)
-            with Vertical(id="content-view"):
-                yield Static("Node Content", id="content-header")
-                yield Markdown("", id="content-body")
-        yield Footer()
-
-    def on_mount(self) -> None:
-        """Loads the first page of data."""
-        logger.debug("TUI: on_mount started.")
-        self.query_one(Header).tall = False
-
-        self.engine = create_engine(self.work_dir, lazy=True)
-        current_hash = self.engine.git_db.get_tree_hash()
-        self.view_model = GraphViewModel(reader=self.engine.reader, current_hash=current_hash)
-        self.view_model.initialize()
-
-        table = self.query_one(DataTable)
-        table.add_columns("Time", "Graph", "Node Info")
-
-        logger.debug("TUI: Loading first page...")
-        self._load_page(1)
-
-    def on_unmount(self) -> None:
-        logger.debug("TUI: on_unmount called, closing engine.")
-        if self.engine:
-            self.engine.close()
-
     def _update_header(self):
         """Centralized method to update header text."""
         header = self.query_one(Header)
         header.title = self.TITLE
         header.sub_title = f"Page {self.view_model.current_page} / {self.view_model.total_pages}"
-
-    def _load_page(self, page_number: int) -> None:
-        """Loads and displays a specific page of nodes."""
-        logger.debug(f"TUI: Loading page {page_number}")
-        nodes = self.view_model.load_page(page_number)
-        logger.debug(f"TUI: Page {page_number} loaded with {len(nodes)} nodes.")
-
-        if not nodes:
-            return
-
-        self.node_by_filename = {str(node.filename): node for node in nodes}
-        table = self.query_one(DataTable)
-        table.clear()
-        self._populate_table(table, nodes)
-        self._focus_current_node(table)
-        self._update_header()
-
-    def action_move_up(self) -> None:
-        self.query_one(DataTable).action_cursor_up()
-
-    def action_move_down(self) -> None:
-        self.query_one(DataTable).action_cursor_down()
-
-    def action_toggle_hidden(self) -> None:
-        self.show_unreachable = not self.show_unreachable
-        self._refresh_table()
-
-    def action_toggle_view(self) -> None:
-        self.is_split_mode = not self.is_split_mode
-        container = self.query_one("#main-container")
-        container.set-class(self.is_split_mode, "split-mode")
-        if self.is_split_mode:
-            self._update_content_view()
-
-    def action_checkout_node(self) -> None:
-        if self.current_selected_node:
-            self.exit(result=("checkout", self.current_selected_node.output_tree))
-
-    def action_dump_content(self) -> None:
-        if self.current_selected_node:
-            content = self.view_model.get_content_bundle(self.current_selected_node)
-            self.exit(result=("dump", content))
-
-    def action_previous_page(self) -> None:
-        if self.view_model.current_page > 1:
-            self._load_page(self.view_model.current_page - 1)
-        else:
-            self.bell()
-
-    def action_next_page(self) -> None:
-        if self.view_model.current_page < self.view_model.total_pages:
-            self._load_page(self.view_model.current_page + 1)
-        else:
-            self.bell()
-
-    def _refresh_table(self):
-        table = self.query_one(DataTable)
-        current_page_nodes = list(self.node_by_filename.values())
-        sorted_nodes = sorted(current_page_nodes, key=lambda n: n.timestamp, reverse=True)
-        table.clear()
-        self._populate_table(table, sorted_nodes)
-        self._focus_current_node(table)
-        self._update_header()
-
-    def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
-        nodes_to_render = (
-            nodes
-            if self.show_unreachable
-            else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]
-        )
-        tracks: list[Optional[str]] = []
-        for node in nodes_to_render:
-            is_reachable = self.view_model.is_reachable(node.output_tree)
-            dim_tag = "[dim]" if not is_reachable else ""
-            end_dim_tag = "[/dim]" if dim_tag else ""
-            base_color = "magenta"
-            if node.node_type == "plan":
-                base_color = "green" if node.input_tree == node.output_tree else "cyan"
-            graph_chars = self._get_graph_chars(tracks, node, base_color, dim_tag, end_dim_tag)
-            ts_str = f"{dim_tag}{node.timestamp.strftime('%Y-%m-%d %H:%M')}{end_dim_tag}"
-            summary = self._get_node_summary(node)
-            info_text = f"[{base_color}][{node.node_type.upper()}] {node.short_hash}[/{base_color}] - {summary}"
-            info_str = f"{dim_tag}{info_text}{end_dim_tag}"
-            table.add_row(ts_str, "".join(graph_chars), info_str, key=str(node.filename))
-
-    def _get_graph_chars(
-        self, tracks: list, node: QuipuNode, base_color: str, dim_tag: str, end_dim_tag: str
-    ) -> list[str]:
-        merging_indices = [i for i, h in enumerate(tracks) if h == node.output_tree]
-        try:
-            col_idx = tracks.index(None) if not merging_indices else merging_indices[0]
-        except ValueError:
-            col_idx = len(tracks)
-        while len(tracks) <= col_idx:
-            tracks.append(None)
-        tracks[col_idx] = node.output_tree
-        graph_chars = []
-        for i, track_hash in enumerate(tracks):
-            if i == col_idx:
-                symbol = "●" if node.node_type == "plan" else "○"
-                graph_chars.append(f"{dim_tag}[{base_color}]{symbol}[/] {end_dim_tag}")
-            elif i in merging_indices:
-                graph_chars.append(f"{dim_tag}┘ {end_dim_tag}")
-            elif track_hash:
-                graph_chars.append(f"{dim_tag}│ {end_dim_tag}")
-            else:
-                graph_chars.append("  ")
-        tracks[col_idx] = node.input_tree
-        for i in merging_indices[1:]:
-            tracks[i] = None
-        while tracks and tracks[-1] is None:
-            tracks.pop()
-        return graph_chars
-
-    def _get_node_summary(self, node: QuipuNode) -> str:
-        return node.summary or "No description"
-
-    def _focus_current_node(self, table: DataTable):
-        current_hash = self.view_model.current_hash
-        target_node = next((n for n in self.node_by_filename.values() if n.output_tree == current_hash), None)
-        if not target_node:
-            return
-        try:
-            row_key = str(target_node.filename)
-            if table.is_valid_row_key(row_key):
-                row_index = table.get_row_index(row_key)
-                table.cursor_coordinate = Coordinate(row=row_index, column=0)
-                if not self.current_selected_node:
-                    self.current_selected_node = target_node
-        except Exception:
-            pass
-
-    @on(DataTable.RowHighlighted)
-    def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        row_key = event.row_key.value
-        if row_key and (node := self.node_by_filename.get(row_key)):
-            self.current_selected_node = node
-            if self.is_split_mode:
-                self._update_content_view()
-
-    def _update_content_view(self):
-        if not self.current_selected_node:
-            return
-        node = self.current_selected_node
-        header = self.query_one("#content-header", Static)
-        header.update(f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}")
-        content = self.view_model.get_content_bundle(node)
-        markdown = self.query_one("#content-body", Markdown)
-        markdown.update(content)
+~~~~~
+~~~~~python
+    def _update_header(self):
+        """Centralized method to update the app's title and sub_title."""
+        self.sub_title = f"Page {self.view_model.current_page} / {self.view_model.total_pages}"
 ~~~~~
 
 ### 下一步建议
-这次的修改应该彻底解决了布局和分页信息显示的问题。请运行 `quipu ui`，你应该能看到一个干净的界面，并且在 `Header` 的副标题位置看到分页信息。
+这次的修改是根据你找到的权威文档进行的，它现在完全符合 `textual` 的设计范式。请再次运行 `quipu ui`，现在副标题应该能够正确地显示分页信息了。TUI 的核心功能实现任务至此已全部完成。

@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "fix+refactor 修复 TUI 布局溢出问题并将分页信息移至标题栏", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764229696.17881, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix 修复 TUI 标题更新逻辑以符合 Textual 框架规范", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764230069.0689423, "duration_ms": 0}}
