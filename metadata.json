@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "feat: 在 GitDB 中实现 push 和 fetch 核心方法", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764251620.1208842, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "refactor(cli): 重构 sync 命令以实现 v1.1 推拉逻辑", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764251769.3128788, "duration_ms": 0}}
