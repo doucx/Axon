@@ -348,11 +348,12 @@ class SQLiteHistoryWriter(HistoryWriter):
             )
 
             # 2.3 写入 'edges' 表
-            parent_commit = self.git_writer.git_db.get_commit_by_output_tree(input_tree)
-            if parent_commit:
+            # 关键修改：直接使用 GitWriter 传递回来的确切父节点信息，不再进行 Tree 反查
+            if git_node.parent:
+                parent_hash = git_node.parent.filename.name
                 self.db_manager.execute_write(
                     "INSERT OR IGNORE INTO edges (child_hash, parent_hash) VALUES (?, ?)",
-                    (commit_hash, parent_commit),
+                    (commit_hash, parent_hash),
                 )
 
             # 2.4 (未来) 写入 'private_data' 表

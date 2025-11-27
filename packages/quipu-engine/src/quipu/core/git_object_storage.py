@@ -429,7 +429,7 @@ class GitObjectHistoryWriter(HistoryWriter):
         logger.info(f"✅ History node created as commit {new_commit_hash[:7]}")
 
         # 返回一个 QuipuNode 实例，content 此时已在内存中，无需 Lazy Load
-        return QuipuNode(
+        node = QuipuNode(
             input_tree=input_tree,
             output_tree=output_tree,
             timestamp=datetime.fromtimestamp(start_time),
@@ -437,3 +437,18 @@ class GitObjectHistoryWriter(HistoryWriter):
             node_type=node_type,
             content=content,
         )
+
+        # 关键修改：显式填充 parent 信息，以便上层 Writer (如 SQLite) 可以直接获取确切的父节点 Hash
+        # 而无需通过容易出错的 Tree 反查。我们使用一个最小化的占位节点。
+        if parent_commit:
+            # 这里的 filename 实际上存储的是 commit hash
+            node.parent = QuipuNode(
+                input_tree="",  # Placeholder
+                output_tree="", # Placeholder
+                timestamp=datetime.fromtimestamp(0), # Placeholder
+                filename=Path(f".quipu/git_objects/{parent_commit}"),
+                node_type="unknown",
+                content=""
+            )
+
+        return node
