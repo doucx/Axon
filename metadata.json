@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "fix: 修复 TUI 启动时无法自动聚焦当前节点的问题", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764237917.755094, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix: 重写 TUI 逻辑以修复渲染与焦点问题", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764238269.4186063, "duration_ms": 0}}
