@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "feat(cli): 重构 ViewModel 以支持分页并修复测试", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764211976.7877636, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix: 改造 QuipuUiApp 以对接 ViewModel", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764212533.6883044, "duration_ms": 0}}
