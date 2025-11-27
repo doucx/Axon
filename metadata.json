@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "fix 由于数据模型变更（引入 commit_hash）和 fixture 返回值变更导致的测试失败。 Capture: M test_reader.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764235265.7741542, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "Capture: M helpers.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764235643.4225972, "duration_ms": 0}}
