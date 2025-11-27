@@ -75,8 +75,13 @@ class QuipuUiApp(App[Optional[UiResult]]):
         table = self.query_one(DataTable)
         table.add_columns("Time", "Graph", "Node Info")
 
-        logger.debug("TUI: Loading first page...")
-        self._load_page(1)
+        # 计算 HEAD 所在的页码并跳转
+        initial_page = self.view_model.calculate_initial_page()
+        logger.debug(f"TUI: HEAD is on page {initial_page}. Loading...")
+        self._load_page(initial_page)
+        
+        # 强制将焦点给到表格，确保高亮可见且键盘可用
+        table.focus()
 
     def on_unmount(self) -> None:
         logger.debug("TUI: on_unmount called, closing engine.")
@@ -157,9 +162,6 @@ class QuipuUiApp(App[Optional[UiResult]]):
             else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]
         )
         tracks: list[Optional[str]] = []
-        # Add the current node's full ancestry to the initial tracks to ensure the main line is drawn
-        if self.view_model.current_output_tree_hash:
-            tracks.append(self.view_model.current_output_tree_hash)
 
         for node in nodes_to_render:
             is_reachable = self.view_model.is_reachable(node.output_tree)
@@ -209,20 +211,46 @@ class QuipuUiApp(App[Optional[UiResult]]):
 
     def _focus_current_node(self, table: DataTable):
         current_output_tree_hash = self.view_model.current_output_tree_hash
-        target_node = next(
-            (n for n in self.node_by_filename.values() if n.output_tree == current_output_tree_hash), None
-        )
-        if not target_node:
+        logger.debug(f"DEBUG: Attempting focus. HEAD={current_output_tree_hash}")
+
+        if not current_output_tree_hash:
+            logger.debug("DEBUG: No HEAD hash, skipping.")
             return
+
+        # 查找当前页面中匹配 HEAD 的所有节点
+        matching = [n for n in self.node_by_filename.values() if n.output_tree == current_output_tree_hash]
+        logger.debug(f"DEBUG: Found {len(matching)} matching nodes in current page map.")
+
+        target_node = matching[0] if matching else None
+        if not target_node:
+            logger.debug("DEBUG: Target node not found in current page.")
+            return
+
         try:
             row_key = str(target_node.filename)
-            if table.is_valid_row_key(row_key):
+            logger.debug(f"DEBUG: Target row key: {row_key}")
+
+            # Textual 的 DataTable API 中，get_row_index 会在 key 不存在时抛出 KeyError
+            # 或者 RowKeyError，具体取决于版本，但 KeyError 是基类
+            try:
                 row_index = table.get_row_index(row_key)
+                logger.debug(f"DEBUG: Row index found: {row_index}. Setting cursor.")
+                
+                # 1. 设置视觉光标
                 table.cursor_coordinate = Coordinate(row=row_index, column=0)
-                if not self.current_selected_node:
-                    self.current_selected_node = target_node
-        except Exception:
-            pass
+                
+                # 2. 同步逻辑状态 (防止事件未触发)
+                self.current_selected_node = target_node
+                
+                # 3. 刷新关联视图
+                if self.is_split_mode:
+                    self._update_content_view()
+            except LookupError:
+                 # LookupError 捕获 RowKeyError 等
+                logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
+
+        except Exception as e:
+            logger.error(f"DEBUG: Failed to focus current node: {e}", exc_info=True)
 
     @on(DataTable.RowHighlighted)
     def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:

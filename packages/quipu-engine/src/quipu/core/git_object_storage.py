@@ -186,6 +186,18 @@ class GitObjectHistoryReader(HistoryReader):
         """Git后端: 低效实现，加载所有节点后计数"""
         return len(self.load_all_nodes())
 
+    def get_node_position(self, output_tree_hash: str) -> int:
+        """Git后端: 低效实现，加载所有节点后查找索引"""
+        all_nodes = self.load_all_nodes()
+        # load_all_nodes 内部已经按时间倒序排序了
+        # 但为了保险，还是在这里再次确认排序逻辑
+        all_nodes.sort(key=lambda n: n.timestamp, reverse=True)
+
+        for i, node in enumerate(all_nodes):
+            if node.output_tree == output_tree_hash:
+                return i
+        return -1
+
     def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
         """Git后端: 低效实现，加载所有节点后切片"""
         all_nodes = self.load_all_nodes()
@@ -216,6 +228,27 @@ class GitObjectHistoryReader(HistoryReader):
     def get_private_data(self, node_commit_hash: str) -> Optional[str]:
         """Git后端: 不支持私有数据"""
         return None
+
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+        """Git后端: 在内存中遍历图谱以查找后代"""
+        all_nodes = self.load_all_nodes()
+        node_map = {n.output_tree: n for n in all_nodes}
+
+        descendants = set()
+        queue = []
+
+        if start_output_tree_hash in node_map:
+            queue.append(node_map[start_output_tree_hash])
+
+        while queue:
+            current_node = queue.pop(0)
+            for child in current_node.children:
+                c_hash = child.output_tree
+                if c_hash not in descendants:
+                    descendants.add(c_hash)
+                    queue.append(child)
+
+        return descendants
 
     def get_node_content(self, node: QuipuNode) -> str:
         """

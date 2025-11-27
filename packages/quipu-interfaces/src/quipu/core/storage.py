@@ -67,6 +67,21 @@ class HistoryReader(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+        """
+        获取指定状态节点的所有后代节点的 output_tree 哈希集合。
+        """
+        pass
+
+    @abstractmethod
+    def get_node_position(self, output_tree_hash: str) -> int:
+        """
+        获取指定节点在按时间倒序排列的全局列表中的索引位置（从 0 开始）。
+        如果节点不存在，返回 -1。
+        """
+        pass
+
 
 class HistoryWriter(ABC):
     """

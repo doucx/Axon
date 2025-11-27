@@ -21,7 +21,7 @@ class GraphViewModel:
         self.total_nodes: int = 0
         self.total_pages: int = 1
         self.current_page: int = 0  # 页码从 1 开始
-        self.ancestor_set: Set[str] = set()
+        self.reachable_set: Set[str] = set()
 
     def initialize(self):
         """
@@ -35,10 +35,13 @@ class GraphViewModel:
             self.total_pages = 1
 
         if self.current_output_tree_hash:
-            # 后端直接计算祖先，避免在前端加载整个图谱
-            self.ancestor_set = self.reader.get_ancestor_output_trees(self.current_output_tree_hash)
-            # 当前节点本身也是可达的
-            self.ancestor_set.add(self.current_output_tree_hash)
+            # 后端直接计算祖先和后代，避免在前端加载整个图谱
+            ancestors = self.reader.get_ancestor_output_trees(self.current_output_tree_hash)
+            descendants = self.reader.get_descendant_output_trees(self.current_output_tree_hash)
+            
+            # 合并祖先、后代和当前节点自身，形成完整的可达集合
+            self.reachable_set = ancestors.union(descendants)
+            self.reachable_set.add(self.current_output_tree_hash)
 
     def is_reachable(self, output_tree_hash: str) -> bool:
         """检查一个节点哈希是否在可达性集合中。"""
@@ -46,7 +49,20 @@ class GraphViewModel:
             # 如果没有当前状态 (例如，在创世之前)，将所有内容视为可达，
             # 以避免 UI 显示全灰色。
             return True
-        return output_tree_hash in self.ancestor_set
+        return output_tree_hash in self.reachable_set
+
+    def calculate_initial_page(self) -> int:
+        """根据当前 HEAD 位置计算其所在的页码"""
+        if not self.current_output_tree_hash:
+            return 1
+
+        position = self.reader.get_node_position(self.current_output_tree_hash)
+        if position == -1:
+            return 1
+
+        # position 是从 0 开始的索引
+        # e.g. pos 0 -> page 1; pos 49 -> page 1; pos 50 -> page 2
+        return (position // self.page_size) + 1
 
     def load_page(self, page_number: int) -> List[QuipuNode]:
         """

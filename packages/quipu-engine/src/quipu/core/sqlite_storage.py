@@ -101,6 +101,27 @@ class SQLiteHistoryReader(HistoryReader):
             logger.error(f"Failed to get node count: {e}")
             return 0
 
+    def get_node_position(self, output_tree_hash: str) -> int:
+        """
+        计算节点在时间倒序列表中的位置 (Rank)。
+        """
+        conn = self.db_manager._get_conn()
+        try:
+            # 1. 获取目标节点的时间戳
+            cursor = conn.execute("SELECT timestamp FROM nodes WHERE output_tree = ?", (output_tree_hash,))
+            row = cursor.fetchone()
+            if not row:
+                return -1
+            target_ts = row[0]
+
+            # 2. 计算有多少个节点比它新（时间戳更大）
+            cursor = conn.execute("SELECT COUNT(*) FROM nodes WHERE timestamp > ?", (target_ts,))
+            count = cursor.fetchone()[0]
+            return count
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get node position: {e}")
+            return -1
+
     def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
         """
         按需加载一页节点数据。
@@ -181,6 +202,45 @@ class SQLiteHistoryReader(HistoryReader):
         except sqlite3.Error as e:
             logger.error(f"Failed to load paginated nodes: {e}")
             return []
+
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+        """
+        获取指定状态节点的所有后代节点的 output_tree 哈希集合。
+        与 get_ancestors 逻辑相反。
+        """
+        conn = self.db_manager._get_conn()
+        try:
+            # 1. 查找起点的 commit_hash
+            cursor = conn.execute("SELECT commit_hash FROM nodes WHERE output_tree = ?", (start_output_tree_hash,))
+            row = cursor.fetchone()
+            if not row:
+                return set()
+            start_commit_hash = row[0]
+
+            # 2. 使用递归 CTE 查找所有后代 commit_hash
+            sql = """
+            WITH RECURSIVE descendants(h) AS (
+                SELECT child_hash FROM edges WHERE parent_hash = ?
+                UNION ALL
+                SELECT e.child_hash FROM edges e, descendants d WHERE e.parent_hash = d.h AND e.child_hash IS NOT NULL
+            )
+            SELECT h FROM descendants WHERE h IS NOT NULL;
+            """
+            cursor = conn.execute(sql, (start_commit_hash,))
+            descendant_commit_hashes = {row[0] for row in cursor.fetchall()}
+
+            if not descendant_commit_hashes:
+                return set()
+
+            # 3. 将 commit_hash 集合转换为 output_tree 集合
+            placeholders = ",".join("?" * len(descendant_commit_hashes))
+            sql_out = f"SELECT output_tree FROM nodes WHERE commit_hash IN ({placeholders})"
+            cursor = conn.execute(sql_out, tuple(descendant_commit_hashes))
+            return {row[0] for row in cursor.fetchall()}
+
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get descendants for {start_output_tree_hash[:7]}: {e}")
+            return set()
 
     def get_ancestor_output_trees(self, start_output_tree_hash: str) -> Set[str]:
         """
