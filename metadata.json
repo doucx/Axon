@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "修复所有因 `QuipuUiApp` 构造函数变更而失败的单元测试。", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764213250.6964595, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix: 修复 UI 启动时因跨线程数据库访问导致的崩溃和资源未释放导致的挂起问题", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764213495.8144372, "duration_ms": 0}}
