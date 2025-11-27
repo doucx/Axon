@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "refactor: 实现 TUI 分页加载与渲染机制", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764212715.7876086, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "feat: 为 TUI 添加分页导航快捷键", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764212793.968391, "duration_ms": 0}}

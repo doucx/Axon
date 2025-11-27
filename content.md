@@ -1,29 +1,27 @@
-好的，我将开始执行 **任务 5: 实现分页加载与渲染机制**。
+好的，现在开始执行 **任务 6: 实现分页快捷键绑定和动作**。
 
-此任务的目标是重构 `QuipuUiApp`，使其通过 `GraphViewModel` 按需加载数据，而不是在启动时加载所有内容。这将涉及修改数据加载入口 (`on_mount`)、实现分页逻辑 (`_load_page`)，并更新所有依赖旧数据结构的方法。
+此任务的目标是为用户提供在历史记录页面之间导航的能力，我们将通过添加新的键盘快捷键并实现相应的处理动作来完成。
 
-我将分步应用 `patch_file` 指令来完成此项改造。
-
-### refactor: 实现 TUI 分页加载与渲染机制
+### feat: 为 TUI 添加分页导航快捷键
 
 #### 用户需求
-根据 UI 性能优化方案，实现 `QuipuUiApp` 的分页加载机制。UI 启动时应只加载第一页数据，并通过新的方法按需加载其他页面，以解决性能瓶颈。
+根据 UI 性能优化方案，为 `QuipuUiApp` 添加键盘快捷键，以支持在历史记录页面之间进行“上一页”和“下一页”的导航。
 
 #### 评论
-这是提升 UI 响应速度和降低内存占用的核心步骤。通过将重量级的数据加载操作从启动时 (`on_mount`) 转移到按需加载 (`_load_page`)，即使用户历史记录非常庞大，UI 也能实现秒级启动。
+这是分页功能的用户交互层实现。通过绑定 `h/l` 和方向键，我们为用户提供了符合直觉和终端应用惯例的导航方式，使得浏览大规模历史记录成为可能。同时，我们将 `h` 键原有的“切换可见性”功能重新绑定到 `t` 键，以避免快捷键冲突。
 
 #### 目标
-1.  将 `on_mount` 改造为异步初始化入口，加载第一页数据。
-2.  创建新的 `_load_page` 方法，负责从 ViewModel 获取数据并更新 `DataTable`。
-3.  更新 `_populate_table`、`_refresh_table`、`_focus_current_node` 和 `action_dump_content` 等方法，使其与新的分页数据流兼容。
-4.  确保 `on_row_highlighted` 等事件在分页模式下依然能正确工作。
+1.  在 `BINDINGS` 列表中添加 `h`/`left` (上一页) 和 `l`/`right` (下一页) 的快捷键绑定。
+2.  将原有的 `toggle_hidden` 动作的快捷键从 `h` 更改为 `t`。
+3.  实现 `action_previous_page` 和 `action_next_page` 方法，使其能够调用 `_load_page` 来刷新视图。
+4.  确保已移除所有与无限滚动相关的旧逻辑。
 
 #### 基本原理
-此重构将 UI 从“状态持有者”转变为“状态渲染器”。`on_mount` 启动数据加载流程，`_load_page` 成为核心的数据刷新入口。所有依赖全量节点列表的方法都被修改为依赖 ViewModel 或当前页的节点子集，从而实现低内存、高响应的设计。
+Textual 的 `BINDINGS` 系统允许我们将按键事件声明式地映射到 `action_` 方法。当用户按下绑定的键时，Textual 会自动调用相应的方法。我们通过实现 `action_previous_page` 和 `action_next_page`，调用已经存在的 `_load_page` 方法并传入计算后的新页码，来驱动 `ViewModel` 获取新数据并触发 UI 刷新，从而完成分页导航的闭环。
 
 #### 标签
-#intent/refactor #flow/ready #priority/high
-#comp/cli #concept/ui #scope/core
+#intent/build #flow/ready #priority/high
+#comp/cli #concept/ui #scope/ux
 #ai/instruct
 #task/domain/ui #task/object/tui-performance #task/action/refactor
 #task/state/continue #task/status/active
@@ -32,49 +30,11 @@
 
 ### Script
 
-#### Acts 1: 实现核心分页加载逻辑
+#### Acts 1: 更新快捷键绑定
 
-我将首先替换 `on_mount` 方法，使其调用 ViewModel 进行初始化并加载第一页数据。同时，我将插入新的 `_load_page` 方法，这是分页机制的核心。
-
-~~~~~act
-patch_file
-~~~~~
-~~~~~path
-packages/quipu-cli/src/quipu/cli/tui.py
-~~~~~
-~~~~~python
-    def on_mount(self) -> None:
-        self._refresh_table()
-~~~~~
-~~~~~python
-    def on_mount(self) -> None:
-        """Initializes the view model and loads the first page of data."""
-        self.view_model.initialize()
-        self._load_page(1)
-
-    def _load_page(self, page_number: int) -> None:
-        """Loads and displays a specific page of nodes."""
-        nodes = self.view_model.load_page(page_number)
-        if not nodes and page_number > 1:
-            self.bell()  # Give feedback on boundary
-            return
-
-        # Build a page-local index for mapping row keys to nodes, used by on_row_highlighted
-        self.node_by_filename = {str(node.filename): node for node in nodes}
-
-        table = self.query_one(DataTable)
-        table.clear()
-        self._populate_table(table, nodes)
-
-        footer = self.query_one(Footer)
-        footer.message = f"Page {self.view_model.current_page} / {self.view_model.total_pages}"
-
-        self._focus_current_node(table)
-~~~~~
-
-#### Acts 2: 更新数据填充与刷新逻辑
-
-现在，`_populate_table` 需要接收节点列表作为参数，并使用 ViewModel 进行可达性检查。同时，`_refresh_table` 逻辑也需要更新，以刷新当前页的数据，而不是整个列表。
+我将一次性更新 `BINDINGS` 列表：
+1.  将 `toggle_hidden` 的绑定从 `h` 改为 `t`。
+2.  添加 `h`, `l` 和左右方向键用于分页。
 
 ~~~~~act
 patch_file
@@ -83,71 +43,50 @@ patch_file
 packages/quipu-cli/src/quipu/cli/tui.py
 ~~~~~
 ~~~~~python
-    def _refresh_table(self):
-        table = self.query_one(DataTable)
-        table.clear(columns=True)
-
-        # 始终显示详细信息列，即使在分栏模式下
-        cols = ["Time", "Graph", "Node Info"]
-
-        table.add_columns(*cols)
-        self._populate_table(table)
-
-        # 初始加载时定位到当前 HEAD
-        if table.cursor_row == 0 and self.current_hash and not self.current_selected_node:
-            self._focus_current_node(table)
-
-    def _populate_table(self, table: DataTable):
-        nodes_to_render = [
-            node for node in self.sorted_nodes if self.show_unreachable or node.output_tree in self.reachable_hashes
-        ]
-        tracks: List[Optional[str]] = []
-        for node in nodes_to_render:
-            is_reachable = node.output_tree in self.reachable_hashes
+    BINDINGS = [
+        Binding("q", "quit", "退出"),
+        Binding("c", "checkout_node", "检出节点"),
+        Binding("enter", "checkout_node", "检出节点"),
+        Binding("v", "toggle_view", "切换内容视图"),
+        Binding("p", "dump_content", "输出内容(stdout)"),
+        Binding("h", "toggle_hidden", "显隐非关联分支"),
+        # Vim 风格导航
+        Binding("k", "move_up", "上移", show=False),
+        Binding("j", "move_down", "下移", show=False),
+        Binding("up", "move_up", "上移", show=False),
+        Binding("down", "move_down", "下移", show=False),
+    ]
 ~~~~~
 ~~~~~python
-    def _refresh_table(self):
-        table = self.query_one(DataTable)
-        # Get the nodes for the current page from our page-local index
-        current_page_nodes = list(getattr(self, "node_by_filename", {}).values())
-
-        table.clear(columns=True)
-        cols = ["Time", "Graph", "Node Info"]
-        table.add_columns(*cols)
-
-        # Repopulate using the nodes for the current page
-        if current_page_nodes:
-            # Sort them again by timestamp just in case the dict order is not guaranteed
-            sorted_nodes = sorted(current_page_nodes, key=lambda n: n.timestamp, reverse=True)
-            self._populate_table(table, sorted_nodes)
-
-        self._focus_current_node(table)
-
-    def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
-        nodes_to_render = [
-            node for node in nodes if self.show_unreachable or self.view_model.is_reachable(node.output_tree)
-        ]
-        tracks: List[Optional[str]] = []
-        for node in nodes_to_render:
-            is_reachable = self.view_model.is_reachable(node.output_tree)
+    BINDINGS = [
+        Binding("q", "quit", "退出"),
+        Binding("c", "checkout_node", "检出节点"),
+        Binding("enter", "checkout_node", "检出节点"),
+        Binding("v", "toggle_view", "切换内容视图"),
+        Binding("p", "dump_content", "输出内容(stdout)"),
+        Binding("t", "toggle_hidden", "显隐非关联分支"),
+        # Vim 风格导航
+        Binding("k", "move_up", "上移", show=False),
+        Binding("j", "move_down", "下移", show=False),
+        Binding("up", "move_up", "上移", show=False),
+        Binding("down", "move_down", "下移", show=False),
+        # 分页导航
+        Binding("h", "previous_page", "上一页", show=False),
+        Binding("left", "previous_page", "上一页"),
+        Binding("l", "next_page", "下一页", show=False),
+        Binding("right", "next_page", "下一页"),
+    ]
 ~~~~~
 
-#### Acts 3: 适配依赖旧数据结构的方法
+#### Acts 2: 实现分页动作方法
 
-最后，我将修复 `_focus_current_node` 和 `action_dump_content`，使它们能够在新架构下工作。
+现在，我将添加 `action_previous_page` 和 `action_next_page` 两个新方法，它们将响应新的快捷键。
 
 ~~~~~act
 patch_file
 ~~~~~
 ~~~~~path
 packages/quipu-cli/src/quipu/cli/tui.py
-~~~~~
-~~~~~python
-    def action_dump_content(self) -> None:
-        """退出 UI 并将当前选中节点的内容输出到 stdout"""
-        if self.current_selected_node:
-            content = self.content_loader(self.current_selected_node)
-            self.exit(result=("dump", content))
 ~~~~~
 ~~~~~python
     def action_dump_content(self) -> None:
@@ -155,58 +94,28 @@ packages/quipu-cli/src/quipu/cli/tui.py
         if self.current_selected_node:
             content = self.view_model.get_content_bundle(self.current_selected_node)
             self.exit(result=("dump", content))
-~~~~~
 
-~~~~~act
-patch_file
-~~~~~
-~~~~~path
-packages/quipu-cli/src/quipu/cli/tui.py
+    # --- UI Logic ---
 ~~~~~
 ~~~~~python
-    def _focus_current_node(self, table: DataTable):
-        if not self.current_hash:
-            return
-        target_nodes = self.nodes_by_output_hash.get(self.current_hash, [])
-        if not target_nodes:
-            return
-        latest_node = target_nodes[-1]
-        try:
-            row_index = table.get_row_index(str(latest_node.filename))
-            table.cursor_coordinate = Coordinate(row=row_index, column=0)
-            # 初始化选中状态
-            self.current_selected_node = latest_node
-        except Exception:
-            pass
-~~~~~
-~~~~~python
-    def _focus_current_node(self, table: DataTable):
-        current_hash = self.view_model.current_hash
-        if not current_hash:
-            return
+    def action_dump_content(self) -> None:
+        """退出 UI 并将当前选中节点的内容输出到 stdout"""
+        if self.current_selected_node:
+            content = self.view_model.get_content_bundle(self.current_selected_node)
+            self.exit(result=("dump", content))
 
-        # Search for the node with the current hash on the currently displayed page
-        target_node = next(
-            (node for node in self.node_by_filename.values() if node.output_tree == current_hash), None
-        )
+    def action_previous_page(self) -> None:
+        """Loads the previous page of history."""
+        self._load_page(self.view_model.current_page - 1)
 
-        if not target_node:
-            return
+    def action_next_page(self) -> None:
+        """Loads the next page of history."""
+        self._load_page(self.view_model.current_page + 1)
 
-        try:
-            row_key = str(target_node.filename)
-            if table.is_valid_row_key(row_key):
-                row_index = table.get_row_index(row_key)
-                table.cursor_coordinate = Coordinate(row=row_index, column=0)
-                # Only set initially, don't override user selection during a refresh
-                if not self.current_selected_node:
-                    self.current_selected_node = target_node
-        except Exception:
-            # Silently fail if something goes wrong, it's not critical
-            pass
+    # --- UI Logic ---
 ~~~~~
 
 ### 下一步建议
-分页加载和渲染机制的核心改造已经完成。UI 现在能够通过 ViewModel 按需加载数据。
+分页的快捷键和核心动作已经实现。现在，我们需要完成最后的功能适配，即 **任务 7: 适配可达性渲染与内容视图**。
 
-下一步是 **任务 6: 实现分页快捷键绑定和动作**，为用户提供在页面间导航的能力。
+这一步将确保在新分页模式下，节点的“可达性”状态（即是否为当前分支的祖先）能够被正确渲染（变暗），并且右侧的内容预览面板能够正确显示包括私有数据在内的完整信息。
