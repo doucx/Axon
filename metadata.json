@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "test 创建一个新的测试文件 `tests/test_sqlite_reader_integrity.py`", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764206173.192987, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "在 `test_sqlite_reader_integrity.py` 文件中定义所需的 fixture", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764206441.5002985, "duration_ms": 0}}

@@ -1,31 +1,13 @@
-## test 创建一个新的测试文件 `tests/test_sqlite_reader_integrity.py`
-好的，这是一个非常好的实践。在修复一个严重错误后，为其编写一个专门的回归测试，可以确保该问题在未来的重构中不再出现。
+## 在 `test_sqlite_reader_integrity.py` 文件中定义所需的 fixture
+好的，看来我之前假设的 `repo_with_sqlite_db` fixture 在 `conftest.py` 中并不存在，或者名称不匹配。
 
-### 用户需求
-
-你需要一个单元测试，用于验证 `SQLiteHistoryReader` 在面对数据库中存在循环引用（一个节点将自己作为父节点）的脏数据时，是否能够正确处理，避免在内存中构建出带循环的图谱，从而防止 UI 等上层应用陷入无限循环。
-
-### 评论
-
-这是一个关键的健壮性测试。数据库中的数据可能会因为各种原因（例如，旧版本的 bug、手动修改、不完整的同步操作）而被破坏。数据读取层必须有能力在这种情况下保持稳定，而不是将问题传递给上层逻辑。这个测试将直接模拟最坏情况，并验证我们刚刚应用的修复。
-
-### 目标
-
-创建一个新的测试文件 `tests/test_sqlite_reader_integrity.py`，其中包含一个测试用例，该用例：
-1.  手动在 SQLite 数据库中插入一个自引用的 `edge` 记录。
-2.  调用 `SQLiteHistoryReader.load_all_nodes()`。
-3.  断言该调用能够正常返回，不会挂起。
-4.  断言返回的节点列表中不包含循环引用。
-
-### 基本原理
-
-我们将利用 `pytest` 框架和项目现有的测试夹具 (fixtures) 来创建一个干净的测试环境。测试的核心是直接对 `history.sqlite` 文件进行写操作，以模拟数据损坏的场景。然后，我们实例化 `SQLiteHistoryReader` 并调用其 `load_all_nodes` 方法。最后，我们通过一个图遍历算法 (DFS) 来检测返回的 `QuipuNode` 对象列表中是否存在 `.parent` 指针形成的循环。
+为了修复这个问题并确保测试是自包含的，我将直接在 `test_sqlite_reader_integrity.py` 文件中定义所需的 fixture。这将消除对外部 `conftest.py` 的隐式依赖，使测试更加稳健。
 
 ### 标签
 
-#intent/tooling #flow/ready #priority/high
-#comp/engine #comp/tests #concept/history #scope/core
-#ai/instruct
+#intent/fix #flow/ready #priority/high
+#comp/tests #scope/core
+#ai/refine
 #task/domain/storage
 #task.object/sqlite-backend
 #task.action/bug-fix
@@ -35,9 +17,9 @@
 
 ### Script
 
-#### Acts 1: 创建单元测试文件
+#### Acts 1: 修复测试文件，添加自包含的 Fixture
 
-我们将创建一个新的测试文件，以保持这个关键的完整性测试的独立性和清晰性。
+我将在 `test_sqlite_reader_integrity.py` 中添加 `repo_with_sqlite_db` fixture 的实现。这个 fixture 将利用 pytest 内置的 `tmp_path` 来创建一个临时的 Git 仓库和 SQLite 数据库环境。
 
 ~~~~~act
 write_file
@@ -48,14 +30,38 @@ tests/test_sqlite_reader_integrity.py
 ~~~~~python
 import pytest
 import time
+import subprocess
+from pathlib import Path
 from typing import List
 
 from quipu.core.models import QuipuNode
 from quipu.core.sqlite_storage import SQLiteHistoryReader
+from quipu.core.sqlite_db import DatabaseManager
+from quipu.core.git_db import GitDB
 
-# We rely on a fixture from conftest.py, which is a standard pattern in this project.
-# The fixture `repo_with_sqlite_db` should provide a tuple of (DatabaseManager, GitDB)
-# in a clean temporary directory.
+
+@pytest.fixture
+def repo_with_sqlite_db(tmp_path):
+    """
+    创建一个包含初始化 Git 仓库和 SQLite 数据库的临时环境。
+    """
+    # 1. Initialize Git repo
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    # Configure user for commits (needed if we were making commits, good practice anyway)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
+
+    # 2. Initialize GitDB
+    git_db = GitDB(tmp_path)
+
+    # 3. Initialize DatabaseManager
+    db_manager = DatabaseManager(tmp_path)
+    db_manager.init_schema()
+
+    yield db_manager, git_db
+
+    # Teardown
+    db_manager.close()
 
 
 def _has_cycle(nodes: List[QuipuNode]) -> bool:
@@ -114,10 +120,19 @@ def test_load_all_nodes_handles_self_referencing_edge(repo_with_sqlite_db):
     with conn:
         conn.execute(
             """
-            INSERT INTO nodes (commit_hash, output_tree, node_type, timestamp, summary, meta_json)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO nodes (commit_hash, output_tree, node_type, timestamp, summary, generator_id, meta_json, plan_md_cache)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (commit_hash, output_tree, "capture", time.time(), "Corrupted Self-Loop Node", "{}"),
+            (
+                commit_hash,
+                output_tree,
+                "capture",
+                time.time(),
+                "Corrupted Self-Loop Node",
+                "manual",
+                "{}",
+                None
+            ),
         )
 
         # 2. Inject the self-referencing edge that would cause an infinite loop
@@ -146,6 +161,4 @@ def test_load_all_nodes_handles_self_referencing_edge(repo_with_sqlite_db):
 
 ### 下一步建议
 
-现在，你可以运行 `pytest tests/test_sqlite_reader_integrity.py`。
-*   **如果测试失败**，说明我们对 `sqlite_storage.py` 的修复还不够完善，需要进一步调试。
-*   **如果测试通过**，那么我们可以非常有信心地确认，即使数据库中存在自引用脏数据，系统也不会再因此而卡死。接下来就可以继续推进 UI 性能优化的其他步骤了。
+现在请再次运行 `pytest tests/test_sqlite_reader_integrity.py`。这次应该能够正确设置环境并验证修复的有效性。
