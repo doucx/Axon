@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "refactor(engine): 重构写入层以显式传递父节点信息", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764207843.3536925, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "test(engine): 验证 SQLite 写入器在幂等操作下的父子关系正确性", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764207953.7816002, "duration_ms": 0}}

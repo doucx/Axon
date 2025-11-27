@@ -1,29 +1,33 @@
-为了彻底解决这个问题，我们需要切断 `SQLiteHistoryWriter` 对 Git 状态反查的依赖，转而通过对象传递的方式，将明确的“父子关系”从 Git 写入层直接传递给 SQLite 写入层。
+是的，**非常有必要**。
 
-这不仅修复了幂等操作中的自引用 bug，也使得整个写入流程在逻辑上更加严密和高效（减少了一次昂贵的 `git log` 查询）。
+之前的 `test_sqlite_reader_integrity.py` 是**防御性**测试（测试“如果数据坏了，读取器怎么办”），而我们需要一个**预防性**测试（测试“确保写入器不会把数据写坏”）。
 
-## refactor(engine): 重构写入层以显式传递父节点信息
+幂等操作导致父节点指向自己的问题是一个典型的**逻辑设计缺陷**，如果缺乏测试保护，未来很容易因为“代码清理”或“优化”而再次引入（例如，有人可能会觉得传递 `parent` 对象太麻烦，又改回 `get_commit_by_output_tree`）。
+
+## test(engine): 验证 SQLite 写入器在幂等操作下的父子关系正确性
 
 ### 错误分析
-在幂等操作（Idempotent Operation）中，新节点与父节点拥有相同的 `Output Tree`。
-`SQLiteHistoryWriter` 原先通过 `get_commit_by_output_tree(input_tree)` 来反查父节点。在幂等场景下，Git 中会存在多个 Commit 指向同一个 Tree。由于反查通常返回最新的 Commit（即刚刚创建的当前节点），导致系统错误地将当前节点记录为它自己的父节点，形成自引用边。
+在修复前，当连续创建两个具有相同 `output_tree` 的节点时，第二个节点在 SQLite 中的父节点会被错误地记录为它自己。
+我们需要验证修复后的逻辑：即使 `output_tree` 相同，第二个节点也应正确指向第一个节点。
 
 ### 用户需求
-修复幂等操作导致 UI 显示断开（孤儿节点）和数据库自引用的问题。
+创建一个测试，模拟连续两次写入相同内容（幂等操作），并验证 SQLite `edges` 表中的父子关系是线性的（A -> B），而不是自引用的（B -> B）。
 
 ### 评论
-这是一个架构层面的数据流修正。我们不再“猜测”父节点是谁，而是让创建者（GitWriter）直接“告诉”记录者（SQLiteWriter）父节点是谁。
+这个测试将直接验证 `GitObjectHistoryWriter` 和 `SQLiteHistoryWriter` 之间的 `parent` 传递机制是否工作正常。
 
 ### 目标
-1.  修改 `GitObjectHistoryWriter`，使其返回的 `QuipuNode` 对象中包含一个指向父 Commit Hash 的 `parent` 引用（通过一个轻量级的占位节点实现）。
-2.  修改 `SQLiteHistoryWriter`，直接从 `git_node.parent` 读取父节点 Hash 来写入 `edges` 表，完全移除易错的反查逻辑。
+创建 `tests/test_sqlite_writer_idempotency.py`。
 
 ### 基本原理
-利用 `QuipuNode` 数据模型中已有的 `parent` 字段。虽然该字段通常用于存储完整的父节点对象，但在写入阶段，我们可以构造一个仅包含 `filename`（存储 Hash）的轻量级 `QuipuNode` 作为数据传输对象（DTO），在层级间传递确定的父节点身份。
+1.  初始化环境。
+2.  创建节点 1 (Commit A, Tree T)。
+3.  创建节点 2 (Commit B, Tree T)。
+4.  查询 SQLite `edges` 表，断言 Commit B 的 parent 是 Commit A。
 
 ### 标签
-#intent/refine #flow/ready #priority/high
-#comp/engine #concept/state #scope/core
+#intent/tooling #flow/ready #priority/medium
+#comp/tests #comp/engine #scope/core
 #ai/instruct
 #task/domain/storage
 #task/object/sqlite-backend
@@ -34,93 +38,111 @@
 
 ### Script
 
-#### Acts 1: 修改 GitObjectHistoryWriter 显式填充 Parent
-
-我们将在 `create_node` 返回前，根据已知的 `parent_commit` 构造一个带有 `parent` 属性的节点对象。
+#### Acts 1: 创建幂等性写入测试
 
 ~~~~~act
-patch_file
+write_file
 ~~~~~
 ~~~~~path
-packages/quipu-engine/src/quipu/core/git_object_storage.py
+tests/test_sqlite_writer_idempotency.py
 ~~~~~
 ~~~~~python
-        if parent_commit:
-            self.git_db.delete_ref(f"refs/quipu/heads/{parent_commit}")
+import pytest
+import time
+import subprocess
+from pathlib import Path
+from typing import Tuple
 
-        logger.info(f"✅ History node created as commit {new_commit_hash[:7]}")
+from quipu.core.sqlite_storage import SQLiteHistoryWriter
+from quipu.core.git_object_storage import GitObjectHistoryWriter
+from quipu.core.sqlite_db import DatabaseManager
+from quipu.core.git_db import GitDB
 
-        # 返回一个 QuipuNode 实例，content 此时已在内存中，无需 Lazy Load
-        return QuipuNode(
-            input_tree=input_tree,
-            output_tree=output_tree,
-            timestamp=datetime.fromtimestamp(start_time),
-            filename=Path(f".quipu/git_objects/{new_commit_hash}"),
-            node_type=node_type,
-            content=content,
-        )
-~~~~~
-~~~~~python
-        if parent_commit:
-            self.git_db.delete_ref(f"refs/quipu/heads/{parent_commit}")
 
-        logger.info(f"✅ History node created as commit {new_commit_hash[:7]}")
+@pytest.fixture
+def repo_with_sqlite_db(tmp_path):
+    """
+    创建一个包含初始化 Git 仓库和 SQLite 数据库的临时环境。
+    (从 test_sqlite_reader_integrity.py 复制并简化)
+    """
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
 
-        # 返回一个 QuipuNode 实例，content 此时已在内存中，无需 Lazy Load
-        node = QuipuNode(
-            input_tree=input_tree,
-            output_tree=output_tree,
-            timestamp=datetime.fromtimestamp(start_time),
-            filename=Path(f".quipu/git_objects/{new_commit_hash}"),
-            node_type=node_type,
-            content=content,
-        )
+    git_db = GitDB(tmp_path)
+    db_manager = DatabaseManager(tmp_path)
+    db_manager.init_schema()
 
-        # 关键修改：显式填充 parent 信息，以便上层 Writer (如 SQLite) 可以直接获取确切的父节点 Hash
-        # 而无需通过容易出错的 Tree 反查。我们使用一个最小化的占位节点。
-        if parent_commit:
-            # 这里的 filename 实际上存储的是 commit hash
-            node.parent = QuipuNode(
-                input_tree="",  # Placeholder
-                output_tree="", # Placeholder
-                timestamp=datetime.fromtimestamp(0), # Placeholder
-                filename=Path(f".quipu/git_objects/{parent_commit}"),
-                node_type="unknown",
-                content=""
-            )
+    yield db_manager, git_db
 
-        return node
-~~~~~
+    db_manager.close()
 
-#### Acts 2: 修改 SQLiteHistoryWriter 使用显式 Parent
 
-我们将移除 `get_commit_by_output_tree` 调用，改为直接读取 `git_node.parent`。
+def test_writer_handles_idempotent_operations_correctly(repo_with_sqlite_db):
+    """
+    ## test: Verify parent-child linkage during idempotent operations.
 
-~~~~~act
-patch_file
-~~~~~
-~~~~~path
-packages/quipu-engine/src/quipu/core/sqlite_storage.py
-~~~~~
-~~~~~python
-            # 2.3 写入 'edges' 表
-            parent_commit = self.git_writer.git_db.get_commit_by_output_tree(input_tree)
-            if parent_commit:
-                self.db_manager.execute_write(
-                    "INSERT OR IGNORE INTO edges (child_hash, parent_hash) VALUES (?, ?)",
-                    (commit_hash, parent_commit),
-                )
-~~~~~
-~~~~~python
-            # 2.3 写入 'edges' 表
-            # 关键修改：直接使用 GitWriter 传递回来的确切父节点信息，不再进行 Tree 反查
-            if git_node.parent:
-                parent_hash = git_node.parent.filename.name
-                self.db_manager.execute_write(
-                    "INSERT OR IGNORE INTO edges (child_hash, parent_hash) VALUES (?, ?)",
-                    (commit_hash, parent_hash),
-                )
+    When two consecutive nodes produce the exact same Output Tree Hash (idempotent operation),
+    the SQLite writer must ensure that the second node points to the first node as its parent,
+    rather than pointing to itself (self-loop) or getting confused by the identical tree hash.
+    """
+    db_manager, git_db = repo_with_sqlite_db
+    
+    # 1. Initialize the stack
+    git_writer = GitObjectHistoryWriter(git_db)
+    sqlite_writer = SQLiteHistoryWriter(git_writer, db_manager)
+
+    # 2. Get initial state (Genesis)
+    genesis_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    
+    # 3. Create Node 1 (State A)
+    # Since we are not actually changing files in the workdir, we manually specify input/output trees.
+    # We simulate a "change" by creating a tree manually.
+    
+    # Create a dummy file blob
+    blob_hash = git_db.hash_object(b"some content")
+    # Create a tree containing that blob
+    tree_hash_a = git_db.mktree(f"100644 blob {blob_hash}\tfile.txt")
+    
+    node_1 = sqlite_writer.create_node(
+        node_type="plan",
+        input_tree=genesis_tree,
+        output_tree=tree_hash_a,
+        content="Plan 1",
+        summary_override="First Operation"
+    )
+    commit_1 = node_1.filename.name
+    
+    # 4. Create Node 2 (State A -> State A) - Idempotent!
+    # Input tree is Node 1's output. Output tree is STILL Node 1's output.
+    node_2 = sqlite_writer.create_node(
+        node_type="plan",
+        input_tree=tree_hash_a,
+        output_tree=tree_hash_a, # Same tree!
+        content="Plan 2 (Idempotent)",
+        summary_override="Second Operation (Idempotent)"
+    )
+    commit_2 = node_2.filename.name
+
+    assert commit_1 != commit_2, "Two distinct commits should be created even if trees are identical"
+
+    # 5. Verify edges in SQLite
+    conn = db_manager._get_conn()
+    cursor = conn.execute("SELECT parent_hash FROM edges WHERE child_hash = ?", (commit_2,))
+    row = cursor.fetchone()
+    
+    assert row is not None, "Edge for Node 2 should exist"
+    parent_hash_in_db = row[0]
+    
+    # 6. Assertions
+    assert parent_hash_in_db != commit_2, "CRITICAL: Node 2 should NOT be its own parent (Self-Loop detected!)"
+    assert parent_hash_in_db == commit_1, "Node 2 should point to Node 1 as parent"
+    
+    print(f"\nVerified: {commit_2[:7]} (parent: {parent_hash_in_db[:7]}) -> {commit_1[:7]}")
 ~~~~~
 
 ### 下一步建议
-应用此重构后，建议执行一次空操作（例如 `qs run o.md`，其中 `o.md` 包含 `act: end` 或其他无实际变更的指令），然后检查 `qs ui` 是否正确将其显示为连接到主干的绿色节点，而不是断开的新分支。
+
+执行测试：`pytest tests/test_sqlite_writer_idempotency.py`
+
+如果测试通过，我们就可以放心地提交这个重构了。
