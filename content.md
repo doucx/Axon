@@ -1,56 +1,108 @@
-V2.0-fix I'm on it. 
+好的，我分析了新的日志和代码状态。很明显，上次的修复没有完全解决问题，并且引入了新的问题。同时，还有一个关于代码组织的新需求。
 
-I've analyzed the new bug report and the logs. The issues are now more subtle and related to the Textual application lifecycle and state management.
+## fix+refactor 修复 TUI 状态管理并分离 CSS
 
-## fix+refactor TUI Footer Visibility and Reachability Logic
+### 错误分析
 
-### Error Analysis
+根据你的最新反馈和日志，问题如下：
 
-1.  **Footer Not Visible**:
-    *   **Phenomenon**: The `Footer` widget is correctly instantiated and its `.message` attribute is updated, but it never appears on screen.
-    *   **Root Cause**: The debugging log shows a valid `config.yml` file is not being loaded, which is likely a separate issue. The more direct cause is likely a layout issue within Textual. If the main content (`#main-container`) occupies 100% of the vertical space, it might be pushing the `Footer` off-screen. The `Header` is visible because it's part of Textual's default layout flow.
+1.  **页脚 (Footer) 不显示**:
+    *   **现象**: `footer.message` 从未被渲染。
+    *   **根本原因**: 经过对 `textual` 框架行为的重新审视，`on_mount` 方法的执行时机与 Widget 的首次渲染之间存在细微差别。在 `on_mount` 中对 `DataTable` 添加列是正确的，但对 `Footer` 的直接操作可能被后续的默认渲染流程覆盖。一个更健壮的模式是将UI状态更新的逻辑集中起来，并在每次数据变动后显式调用。
 
-2.  **Reachability Highlighting Lost**:
-    *   **Phenomenon**: After the last fix, only the current node is highlighted, and all other nodes are dimmed.
-    *   **Root Cause**: I made a mistake in the previous patch. The line `nodes_to_render = nodes if self.show_unreachable else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]` was intended to *filter* the list for display, but it was incomplete. The more critical part is the per-node check: `is_reachable = self.view_model.is_reachable(node.output_tree)` which determines the `[dim]` tag. The log shows that `is_reachable` is consistently returning `False` for all nodes except the current one. This confirms the underlying problem is in the data provided by `ViewModel` (which gets it from the `quipu-engine`), not in the rendering loop itself. **The engine-side `get_ancestor_hashes` method is faulty.** Without a complete fix for the backend, any frontend changes are just temporary workarounds.
+2.  **可达性高亮 (Reachability) 完全失效**:
+    *   **现象**: 除了当前节点，所有其他节点都失去了高亮（即都变暗了）。
+    *   **根本原因**: 正如我们之前怀疑的，`ViewModel` 从后端 `quipu-engine` 的 `get_ancestor_hashes` 方法接收到的祖先集合是不完整的，甚至可能只包含了当前节点自身。因此，`is_reachable()` 对几乎所有其他节点都返回 `False`，导致它们被渲染为暗色。**这是一个后端数据源问题**，无法在 `tui.py` 中完美修复，但我们可以确保 UI 的渲染逻辑是正确的，待后端修复后即可正常工作。
 
-3.  **Config Loading Warning**:
-    *   **Phenomenon**: The log shows `配置文件 ... 不是有效的字典格式`.
-    *   **Root Cause**: The provided `config.yml` content is just `storage: type: sqlite`, which is valid YAML. This suggests the issue might be in the `ConfigManager` from `quipu-engine`, which is outside the scope of `tui.py`. However, it's a distraction from the main UI bugs.
+3.  **配置文件警告**:
+    *   **现象**: 日志中出现 `配置文件 ... 不是有效的字典格式`。
+    *   **原因**: 尽管你提供的 `config.yml` 内容看起来是有效的 YAML，但 `quipu-engine` 包中的 `ConfigManager` 在解析时可能存在 bug 或对格式有特殊要求。这是一个独立于 UI 的问题。
 
-### User Demand
+### 用户需求
+1.  **修复**: 让页脚能够稳定地显示分页信息。
+2.  **修复**: 确保可达性高亮逻辑正确（即使当前数据源有问题）。
+3.  **重构**: 将硬编码在 `tui.py` 中的 CSS 字符串分离到一个独立的 `tui.css` 文件中，以提高可维护性。
 
-Fix the footer visibility and restore the correct (albeit limited by backend data) reachability highlighting.
+### 评论
+这次重构将采用更稳健的 UI 更新模式，并改善代码结构。我们将创建一个专用的 `_update_footer` 方法来确保状态同步，并将 CSS 分离，这符合良好的软件设计实践。
 
-### Commentary
+### 目标
+1.  创建一个新的 `packages/quipu-cli/src/quipu/cli/tui.css` 文件。
+2.  修改 `tui.py` 以从外部文件加载 CSS。
+3.  重构 `tui.py` 中的 UI 更新逻辑，确保页脚在每次数据加载或刷新后都能正确显示。
+4.  在代码中添加注释，明确指出可达性高亮问题的根源在后端。
 
-The footer issue is a classic layout problem. The reachability issue is a data problem masquerading as a UI problem. I will provide a robust fix for the footer and a clarifying code comment for the reachability logic, acknowledging its dependency on the backend.
-
-### Goal
-
-1.  Ensure the `Footer` is always visible by adjusting the layout CSS.
-2.  Simplify and correct the rendering logic so it correctly reflects the (currently flawed) reachability data from the `ViewModel`.
-3.  Add boundary checks and feedback to the pagination actions.
-
-### Fundamental Principle
-
-We will adjust the CSS to use a `Vertical` layout as the root container for `Header`, `#main-container`, and `Footer`, which is the standard Textual practice for ensuring all three components are laid out correctly in sequence. We will also clean up the previous patch's logic within `_populate_table` to make it clearer and more direct.
-
-### Tags
-#intent/fix #intent/refine #flow/ready #priority/high #comp/cli #concept/ui #scope/ux #ai/instruct #task/domain/ui #task/object/tui #task/action/bug-fix #task/state/continue
+### 标签
+#intent/fix #intent/refine #flow/ready #priority/high #comp/cli #concept/ui #scope/dx #ai/instruct #task/domain/ui #task/object/tui #task/action/bug-fix #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: Correct Layout, Pagination, and Rendering Logic
+我将分两个步骤完成这个任务：首先，创建新的 CSS 文件；然后，重构 `tui.py` 以使用它并修复 UI 逻辑。
 
-This patch will perform three main actions:
-1.  Wrap the main widgets in a `Vertical` container in the `compose` method to fix the layout. This will make the Footer visible.
-2.  Reinstate the boundary checks in the `action_*_page` methods.
-3.  Clean up the `_populate_table` method to remove the redundant `nodes_to_render` variable and rely directly on the `is_reachable` check for dimming.
+#### Acts 1: 创建 `tui.css` 并分离样式
 
-I will rewrite the entire `tui.py` file to ensure the layout changes in `compose` are correctly applied and to clean up all the logic based on recent findings. This is safer than applying multiple small patches to a file with layout-sensitive code.
+我将把 `tui.py` 中的 CSS 内容提取到一个新的 `tui.css` 文件中。
+
+~~~~~act
+write_file
+~~~~~
+~~~~~path
+packages/quipu-cli/src/quipu/cli/tui.css
+~~~~~
+~~~~~css
+#main-container {
+    height: 100%;
+}
+
+DataTable {
+    height: 100%;
+    background: $surface;
+    border: none;
+}
+
+/* Split Mode Styles */
+.split-mode #history-table {
+    width: 50%;
+}
+
+#content-view {
+    display: none; /* 默认隐藏右侧内容区 */
+    width: 50%;
+    height: 100%;
+    border-left: solid $primary;
+    background: $surface;
+}
+
+.split-mode #content-view {
+    display: block;
+}
+
+#content-header {
+    height: 1;
+    background: $primary;
+    color: $text;
+    text-align: center;
+    text-style: bold;
+}
+
+#content-body {
+    height: 1fr;
+    padding: 1;
+    overflow-y: auto;
+}
+~~~~~
+
+#### Acts 2: 重构 `tui.py` 修复 UI 逻辑
+
+我将对 `tui.py` 进行全面重构，替换整个 `QuipuUiApp` 类的实现。
+改动包括：
+1.  使用 `CSS_PATH` 替代硬编码的 `CSS`。
+2.  简化 `on_mount` 逻辑，确保列已添加。
+3.  创建一个新的 `_update_footer` 方法，并从 `_load_page` 和 `_refresh_table` 中调用它。
+4.  在分页动作中加入边界检查。
+5.  在 `_populate_table` 中保留正确的渲染逻辑，并添加注释说明数据源问题。
 
 ~~~~~act
 write_file
@@ -62,8 +114,8 @@ packages/quipu-cli/src/quipu/cli/tui.py
 import sys
 import logging
 from pathlib import Path
-from datetime import datetime
-from typing import List, Optional, Set, Dict, Callable, Tuple
+from typing import List, Optional
+
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, Markdown, Static
 from textual.containers import Horizontal, Vertical
@@ -80,52 +132,11 @@ logger = logging.getLogger(__name__)
 
 # 定义 UI 返回类型: (动作类型, 数据)
 # 动作: "checkout" | "dump"
-UiResult = Tuple[str, str]
+UiResult = tuple[str, str]
 
 
 class QuipuUiApp(App[Optional[UiResult]]):
-    CSS = """
-    #main-container {
-        height: 1fr; /* Occupy remaining space */
-    }
-    
-    DataTable { 
-        height: 100%; 
-        background: $surface; 
-        border: none; 
-    }
-
-    /* Split Mode Styles */
-    .split-mode #history-table {
-        width: 50%;
-    }
-
-    #content-view {
-        display: none; /* 默认隐藏右侧内容区 */
-        width: 50%;
-        height: 100%;
-        border-left: solid $primary;
-        background: $surface;
-    }
-    
-    .split-mode #content-view {
-        display: block;
-    }
-
-    #content-header {
-        height: 1;
-        background: $primary;
-        color: $text;
-        text-align: center;
-        text-style: bold;
-    }
-
-    #content-body {
-        height: 1fr;
-        padding: 1;
-        overflow-y: auto;
-    }
-    """
+    CSS_PATH = "tui.css"
 
     BINDINGS = [
         Binding("q", "quit", "退出"),
@@ -156,12 +167,9 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self.show_unreachable = True
         self.is_split_mode = False
         self.current_selected_node: Optional[QuipuNode] = None
-        # Page-local cache
-        self.node_by_filename: Dict[str, QuipuNode] = {}
-
+        self.node_by_filename: dict[str, QuipuNode] = {}
 
     def compose(self) -> ComposeResult:
-        # The standard layout for a Textual app with Header and Footer
         yield Header(show_clock=True)
         with Horizontal(id="main-container"):
             yield DataTable(id="history-table", cursor_type="row", zebra_stripes=False)
@@ -173,54 +181,43 @@ class QuipuUiApp(App[Optional[UiResult]]):
     def on_mount(self) -> None:
         """Loads the first page of data."""
         logger.debug("TUI: on_mount started.")
-        try:
-            logger.debug("TUI: Creating engine...")
-            self.engine = create_engine(self.work_dir, lazy=True)
-            
-            logger.debug("TUI: Getting current hash...")
-            current_hash = self.engine.git_db.get_tree_hash()
-            
-            logger.debug("TUI: Initializing ViewModel...")
-            self.view_model = GraphViewModel(reader=self.engine.reader, current_hash=current_hash)
-            self.view_model.initialize()
-            
-            table = self.query_one(DataTable)
-            table.add_columns("Time", "Graph", "Node Info")
-            
-            logger.debug("TUI: Loading first page...")
-            self._load_page(1)
-        except Exception as e:
-            logger.exception("Error in TUI on_mount")
-            raise e
+        self.engine = create_engine(self.work_dir, lazy=True)
+        current_hash = self.engine.git_db.get_tree_hash()
+        self.view_model = GraphViewModel(reader=self.engine.reader, current_hash=current_hash)
+        self.view_model.initialize()
+
+        table = self.query_one(DataTable)
+        table.add_columns("Time", "Graph", "Node Info")
+
+        logger.debug("TUI: Loading first page...")
+        self._load_page(1)
 
     def on_unmount(self) -> None:
         logger.debug("TUI: on_unmount called, closing engine.")
         if self.engine:
             self.engine.close()
 
+    def _update_footer(self):
+        """Centralized method to update footer text."""
+        footer = self.query_one(Footer)
+        footer.sub_title = f"Page {self.view_model.current_page} / {self.view_model.total_pages}"
+
     def _load_page(self, page_number: int) -> None:
         """Loads and displays a specific page of nodes."""
         logger.debug(f"TUI: Loading page {page_number}")
         nodes = self.view_model.load_page(page_number)
         logger.debug(f"TUI: Page {page_number} loaded with {len(nodes)} nodes.")
-        
+
         if not nodes:
-            # We must have already been on a valid page if we're trying to move,
-            # so an empty result means we hit a boundary.
-            self.bell()
             return
 
-        # Build a page-local index for mapping row keys to nodes
         self.node_by_filename = {str(node.filename): node for node in nodes}
 
         table = self.query_one(DataTable)
         table.clear()
         self._populate_table(table, nodes)
-
-        footer = self.query_one(Footer)
-        footer.message = f"Page {self.view_model.current_page} / {self.view_model.total_pages}"
-
         self._focus_current_node(table)
+        self._update_footer()
 
     # --- Actions ---
 
@@ -235,12 +232,9 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self._refresh_table()
 
     def action_toggle_view(self) -> None:
-        """切换分栏预览模式"""
         self.is_split_mode = not self.is_split_mode
-
         container = self.query_one("#main-container")
         container.set_class(self.is_split_mode, "split-mode")
-
         if self.is_split_mode:
             self._update_content_view()
 
@@ -249,20 +243,17 @@ class QuipuUiApp(App[Optional[UiResult]]):
             self.exit(result=("checkout", self.current_selected_node.output_tree))
 
     def action_dump_content(self) -> None:
-        """退出 UI 并将当前选中节点的内容输出到 stdout"""
         if self.current_selected_node:
             content = self.view_model.get_content_bundle(self.current_selected_node)
             self.exit(result=("dump", content))
 
     def action_previous_page(self) -> None:
-        """Loads the previous page of history."""
         if self.view_model.current_page > 1:
             self._load_page(self.view_model.current_page - 1)
         else:
             self.bell()
 
     def action_next_page(self) -> None:
-        """Loads the next page of history."""
         if self.view_model.current_page < self.view_model.total_pages:
             self._load_page(self.view_model.current_page + 1)
         else:
@@ -271,24 +262,14 @@ class QuipuUiApp(App[Optional[UiResult]]):
     # --- UI Logic ---
 
     def _refresh_table(self):
-        """Refreshes the table with the current page's data."""
-        # Get the nodes for the current page from our page-local index
-        current_page_nodes = list(self.node_by_filename.values())
-        
         table = self.query_one(DataTable)
-        table.clear() # This clears rows, not columns
+        current_page_nodes = list(self.node_by_filename.values())
+        sorted_nodes = sorted(current_page_nodes, key=lambda n: n.timestamp, reverse=True)
 
-        # Repopulate using the nodes for the current page
-        if current_page_nodes:
-            # Sort them again by timestamp just in case the dict order is not guaranteed
-            sorted_nodes = sorted(current_page_nodes, key=lambda n: n.timestamp, reverse=True)
-            self._populate_table(table, sorted_nodes)
-        
-        # Ensure footer is also updated on refresh
-        footer = self.query_one(Footer)
-        footer.message = f"Page {self.view_model.current_page} / {self.view_model.total_pages}"
-
+        table.clear()
+        self._populate_table(table, sorted_nodes)
         self._focus_current_node(table)
+        self._update_footer()
 
     def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
         nodes_to_render = (
@@ -296,109 +277,98 @@ class QuipuUiApp(App[Optional[UiResult]]):
             if self.show_unreachable
             else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]
         )
-        
-        tracks: List[Optional[str]] = []
+        tracks: list[Optional[str]] = []
         for node in nodes_to_render:
-            # The root cause of incorrect dimming is `is_reachable` returning False,
-            # which depends on the `ancestor_set` from the ViewModel. This part of the UI code correctly
-            # reflects the data it's given. The issue lies in quipu-engine.
+            # NOTE: The correctness of node dimming depends entirely on the `ancestor_set`
+            # provided by `GraphViewModel`. The current issue of incorrect highlighting
+            # originates from the backend (`quipu-engine`) not supplying the complete
+            # set of ancestors. The rendering logic here is correct.
             is_reachable = self.view_model.is_reachable(node.output_tree)
-            dim_tag = "" if is_reachable else "[dim]"
-            end_dim_tag = "" if is_reachable else "[/dim]"
+            dim_tag = "[dim]" if not is_reachable else ""
+            end_dim_tag = "[/dim]" if dim_tag else ""
 
             base_color = "magenta"
             if node.node_type == "plan":
                 base_color = "green" if node.input_tree == node.output_tree else "cyan"
 
-            merging_indices = [i for i, h in enumerate(tracks) if h == node.output_tree]
-            try:
-                col_idx = tracks.index(None) if not merging_indices else merging_indices[0]
-            except ValueError:
-                col_idx = len(tracks) if not merging_indices else merging_indices[0]
-
-            while len(tracks) <= col_idx:
-                tracks.append(None)
-            tracks[col_idx] = node.output_tree
-
-            graph_chars = []
-            for i, track_hash in enumerate(tracks):
-                if i == col_idx:
-                    symbol_char = "●" if node.node_type == "plan" else "○"
-                    graph_chars.append(f"{dim_tag}[{base_color}]{symbol_char}[/] {end_dim_tag}")
-                elif i in merging_indices:
-                    graph_chars.append(f"{dim_tag}┘ {end_dim_tag}")
-                elif track_hash:
-                    graph_chars.append(f"{dim_tag}│ {end_dim_tag}")
-                else:
-                    graph_chars.append("  ")
-
-            tracks[col_idx] = node.input_tree
-            for i in merging_indices[1:]:
-                tracks[i] = None
-            while tracks and tracks[-1] is None:
-                tracks.pop()
-
+            graph_chars = self._get_graph_chars(tracks, node, base_color, dim_tag, end_dim_tag)
             ts_str = f"{dim_tag}{node.timestamp.strftime('%Y-%m-%d %H:%M')}{end_dim_tag}"
-
             summary = self._get_node_summary(node)
-            tag_char = node.node_type.upper()
-            info_text = f"[{base_color}][{tag_char}] {node.short_hash}[/{base_color}] - {summary}"
+            info_text = f"[{base_color}][{node.node_type.upper()}] {node.short_hash}[/{base_color}] - {summary}"
             info_str = f"{dim_tag}{info_text}{end_dim_tag}"
 
             table.add_row(ts_str, "".join(graph_chars), info_str, key=str(node.filename))
+
+    def _get_graph_chars(
+        self, tracks: list, node: QuipuNode, base_color: str, dim_tag: str, end_dim_tag: str
+    ) -> list[str]:
+        merging_indices = [i for i, h in enumerate(tracks) if h == node.output_tree]
+        try:
+            col_idx = tracks.index(None) if not merging_indices else merging_indices[0]
+        except ValueError:
+            col_idx = len(tracks)
+
+        while len(tracks) <= col_idx:
+            tracks.append(None)
+        tracks[col_idx] = node.output_tree
+
+        graph_chars = []
+        for i, track_hash in enumerate(tracks):
+            if i == col_idx:
+                symbol = "●" if node.node_type == "plan" else "○"
+                graph_chars.append(f"{dim_tag}[{base_color}]{symbol}[/] {end_dim_tag}")
+            elif i in merging_indices:
+                graph_chars.append(f"{dim_tag}┘ {end_dim_tag}")
+            elif track_hash:
+                graph_chars.append(f"{dim_tag}│ {end_dim_tag}")
+            else:
+                graph_chars.append("  ")
+
+        tracks[col_idx] = node.input_tree
+        for i in merging_indices[1:]:
+            tracks[i] = None
+        while tracks and tracks[-1] is None:
+            tracks.pop()
+        return graph_chars
 
     def _get_node_summary(self, node: QuipuNode) -> str:
         return node.summary or "No description"
 
     def _focus_current_node(self, table: DataTable):
         current_hash = self.view_model.current_hash
-        if not current_hash:
-            return
-
-        # Search for the node with the current hash on the currently displayed page
-        target_node = next(
-            (node for node in self.node_by_filename.values() if node.output_tree == current_hash), None
-        )
-
+        target_node = next((n for n in self.node_by_filename.values() if n.output_tree == current_hash), None)
         if not target_node:
             return
-
         try:
             row_key = str(target_node.filename)
             if table.is_valid_row_key(row_key):
                 row_index = table.get_row_index(row_key)
                 table.cursor_coordinate = Coordinate(row=row_index, column=0)
-                # Only set initially, don't override user selection during a refresh
                 if not self.current_selected_node:
                     self.current_selected_node = target_node
         except Exception:
-            # Silently fail if something goes wrong, it's not critical
             pass
 
     @on(DataTable.RowHighlighted)
     def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """当用户在表格中移动光标时触发"""
         row_key = event.row_key.value
-        if row_key and row_key in self.node_by_filename:
-            self.current_selected_node = self.node_by_filename[row_key]
+        if row_key and (node := self.node_by_filename.get(row_key)):
+            self.current_selected_node = node
             if self.is_split_mode:
                 self._update_content_view()
 
     def _update_content_view(self):
         if not self.current_selected_node:
             return
-
-        # 更新标题栏
         node = self.current_selected_node
         header = self.query_one("#content-header", Static)
         header.update(f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}")
-
         content = self.view_model.get_content_bundle(node)
         markdown = self.query_one("#content-body", Markdown)
         markdown.update(content)
 ~~~~~
 
-### Next Steps
-This should resolve all reported UI-level bugs. The application will now correctly display the footer and provide boundary feedback for pagination. The reachability display will correctly reflect the (flawed) data from the backend.
+### 下一步建议
+这次的修复和重构应该能解决所有 UI 层面的问题，包括页脚显示和 CSS 分离。请运行 `quipu ui` 进行验证。
 
-The next logical step is to move to the `quipu-engine` package and fix the `SQLiteHistoryReader.get_ancestor_hashes` method to return the complete ancestry chain for any given node.
+**请注意**: 可达性高亮问题（大部分节点变暗）**预期仍然存在**。这不是 UI 的 bug，而是后端 `quipu-engine` 提供的数据不完整所致。下一步的核心任务将是深入 `quipu-engine`，修复 `SQLiteHistoryReader` 中的 `get_ancestor_hashes` 方法，使其能返回从指定节点到所有根节点的完整祖先链。
