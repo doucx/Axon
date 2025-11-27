@@ -1,23 +1,31 @@
-### refactor: 适配逻辑与表现层以遵循明确的 API 契约 2
+好的，这些测试错误是预料之中的，它们精确地指出了所有受到 API 契约变更影响的地方。我们现在将执行计划的第三阶段，自上而下地修复测试代码和上层逻辑，使整个系统恢复一致性。
+
+### fix: 适配上层逻辑与测试用例以遵循新 API 契约
+
+#### 错误分析
+上次提交重构了数据模型和数据访问层接口，但并未更新依赖这些接口的测试代码。主要错误分为三类：
+1.  `TypeError`: 测试中 `QuipuNode` 的实例化代码未提供新的 `commit_hash` 字段，导致参数错位。
+2.  `TypeError`: 测试中的模拟  `HistoryReader` (`MockHistoryReader`, `InMemoryHistoryManager`) 未实现新的抽象方法 `get_ancestor_output_trees`。
+3.  `AttributeError`/`AssertionError`: 具体的测试用例仍在调用已被重命名的旧方法 (`get_ancestor_hashes`) 或断言已被修改的旧版错误消息。
 
 #### 用户需求
-在数据模型 (`QuipuNode`) 和数据访问层 (`HistoryReader`) 的 API 契约更新后，上层的业务逻辑 (`ViewModel`)、用户界面 (`TUI`) 和命令行入口 (`CLI`) 仍在使用旧的、模糊的标识符和方法。这导致了大量的 `TypeError` 和 `AttributeError`。我们需要全面适配这些上层模块，使其正确使用新的 API。
+修复所有因 API 契约变更而失败的测试，确保整个代码库与新的、无歧义的标识符系统保持一致。
 
 #### 评论
-这是重构的收尾阶段，旨在使整个调用链恢复一致和健康。通过将明确的标识符 (`commit_hash`, `output_tree_hash`) 贯穿始终，并适配新的方法签名，我们将彻底修复 UI 的可达性 bug，并使代码的意图更加清晰，易于维护。
+这是重构的收尾关键步骤。通过修复测试，我们不仅能验证重构的正确性，还能将新的 API 契约固化为可执行的规范，防止未来的代码再次引入模糊性。
 
 #### 目标
--   重构 `GraphViewModel` 以使用新的 `get_ancestor_output_trees` 方法和显式命名的哈希。
--   更新 `QuipuUiApp` (TUI) 以正确地与 `GraphViewModel` 交互，并直接从 `QuipuNode` 对象中获取 `commit_hash`。
--   清理 `main.py` 中的 CLI 命令，将所有模糊的 `hash` 变量重命名，以反映其真实类型。
--   修正上一阶段中 `QuipuNode` 占位符实例化时遗漏的 `summary` 字段。
+-   更新所有测试中的 `QuipuNode` 实例化，使其符合新的构造函数签名。
+-   更新所有模拟 `HistoryReader` 的实现，使其符合新的接口。
+-   修正所有调用旧数据访问方法的测试代码。
+-   修正断言过时错误消息的集成测试。
 
 #### 基本原理
-我们继续遵循“自下而上”的策略。数据层和接口已经稳定，现在我们将这种稳定性传递到业务逻辑层和表现层。通过在整个应用中强制使用显式命名，我们消除了所有依赖猜测和隐式契约的代码，从而完成本次架构健康度提升。
+我们将逐一处理测试报告中的错误。首先修复最基础的实例化问题和模拟类实现，这将解决大部分 `TypeError`。然后，我们将深入到具体的测试用例中，调整它们的调用逻辑和断言，以完成整个适配过程。
 
 #### 标签
-#intent/refactor #flow/ready #priority/high
-#comp/cli #comp/engine #concept/history #scope/core #scope/ux
+#intent/fix #intent/tooling #flow/ready #priority/high
+#comp/tests #comp/cli #comp/engine #scope/core
 #ai/instruct
 #task/domain/storage #task/object/api-contract #task/action/refactor
 #task/state/continue
@@ -26,301 +34,467 @@
 
 ### Script
 
-#### Acts 2: 适配 `GraphViewModel`
+#### Acts 1: 修复测试辅助模块 (`helpers.py` 和 `test_view_model.py`)
 
-现在，我们重构 ViewModel，使其成为新旧 API 之间的第一个适配层。
+我们首先修复 `MockHistoryReader` 和 `InMemoryHistoryManager`，并更新核心的 `sample_nodes` 测试数据生成器。
 
 `````act
 patch_file
 `````
 `````path
-packages/quipu-cli/src/quipu/cli/view_model.py
+tests/cli/test_view_model.py
 `````
 `````python
-class GraphViewModel:
-    """
-    一个 ViewModel，用于解耦 TUI (View) 和 HistoryReader (Model)。
+    def get_ancestor_hashes(self, commit_hash: str) -> Set[str]:
+        return self._ancestors
 
-    它负责管理分页状态、缓存可达性数据，并为 UI 提供简洁的数据接口。
-    """
-
-    def __init__(self, reader: HistoryReader, current_hash: Optional[str], page_size: int = 50):
-        self.reader = reader
-        self.current_hash = current_hash
-        self.page_size = page_size
-
-        # 状态属性
-        self.total_nodes: int = 0
-        self.total_pages: int = 1
-        self.current_page: int = 0  # 页码从 1 开始
-        self.ancestor_set: Set[str] = set()
-
-    def initialize(self):
-        """
-        初始化 ViewModel，获取总数并计算可达性缓存。
-        这是一个快速操作，因为它不加载任何节点内容。
-        """
-        self.total_nodes = self.reader.get_node_count()
-        if self.page_size > 0 and self.total_nodes > 0:
-            self.total_pages = math.ceil(self.total_nodes / self.page_size)
-        else:
-            self.total_pages = 1
-
-        if self.current_hash:
-            # 后端直接计算祖先，避免在前端加载整个图谱
-            self.ancestor_set = self.reader.get_ancestor_hashes(self.current_hash)
-            # 当前节点本身也是可达的
-            self.ancestor_set.add(self.current_hash)
-
-    def is_reachable(self, node_hash: str) -> bool:
-        """检查一个节点哈希是否在可达性集合中。"""
-        if not self.current_hash:
-            # 如果没有当前状态 (例如，在创世之前)，将所有内容视为可达，
-            # 以避免 UI 显示全灰色。
-            return True
-        return node_hash in self.ancestor_set
+    def get_private_data(self, commit_hash: str) -> Optional[str]:
+        return self._private_data.get(commit_hash)
 `````
 `````python
-class GraphViewModel:
-    """
-    一个 ViewModel, 用于解耦 TUI (View) 和 HistoryReader (Model)。
+    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+        return self._ancestors
 
-    它负责管理分页状态、缓存可达性数据，并为 UI 提供简洁的数据接口。
-    """
-
-    def __init__(self, reader: HistoryReader, current_output_tree_hash: Optional[str], page_size: int = 50):
-        self.reader = reader
-        self.current_output_tree_hash = current_output_tree_hash
-        self.page_size = page_size
-
-        # 状态属性
-        self.total_nodes: int = 0
-        self.total_pages: int = 1
-        self.current_page: int = 0  # 页码从 1 开始
-        self.ancestor_set: Set[str] = set()
-
-    def initialize(self):
-        """
-        初始化 ViewModel, 获取总数并计算可达性缓存。
-        这是一个快速操作，因为它不加载任何节点内容。
-        """
-        self.total_nodes = self.reader.get_node_count()
-        if self.page_size > 0 and self.total_nodes > 0:
-            self.total_pages = math.ceil(self.total_nodes / self.page_size)
-        else:
-            self.total_pages = 1
-
-        if self.current_output_tree_hash:
-            # 后端直接计算祖先，避免在前端加载整个图谱
-            self.ancestor_set = self.reader.get_ancestor_output_trees(self.current_output_tree_hash)
-            # 当前节点本身也是可达的
-            self.ancestor_set.add(self.current_output_tree_hash)
-
-    def is_reachable(self, output_tree_hash: str) -> bool:
-        """检查一个节点哈希是否在可达性集合中。"""
-        if not self.current_output_tree_hash:
-            # 如果没有当前状态 (例如，在创世之前)，将所有内容视为可达，
-            # 以避免 UI 显示全灰色。
-            return True
-        return output_tree_hash in self.ancestor_set
+    def get_private_data(self, node_commit_hash: str) -> Optional[str]:
+        return self._private_data.get(node_commit_hash)
 `````
 
 `````act
 patch_file
 `````
 `````path
-packages/quipu-cli/src/quipu/cli/view_model.py
+tests/cli/test_view_model.py
 `````
 `````python
-    def get_content_bundle(self, node: QuipuNode) -> str:
-        """
-        获取节点的公共内容和私有内容，并将它们格式化成一个单一的字符串用于展示。
-        """
-        public_content = self.reader.get_node_content(node) or ""
-        private_content = self.reader.get_private_data(node.filename.name)
+@pytest.fixture
+def sample_nodes():
+    """生成一组用于测试的节点。"""
+    return [
+        QuipuNode("h0", f"h{i}", datetime(2023, 1, i + 1), Path(f"f{i}"), "plan", summary=f"Public {i}")
+        for i in range(10)
+    ]
 
-        if not public_content and not private_content:
+
+class TestGraphViewModel:
+    def test_initialization(self, sample_nodes):
+        """测试 ViewModel 初始化是否正确获取总数和可达性集合。"""
+        ancestors = {"h3", "h2", "h1"}
+        reader = MockHistoryReader(sample_nodes, ancestors=ancestors)
+        vm = GraphViewModel(reader, current_hash="h3")
+
+        vm.initialize()
+
+        assert vm.total_nodes == 10
+        assert vm.ancestor_set == {"h3", "h2", "h1"}
+        assert vm.current_page == 0
 `````
 `````python
-    def get_content_bundle(self, node: QuipuNode) -> str:
-        """
-        获取节点的公共内容和私有内容，并将它们格式化成一个单一的字符串用于展示。
-        """
-        public_content = self.reader.get_node_content(node) or ""
-        private_content = self.reader.get_private_data(node.commit_hash)
+@pytest.fixture
+def sample_nodes():
+    """生成一组用于测试的节点。"""
+    return [
+        QuipuNode(f"c{i}", f"h{i}", "h0", datetime(2023, 1, i + 1), Path(f"f{i}"), "plan", summary=f"Public {i}")
+        for i in range(10)
+    ]
 
-        if not public_content and not private_content:
+
+class TestGraphViewModel:
+    def test_initialization(self, sample_nodes):
+        """测试 ViewModel 初始化是否正确获取总数和可达性集合。"""
+        ancestors = {"h3", "h2", "h1"}
+        reader = MockHistoryReader(sample_nodes, ancestors=ancestors)
+        vm = GraphViewModel(reader, current_output_tree_hash="h3")
+
+        vm.initialize()
+
+        assert vm.total_nodes == 10
+        assert vm.ancestor_set == {"h3", "h2", "h1"}
+        assert vm.current_page == 0
+`````
+
+`````act
+patch_file
+`````
+`````path
+tests/cli/test_view_model.py
+`````
+`````python
+    def test_pagination_flow(self, sample_nodes):
+        """测试分页加载逻辑是否正确。"""
+        reader = MockHistoryReader(sample_nodes)
+        # 10 nodes, page_size=4 -> 3 pages
+        vm = GraphViewModel(reader, current_hash=None, page_size=4)
+        vm.initialize()
+`````
+`````python
+    def test_pagination_flow(self, sample_nodes):
+        """测试分页加载逻辑是否正确。"""
+        reader = MockHistoryReader(sample_nodes)
+        # 10 nodes, page_size=4 -> 3 pages
+        vm = GraphViewModel(reader, current_output_tree_hash=None, page_size=4)
+        vm.initialize()
+`````
+
+`````act
+patch_file
+`````
+`````path
+tests/cli/test_view_model.py
+`````
+`````python
+    def test_is_reachable(self, sample_nodes):
+        """测试可达性检查逻辑。"""
+        ancestors = {"h9", "h8"}  # current is h9, parent is h8
+        reader = MockHistoryReader(sample_nodes, ancestors=ancestors)
+        vm = GraphViewModel(reader, current_hash="h9")
+        vm.initialize()
+
+        assert vm.is_reachable("h9") is True  # Self
+`````
+`````python
+    def test_is_reachable(self, sample_nodes):
+        """测试可达性检查逻辑。"""
+        ancestors = {"h9", "h8"}  # current is h9, parent is h8
+        reader = MockHistoryReader(sample_nodes, ancestors=ancestors)
+        vm = GraphViewModel(reader, current_output_tree_hash="h9")
+        vm.initialize()
+
+        assert vm.is_reachable("h9") is True  # Self
+`````
+
+`````act
+patch_file
+`````
+`````path
+tests/cli/test_view_model.py
+`````
+`````python
+    def test_is_reachable_no_current_hash(self, sample_nodes):
+        """测试在没有当前哈希时，所有节点都应被视为可达。"""
+        reader = MockHistoryReader(sample_nodes, ancestors=set())
+        vm = GraphViewModel(reader, current_hash=None)
+        vm.initialize()
+
+        assert vm.is_reachable("h9") is True
+`````
+`````python
+    def test_is_reachable_no_current_hash(self, sample_nodes):
+        """测试在没有当前哈希时，所有节点都应被视为可达。"""
+        reader = MockHistoryReader(sample_nodes, ancestors=set())
+        vm = GraphViewModel(reader, current_output_tree_hash=None)
+        vm.initialize()
+
+        assert vm.is_reachable("h9") is True
+`````
+
+`````act
+patch_file
+`````
+`````path
+tests/cli/test_view_model.py
+`````
+`````python
+    def test_get_content_bundle(self):
+        """测试公共和私有内容的格式化逻辑。"""
+        # The key change is constructing a realistic filename where .name is the hash.
+        node_both = QuipuNode("a", "h_both", datetime.now(), Path("mock/h_both"), "plan", summary="Public Content")
+        node_public = QuipuNode("b", "h_public", datetime.now(), Path("mock/h_public"), "plan", summary="Public Only")
+        node_private = QuipuNode(
+            "c", "h_private", datetime.now(), Path("mock/h_private"), "plan", summary=""
+        )  # No public
+        node_none = QuipuNode("d", "h_none", datetime.now(), Path("mock/h_none"), "plan", summary="")
+
+        private_data = {"h_both": "Private Intent", "h_private": "Private Only"}
+        reader = MockHistoryReader([], private_data=private_data)
+        vm = GraphViewModel(reader, current_hash=None)
+`````
+`````python
+    def test_get_content_bundle(self):
+        """测试公共和私有内容的格式化逻辑。"""
+        node_both = QuipuNode("c_both", "h_both", "a", datetime.now(), Path("mock/h_both"), "plan", summary="Public Content")
+        node_public = QuipuNode("c_public", "h_public", "b", datetime.now(), Path("mock/h_public"), "plan", summary="Public Only")
+        node_private = QuipuNode(
+            "c_private", "h_private", "c", datetime.now(), Path("mock/h_private"), "plan", summary=""
+        )  # No public
+        node_none = QuipuNode("c_none", "h_none", "d", datetime.now(), Path("mock/h_none"), "plan", summary="")
+
+        private_data = {"c_both": "Private Intent", "c_private": "Private Only"}
+        reader = MockHistoryReader([], private_data=private_data)
+        vm = GraphViewModel(reader, current_output_tree_hash=None)
 `````
 
 ---
 
-#### Acts 3: 适配 `QuipuUiApp` (TUI)
+#### Acts 2: 修复 TUI 相关测试
 
-现在，我们更新 UI 层，使其正确使用 `ViewModel` 和 `QuipuNode` 的新特性。
-
-`````act
-patch_file
-`````
-`````path
-packages/quipu-cli/src/quipu/cli/tui.py
-`````
-`````python
-    def on_mount(self) -> None:
-        """Loads the first page of data."""
-        logger.debug("TUI: on_mount started.")
-        self.query_one(Header).tall = False
-
-        self.engine = create_engine(self.work_dir, lazy=True)
-        current_hash = self.engine.git_db.get_tree_hash()
-        self.view_model = GraphViewModel(reader=self.engine.reader, current_hash=current_hash)
-        self.view_model.initialize()
-
-        table = self.query_one(DataTable)
-`````
-`````python
-    def on_mount(self) -> None:
-        """Loads the first page of data."""
-        logger.debug("TUI: on_mount started.")
-        self.query_one(Header).tall = False
-
-        self.engine = create_engine(self.work_dir, lazy=True)
-        current_output_tree_hash = self.engine.git_db.get_tree_hash()
-        self.view_model = GraphViewModel(reader=self.engine.reader, current_output_tree_hash=current_output_tree_hash)
-        self.view_model.initialize()
-
-        table = self.query_one(DataTable)
-`````
+现在修复依赖 `MockHistoryReader` 和 `QuipuNode` 的 TUI 测试。
 
 `````act
 patch_file
 `````
 `````path
-packages/quipu-cli/src/quipu/cli/tui.py
+tests/cli/test_tui_logic.py
 `````
 `````python
-    def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
-        nodes_to_render = (
-            nodes
-            if self.show_unreachable
-            else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]
+@pytest.fixture
+def view_model_factory():
+    """A factory to create a GraphViewModel instance with mock data for tests."""
+
+    def _factory(nodes, current_hash=None, ancestors=None, private_data=None):
+        reader = MockHistoryReader(nodes, ancestors=ancestors, private_data=private_data)
+        vm = GraphViewModel(reader, current_hash=current_hash)
+        vm.initialize()
+        return vm
+
+    return _factory
+
+
+class TestUiLogic:
+    def test_graph_renderer_simple_linear(self, view_model_factory):
+        """Smoke test for simple linear history rendering."""
+        node_a = QuipuNode("root", "a", datetime(2023, 1, 1), Path("f1"), "plan")
+        node_b = QuipuNode("a", "b", datetime(2023, 1, 2), Path("f2"), "plan")
+        node_c = QuipuNode("b", "c", datetime(2023, 1, 3), Path("f3"), "plan")
+
+        view_model = view_model_factory([node_a, node_b, node_c])
+        app = QuipuUiApp(view_model=view_model)
+
+        # This is a smoke test to ensure that instantiation and basic data processing
+        # do not crash. With the new architecture, detailed rendering logic is harder
+        # to assert without running the full Textual app.
+        assert app.view_model.total_nodes == 3
+
+    def test_graph_renderer_branching(self, view_model_factory):
+        """Smoke test for branching history rendering."""
+        node_a = QuipuNode("root", "a", datetime(2023, 1, 1), Path("f1"), "plan")
+        node_b = QuipuNode("a", "b", datetime(2023, 1, 2), Path("f2"), "plan")
+        node_c = QuipuNode("a", "c", datetime(2023, 1, 3), Path("f3"), "plan")
+
+        view_model = view_model_factory([node_a, node_b, node_c])
+        app = QuipuUiApp(view_model=view_model)
+
+        # Smoke test
+        assert app.view_model.total_nodes == 3
+
+    def test_get_node_summary(self, view_model_factory):
+        """
+        Tests if the TUI correctly uses the pre-loaded summary field.
+        """
+        view_model = view_model_factory([])
+        app = QuipuUiApp(view_model=view_model)
+
+        # Case 1: Node with a pre-set summary
+        node_with_summary = QuipuNode(
+            "a", "b", datetime.now(), Path("f1"), "plan", summary="This is a pre-calculated summary."
         )
-        tracks: list[Optional[str]] = []
-        for node in nodes_to_render:
-            is_reachable = self.view_model.is_reachable(node.output_tree)
-            dim_tag = "[dim]" if not is_reachable else ""
-            end_dim_tag = "[/dim]" if dim_tag else ""
+        assert app._get_node_summary(node_with_summary) == "This is a pre-calculated summary."
+
+        # Case 2: Node with an empty summary
+        node_without_summary = QuipuNode(
+            "c",
+            "d",
+            datetime.now(),
+            Path("f2"),
+            "capture",
+            summary="",  # Explicitly empty
+        )
+        assert app._get_node_summary(node_without_summary) == "No description"
 `````
 `````python
-    def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
-        nodes_to_render = (
-            nodes
-            if self.show_unreachable
-            else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]
-        )
-        tracks: list[Optional[str]] = []
-        # Add the current node's full ancestry to the initial tracks to ensure the main line is drawn
-        if self.view_model.current_output_tree_hash:
-            tracks.append(self.view_model.current_output_tree_hash)
+@pytest.fixture
+def view_model_factory():
+    """A factory to create a GraphViewModel instance with mock data for tests."""
 
-        for node in nodes_to_render:
-            is_reachable = self.view_model.is_reachable(node.output_tree)
-            dim_tag = "[dim]" if not is_reachable else ""
-            end_dim_tag = "[/dim]" if dim_tag else ""
+    def _factory(nodes, current_hash=None, ancestors=None, private_data=None):
+        reader = MockHistoryReader(nodes, ancestors=ancestors, private_data=private_data)
+        vm = GraphViewModel(reader, current_output_tree_hash=current_hash)
+        vm.initialize()
+        return vm
+
+    return _factory
+
+
+class TestUiLogic:
+    def test_graph_renderer_simple_linear(self, view_model_factory):
+        """Smoke test for simple linear history rendering."""
+        node_a = QuipuNode("c1", "a", "root", datetime(2023, 1, 1), Path("f1"), "plan", summary="A")
+        node_b = QuipuNode("c2", "b", "a", datetime(2023, 1, 2), Path("f2"), "plan", summary="B")
+        node_c = QuipuNode("c3", "c", "b", datetime(2023, 1, 3), Path("f3"), "plan", summary="C")
+
+        view_model = view_model_factory([node_a, node_b, node_c])
+        app = QuipuUiApp(work_dir=Path("."))
+        app.view_model = view_model
+
+        assert app.view_model.total_nodes == 3
+
+    def test_graph_renderer_branching(self, view_model_factory):
+        """Smoke test for branching history rendering."""
+        node_a = QuipuNode("c1", "a", "root", datetime(2023, 1, 1), Path("f1"), "plan", summary="A")
+        node_b = QuipuNode("c2", "b", "a", datetime(2023, 1, 2), Path("f2"), "plan", summary="B")
+        node_c = QuipuNode("c3", "c", "a", datetime(2023, 1, 3), Path("f3"), "plan", summary="C")
+
+        view_model = view_model_factory([node_a, node_b, node_c])
+        app = QuipuUiApp(work_dir=Path("."))
+        app.view_model = view_model
+
+        assert app.view_model.total_nodes == 3
+
+    def test_get_node_summary(self, view_model_factory):
+        """
+        Tests if the TUI correctly uses the pre-loaded summary field.
+        """
+        view_model = view_model_factory([])
+        app = QuipuUiApp(work_dir=Path("."))
+        app.view_model = view_model
+
+
+        # Case 1: Node with a pre-set summary
+        node_with_summary = QuipuNode(
+            "c1", "b", "a", datetime.now(), Path("f1"), "plan", summary="This is a pre-calculated summary."
+        )
+        assert app._get_node_summary(node_with_summary) == "This is a pre-calculated summary."
+
+        # Case 2: Node with an empty summary
+        node_without_summary = QuipuNode(
+            "c2",
+            "d",
+            "c",
+            datetime.now(),
+            Path("f2"),
+            "capture",
+            summary="",  # Explicitly empty
+        )
+        assert app._get_node_summary(node_without_summary) == "No description"
 `````
 
 `````act
 patch_file
 `````
 `````path
-packages/quipu-cli/src/quipu/cli/tui.py
+tests/cli/test_tui_reachability.py
 `````
 `````python
-    def _focus_current_node(self, table: DataTable):
-        current_hash = self.view_model.current_hash
-        target_node = next((n for n in self.node_by_filename.values() if n.output_tree == current_hash), None)
-        if not target_node:
-            return
-`````
-`````python
-    def _focus_current_node(self, table: DataTable):
-        current_output_tree_hash = self.view_model.current_output_tree_hash
-        target_node = next((n for n in self.node_by_filename.values() if n.output_tree == current_output_tree_hash), None)
-        if not target_node:
-            return
-`````
+@pytest.fixture
+def view_model_factory():
+    """A factory to create a GraphViewModel instance with mock data for tests."""
 
----
+    def _factory(nodes, current_hash=None, ancestors=None, private_data=None):
+        reader = MockHistoryReader(nodes, ancestors=ancestors, private_data=private_data)
+        vm = GraphViewModel(reader, current_hash=current_hash)
+        vm.initialize()
+        return vm
 
-#### Acts 4: 适配 `main.py` (CLI)
+    return _factory
 
-最后，我们清理命令行入口，明确所有哈希变量的类型。
 
-`````act
-patch_file
-`````
-`````path
-packages/quipu-cli/src/quipu/cli/main.py
-`````
-`````python
-@app.command()
-def checkout(
-    ctx: typer.Context,
-    hash_prefix: Annotated[str, typer.Argument(help="目标状态节点的哈希前缀。")],
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
-        ),
-    ] = DEFAULT_WORK_DIR,
-    force: Annotated[bool, typer.Option("--force", "-f", help="强制执行，跳过确认提示。")] = False,
-):
-`````
-`````python
-@app.command()
-def checkout(
-    ctx: typer.Context,
-    hash_prefix: Annotated[str, typer.Argument(help="目标状态节点 output_tree 的哈希前缀。")],
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
-        ),
-    ] = DEFAULT_WORK_DIR,
-    force: Annotated[bool, typer.Option("--force", "-f", help="强制执行，跳过确认提示。")] = False,
-):
-`````
+class TestUiReachability:
+    def test_ui_uses_view_model_for_reachability(self, view_model_factory):
+        """
+        Tests that the UI correctly queries the ViewModel to check reachability.
+        """
+        # We define a simple graph where only 'a' and 'curr' are ancestors.
+        # The ViewModel will be initialized with this information.
+        node_root = QuipuNode("null", "root", datetime(2023, 1, 1), Path("f_root"), "plan")
+        node_a = QuipuNode("root", "a", datetime(2023, 1, 2), Path("f_a"), "plan")
+        node_b = QuipuNode("root", "b", datetime(2023, 1, 3), Path("f_b"), "plan")
+        node_curr = QuipuNode("a", "curr", datetime(2023, 1, 4), Path("f_curr"), "plan")
 
-`````act
-patch_file
-`````
-`````path
-packages/quipu-cli/src/quipu/cli/main.py
-`````
-`````python
-    matches = [node for sha, node in graph.items() if sha.startswith(hash_prefix)]
-    if not matches:
-        typer.secho(f"❌ 错误: 未找到哈希前缀为 '{hash_prefix}' 的历史节点。", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-    if len(matches) > 1:
-        typer.secho(
-            f"❌ 错误: 哈希前缀 '{hash_prefix}' 不唯一，匹配到 {len(matches)} 个节点。", fg=typer.colors.RED, err=True
+        ancestors = {"curr", "a", "root"}
+        view_model = view_model_factory(
+            [node_root, node_a, node_b, node_curr], current_hash="curr", ancestors=ancestors
         )
-        ctx.exit(1)
-    target_node = matches[0]
-    target_tree_hash = target_node.output_tree
+        app = QuipuUiApp(view_model=view_model)
+
+        # The app should now use the view_model's ancestor set to determine reachability.
+        # Directly check the results from the ViewModel's method that the UI uses.
+        assert app.view_model.is_reachable("curr") is True
+        assert app.view_model.is_reachable("a") is True
+        assert app.view_model.is_reachable("root") is True
+        assert app.view_model.is_reachable("b") is False
+
+    def test_filter_unreachable_nodes_in_populate(self, view_model_factory):
+        """
+        Tests the filtering logic within the _populate_table method.
+        """
+        # Graph: root -> a, root -> b (unreachable)
+        node_root = QuipuNode("null", "root", datetime(2023, 1, 1), Path("f_root"), "plan")
+        node_a = QuipuNode("root", "a", datetime(2023, 1, 2), Path("f_a"), "plan")
+        node_b = QuipuNode("root", "b", datetime(2023, 1, 3), Path("f_b"), "plan")
+
+        # 'b' is not in the ancestor set, so it's unreachable.
+        ancestors = {"a", "root"}
+        view_model = view_model_factory([node_root, node_a, node_b], current_hash="a", ancestors=ancestors)
+        app = QuipuUiApp(view_model=view_model)
+        app.show_unreachable = False  # Set to hide unreachable nodes
+
+        # Simulate the loop from _populate_table to see which nodes would be rendered
+        nodes_on_page = view_model.load_page(1)
+        rendered_nodes = [
+            node for node in nodes_on_page if app.show_unreachable or app.view_model.is_reachable(node.output_tree)
+        ]
+
+        # The nodes are sorted by timestamp desc, so page 1 is [b, a, root]
+        assert node_b not in rendered_nodes
+        assert node_a in rendered_nodes
+        assert node_root in rendered_nodes
 `````
 `````python
-    matches = [node for output_tree, node in graph.items() if output_tree.startswith(hash_prefix)]
-    if not matches:
-        typer.secho(f"❌ 错误: 未找到 output_tree 哈希前缀为 '{hash_prefix}' 的历史节点。", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-    if len(matches) > 1:
-        typer.secho(
-            f"❌ 错误: 哈希前缀 '{hash_prefix}' 不唯一，匹配到 {len(matches)} 个节点。", fg=typer.colors.RED, err=True
-        )
-        ctx.exit(1)
-    target_node = matches[0]
-    target_output_tree_hash = target_node.output_tree
-`````
+@pytest.fixture
+def view_model_factory():
+    """A factory to create a GraphViewModel instance with mock data for tests."""
 
-> **说明**: 我只修改了最典型的 `checkout` 命令。其他导航命令 (`discard`, `undo` 等) 内部也存在类似的模糊变量，但它们主要依赖 `engine._read_head()` 和 `engine.current_node`，受本次修改的影响较小。为保持本次提交的原子性，我们将它们的变量重命名留作后续的风格优化。核心的功能性 bug 已经通过上述修改解决。
+    def _factory(nodes, current_hash=None, ancestors=None, private_data=None):
+        reader = MockHistoryReader(nodes, ancestors=ancestors, private_data=private_data)
+        vm = GraphViewModel(reader, current_output_tree_hash=current_hash)
+        vm.initialize()
+        return vm
+
+    return _factory
+
+
+class TestUiReachability:
+    def test_ui_uses_view_model_for_reachability(self, view_model_factory):
+        """
+        Tests that the UI correctly queries the ViewModel to check reachability.
+        """
+        node_root = QuipuNode("c_root", "root", "null", datetime(2023, 1, 1), Path("f_root"), "plan", summary="Root")
+        node_a = QuipuNode("c_a", "a", "root", datetime(2023, 1, 2), Path("f_a"), "plan", summary="A")
+        node_b = QuipuNode("c_b", "b", "root", datetime(2023, 1, 3), Path("f_b"), "plan", summary="B")
+        node_curr = QuipuNode("c_curr", "curr", "a", datetime(2023, 1, 4), Path("f_curr"), "plan", summary="Current")
+
+        ancestors = {"curr", "a", "root"}
+        view_model = view_model_factory(
+            [node_root, node_a, node_b, node_curr], current_hash="curr", ancestors=ancestors
+        )
+        app = QuipuUiApp(work_dir=Path("."))
+        app.view_model = view_model
+
+
+        assert app.view_model.is_reachable("curr") is True
+        assert app.view_model.is_reachable("a") is True
+        assert app.view_model.is_reachable("root") is True
+        assert app.view_model.is_reachable("b") is False
+
+    def test_filter_unreachable_nodes_in_populate(self, view_model_factory):
+        """
+        Tests the filtering logic within the _populate_table method.
+        """
+        node_root = QuipuNode("c_root", "root", "null", datetime(2023, 1, 1), Path("f_root"), "plan", summary="Root")
+        node_a = QuipuNode("c_a", "a", "root", datetime(2023, 1, 2), Path("f_a"), "plan", summary="A")
+        node_b = QuipuNode("c_b", "b", "root", datetime(2023, 1, 3), Path("f_b"), "plan", summary="B")
+
+        ancestors = {"a", "root"}
+        view_model = view_model_factory([node_root, node_a, node_b], current_hash="a", ancestors=ancestors)
+        app = QuipuUiApp(work_dir=Path("."))
+        app.view_model = view_model
+        app.show_unreachable = False
+
+        nodes_on_page = view_model.load_page(1)
+        rendered_nodes = [
+            node for node in nodes_on_page if app.show_unreachable or app.view_model.is_reachable(node.output_tree)
+        ]
+
+        assert node_b not in rendered_nodes
+        assert node_a in rendered_nodes
+        assert node_root in rendered_nodes
+`````
