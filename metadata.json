@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "feat: 为 TUI 添加分页导航快捷键", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764212793.968391, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "feat: 在 TUI 中集成私有数据视图", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764212850.144604, "duration_ms": 0}}

@@ -1,86 +1,39 @@
-好的，现在开始执行 **任务 6: 实现分页快捷键绑定和动作**。
+好的，这是最后一项功能的适配：**任务 7: 适配可达性渲染与内容视图**。
 
-此任务的目标是为用户提供在历史记录页面之间导航的能力，我们将通过添加新的键盘快捷键并实现相应的处理动作来完成。
+此任务确保在新的分页模式下，UI 依然能正确地高亮可达分支，并在内容预览区显示包含开发者意图在内的完整信息。
 
-### feat: 为 TUI 添加分页导航快捷键
+### feat: 在 TUI 中集成私有数据视图
 
 #### 用户需求
-根据 UI 性能优化方案，为 `QuipuUiApp` 添加键盘快捷键，以支持在历史记录页面之间进行“上一页”和“下一页”的导航。
+根据 UI 性能优化方案，更新 `QuipuUiApp` 的内容预览逻辑，使其能够通过 `GraphViewModel` 获取并展示节点的公共计划 (`plan.md`) 和私有开发者意图 (`intent.md`)。
 
 #### 评论
-这是分页功能的用户交互层实现。通过绑定 `h/l` 和方向键，我们为用户提供了符合直觉和终端应用惯例的导航方式，使得浏览大规模历史记录成为可能。同时，我们将 `h` 键原有的“切换可见性”功能重新绑定到 `t` 键，以避免快捷键冲突。
+这是 Quipu 知识管理能力的一次重要增强。通过在 UI 中直接展示与某个变更相关联的“开发者意图”，我们极大地缩短了从“代码做了什么”到“代码为什么这么做”的认知路径。这使得审查历史、理解设计决策和回顾思考过程变得前所未有的高效。
 
 #### 目标
-1.  在 `BINDINGS` 列表中添加 `h`/`left` (上一页) 和 `l`/`right` (下一页) 的快捷键绑定。
-2.  将原有的 `toggle_hidden` 动作的快捷键从 `h` 更改为 `t`。
-3.  实现 `action_previous_page` 和 `action_next_page` 方法，使其能够调用 `_load_page` 来刷新视图。
-4.  确保已移除所有与无限滚动相关的旧逻辑。
+1.  修改 `_update_content_view` 方法。
+2.  调用 `self.view_model.get_content_bundle()` 来获取合并后的内容字符串。
+3.  将获取到的内容渲染到 Markdown 预览组件中。
 
 #### 基本原理
-Textual 的 `BINDINGS` 系统允许我们将按键事件声明式地映射到 `action_` 方法。当用户按下绑定的键时，Textual 会自动调用相应的方法。我们通过实现 `action_previous_page` 和 `action_next_page`，调用已经存在的 `_load_page` 方法并传入计算后的新页码，来驱动 `ViewModel` 获取新数据并触发 UI 刷新，从而完成分页导航的闭环。
+该修改完成了 MVVM 模式中 `View` -> `ViewModel` 数据流的最后一环。当用户在视图中高亮一个节点时，`_update_content_view` 方法向 `ViewModel` 请求该节点的完整内容。`ViewModel` 负责与 `Model` (HistoryReader) 交互，获取公共和私有数据，并将它们格式化成一个统一的、适合渲染的字符串返回给视图。视图层只负责显示，不关心数据来源。
 
 #### 标签
 #intent/build #flow/ready #priority/high
 #comp/cli #concept/ui #scope/ux
 #ai/instruct
-#task/domain/ui #task/object/tui-performance #task/action/refactor
-#task/state/continue #task/status/active
+#task/domain/ui #task/object/tui-performance #task.action/refactor
+#task/state/end #task/status/completed
 
 ---
 
 ### Script
 
-#### Acts 1: 更新快捷键绑定
+#### Acts 1: 更新内容视图以显示公有与私有数据
 
-我将一次性更新 `BINDINGS` 列表：
-1.  将 `toggle_hidden` 的绑定从 `h` 改为 `t`。
-2.  添加 `h`, `l` 和左右方向键用于分页。
+我将修改 `_update_content_view` 方法，将 `content_loader` 的调用替换为对 `view_model.get_content_bundle` 的调用。
 
-~~~~~act
-patch_file
-~~~~~
-~~~~~path
-packages/quipu-cli/src/quipu/cli/tui.py
-~~~~~
-~~~~~python
-    BINDINGS = [
-        Binding("q", "quit", "退出"),
-        Binding("c", "checkout_node", "检出节点"),
-        Binding("enter", "checkout_node", "检出节点"),
-        Binding("v", "toggle_view", "切换内容视图"),
-        Binding("p", "dump_content", "输出内容(stdout)"),
-        Binding("h", "toggle_hidden", "显隐非关联分支"),
-        # Vim 风格导航
-        Binding("k", "move_up", "上移", show=False),
-        Binding("j", "move_down", "下移", show=False),
-        Binding("up", "move_up", "上移", show=False),
-        Binding("down", "move_down", "下移", show=False),
-    ]
-~~~~~
-~~~~~python
-    BINDINGS = [
-        Binding("q", "quit", "退出"),
-        Binding("c", "checkout_node", "检出节点"),
-        Binding("enter", "checkout_node", "检出节点"),
-        Binding("v", "toggle_view", "切换内容视图"),
-        Binding("p", "dump_content", "输出内容(stdout)"),
-        Binding("t", "toggle_hidden", "显隐非关联分支"),
-        # Vim 风格导航
-        Binding("k", "move_up", "上移", show=False),
-        Binding("j", "move_down", "下移", show=False),
-        Binding("up", "move_up", "上移", show=False),
-        Binding("down", "move_down", "下移", show=False),
-        # 分页导航
-        Binding("h", "previous_page", "上一页", show=False),
-        Binding("left", "previous_page", "上一页"),
-        Binding("l", "next_page", "下一页", show=False),
-        Binding("right", "next_page", "下一页"),
-    ]
-~~~~~
-
-#### Acts 2: 实现分页动作方法
-
-现在，我将添加 `action_previous_page` 和 `action_next_page` 两个新方法，它们将响应新的快捷键。
+可达性渲染部分 (`_populate_table`) 在之前的步骤中已经适配了 `view_model`，无需再次修改。
 
 ~~~~~act
 patch_file
@@ -89,33 +42,19 @@ patch_file
 packages/quipu-cli/src/quipu/cli/tui.py
 ~~~~~
 ~~~~~python
-    def action_dump_content(self) -> None:
-        """退出 UI 并将当前选中节点的内容输出到 stdout"""
-        if self.current_selected_node:
-            content = self.view_model.get_content_bundle(self.current_selected_node)
-            self.exit(result=("dump", content))
-
-    # --- UI Logic ---
+        # 懒加载并渲染 Markdown 内容
+        content = self.content_loader(node)
+        markdown = self.query_one("#content-body", Markdown)
+        markdown.update(content)
 ~~~~~
 ~~~~~python
-    def action_dump_content(self) -> None:
-        """退出 UI 并将当前选中节点的内容输出到 stdout"""
-        if self.current_selected_node:
-            content = self.view_model.get_content_bundle(self.current_selected_node)
-            self.exit(result=("dump", content))
-
-    def action_previous_page(self) -> None:
-        """Loads the previous page of history."""
-        self._load_page(self.view_model.current_page - 1)
-
-    def action_next_page(self) -> None:
-        """Loads the next page of history."""
-        self._load_page(self.view_model.current_page + 1)
-
-    # --- UI Logic ---
+        # 从 ViewModel 获取合并后的公共和私有内容并渲染
+        content = self.view_model.get_content_bundle(node)
+        markdown = self.query_one("#content-body", Markdown)
+        markdown.update(content)
 ~~~~~
 
 ### 下一步建议
-分页的快捷键和核心动作已经实现。现在，我们需要完成最后的功能适配，即 **任务 7: 适配可达性渲染与内容视图**。
+至此，**Quipu UI 性能优化与功能增强** 的所有前端改造任务（任务 4、5、6、7）已全部完成。`tui.py` 现在完全通过 `GraphViewModel` 来管理状态和数据，实现了分页加载、按键导航和私有数据显示。
 
-这一步将确保在新分页模式下，节点的“可达性”状态（即是否为当前分支的祖先）能够被正确渲染（变暗），并且右侧的内容预览面板能够正确显示包括私有数据在内的完整信息。
+最后一步是 **任务 8: CLI 入口更新**，即修改 `main.py` 中的 `ui` 命令，将新的 `GraphViewModel` 和改造后的 `QuipuUiApp` 正确地实例化并连接起来。
