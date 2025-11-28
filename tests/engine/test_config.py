@@ -15,7 +15,7 @@ def test_config_get_defaults(work_dir: Path):
     config = ConfigManager(work_dir)
 
     # Test accessing a nested default value
-    assert config.get("storage.type") == "git_object"
+    assert config.get("storage.type") == "sqlite"
     # Test a non-existent key with a fallback
     assert config.get("nonexistent.key", "fallback") == "fallback"
     # Test a default that is None
