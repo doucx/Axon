@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "fix: 修复 `sync` 命令中远程名称解析的逻辑缺陷", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764252790.1241305, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix: 修复并重构 `sync` 集成测试以实现隔离和健壮性", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764289905.695238, "duration_ms": 0}}
