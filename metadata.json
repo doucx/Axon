@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "chore: 将默认存储后端切换为 SQLite", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764298585.659325, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix: 更新配置测试用例以匹配新的默认后端", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764298651.526598, "duration_ms": 0}}
