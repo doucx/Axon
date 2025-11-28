@@ -142,15 +142,13 @@ class TestCLIWrapper:
 
     def test_cli_no_input_shows_usage(self, monkeypatch, tmp_path):
         """测试无输入时显示用法"""
-        # 1. 临时修改 main 模块中的默认入口文件引用，防止读取当前目录下的 o.md
-        # 注意：必须 patch 'main' 模块，而不是 'config' 模块，因为 main 采用了 from import
-        from quipu.cli import main
+        # 1. 临时修改 run 命令模块中的默认入口文件引用，防止读取当前目录下的 o.md
+        # 注意：必须 patch 'run' 模块，因为该模块通过 'from ... import' 引入了常量
+        from quipu.cli.commands import run
 
-        monkeypatch.setattr(main, "DEFAULT_ENTRY_FILE", tmp_path / "non_existent.md")
+        monkeypatch.setattr(run, "DEFAULT_ENTRY_FILE", tmp_path / "non_existent.md")
 
         # 2. 同时确保 STDIN 不是 TTY，也不是管道（模拟纯交互式空运行）
-        # CliRunner 默认就是这种状态，但为了保险起见，我们什么都不输入
-
         result = runner.invoke(app, ["run"])  # 无参数，无管道
 
         assert result.exit_code == 0

@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from quipu.core.models import QuipuNode
 from quipu.core.storage import HistoryReader
@@ -17,10 +17,16 @@ class GraphViewModel:
         self.current_output_tree_hash = current_output_tree_hash
         self.page_size = page_size
 
-        # 状态属性
+        # --- 核心状态 ---
         self.total_nodes: int = 0
         self.total_pages: int = 1
-        self.current_page: int = 0  # 页码从 1 开始
+        self.current_page: int = 0
+
+        # --- TUI 交互状态 ---
+        self.show_unreachable: bool = True
+        self.current_page_nodes: List[QuipuNode] = []
+        self.current_selected_node: Optional[QuipuNode] = None
+        self._node_by_key: Dict[str, QuipuNode] = {}
         self.reachable_set: Set[str] = set()
 
     def initialize(self):
@@ -69,13 +75,35 @@ class GraphViewModel:
         加载指定页码的数据，更新内部状态，并返回该页的节点列表。
         """
         if not (1 <= page_number <= self.total_pages):
-            return []  # 页码无效
+            self.current_page_nodes = []
+            self._node_by_key = {}
+            return []
 
         self.current_page = page_number
         offset = (self.current_page - 1) * self.page_size
 
-        nodes = self.reader.load_nodes_paginated(limit=self.page_size, offset=offset)
-        return nodes
+        self.current_page_nodes = self.reader.load_nodes_paginated(limit=self.page_size, offset=offset)
+        self._node_by_key = {str(node.filename): node for node in self.current_page_nodes}
+        return self.current_page_nodes
+
+    def toggle_unreachable(self):
+        """切换是否显示不可达节点。"""
+        self.show_unreachable = not self.show_unreachable
+
+    def get_nodes_to_render(self) -> List[QuipuNode]:
+        """根据当前可见性设置，返回需要渲染的节点列表。"""
+        if self.show_unreachable:
+            return self.current_page_nodes
+        return [node for node in self.current_page_nodes if self.is_reachable(node.output_tree)]
+
+    def select_node_by_key(self, key: str) -> Optional[QuipuNode]:
+        """根据行 Key 选择节点并更新状态。"""
+        node = self._node_by_key.get(key)
+        self.current_selected_node = node
+        return node
+
+    def get_selected_node(self) -> Optional[QuipuNode]:
+        return self.current_selected_node
 
     def previous_page(self) -> List[QuipuNode]:
         """加载上一页的数据。"""

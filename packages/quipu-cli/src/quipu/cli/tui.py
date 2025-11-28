@@ -48,10 +48,8 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self.work_dir = work_dir
         self.engine: Optional[Engine] = None
         self.view_model: Optional[GraphViewModel] = None
-        self.show_unreachable = True
+        # is_split_mode 是纯视图状态，保留在 App 中
         self.is_split_mode = False
-        self.current_selected_node: Optional[QuipuNode] = None
-        self.node_by_filename: dict[str, QuipuNode] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -95,16 +93,13 @@ class QuipuUiApp(App[Optional[UiResult]]):
     def _load_page(self, page_number: int) -> None:
         """Loads and displays a specific page of nodes."""
         logger.debug(f"TUI: Loading page {page_number}")
-        nodes = self.view_model.load_page(page_number)
-        logger.debug(f"TUI: Page {page_number} loaded with {len(nodes)} nodes.")
+        self.view_model.load_page(page_number)
+        logger.debug(f"TUI: Page {page_number} loaded with {len(self.view_model.current_page_nodes)} nodes.")
 
-        if not nodes:
-            return
-
-        self.node_by_filename = {str(node.filename): node for node in nodes}
         table = self.query_one(DataTable)
         table.clear()
-        self._populate_table(table, nodes)
+        # 从 ViewModel 获取过滤后的节点列表进行渲染
+        self._populate_table(table, self.view_model.get_nodes_to_render())
         self._focus_current_node(table)
         self._update_header()
 
@@ -115,7 +110,7 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self.query_one(DataTable).action_cursor_down()
 
     def action_toggle_hidden(self) -> None:
-        self.show_unreachable = not self.show_unreachable
+        self.view_model.toggle_unreachable()
         self._refresh_table()
 
     def action_toggle_view(self) -> None:
@@ -126,12 +121,14 @@ class QuipuUiApp(App[Optional[UiResult]]):
             self._update_content_view()
 
     def action_checkout_node(self) -> None:
-        if self.current_selected_node:
-            self.exit(result=("checkout", self.current_selected_node.output_tree))
+        selected_node = self.view_model.get_selected_node()
+        if selected_node:
+            self.exit(result=("checkout", selected_node.output_tree))
 
     def action_dump_content(self) -> None:
-        if self.current_selected_node:
-            content = self.view_model.get_content_bundle(self.current_selected_node)
+        selected_node = self.view_model.get_selected_node()
+        if selected_node:
+            content = self.view_model.get_content_bundle(selected_node)
             self.exit(result=("dump", content))
 
     def action_previous_page(self) -> None:
@@ -148,22 +145,18 @@ class QuipuUiApp(App[Optional[UiResult]]):
 
     def _refresh_table(self):
         table = self.query_one(DataTable)
-        current_page_nodes = list(self.node_by_filename.values())
-        sorted_nodes = sorted(current_page_nodes, key=lambda n: n.timestamp, reverse=True)
         table.clear()
-        self._populate_table(table, sorted_nodes)
+        # 从 ViewModel 获取要渲染的节点
+        nodes_to_render = self.view_model.get_nodes_to_render()
+        self._populate_table(table, nodes_to_render)
         self._focus_current_node(table)
         self._update_header()
 
     def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
-        nodes_to_render = (
-            nodes
-            if self.show_unreachable
-            else [node for node in nodes if self.view_model.is_reachable(node.output_tree)]
-        )
+        # 移除了过滤逻辑，因为 ViewModel 已经处理
         tracks: list[Optional[str]] = []
 
-        for node in nodes_to_render:
+        for node in nodes:
             is_reachable = self.view_model.is_reachable(node.output_tree)
             dim_tag = "[dim]" if not is_reachable else ""
             end_dim_tag = "[/dim]" if dim_tag else ""
@@ -224,7 +217,9 @@ class QuipuUiApp(App[Optional[UiResult]]):
             return
 
         # 查找当前页面中匹配 HEAD 的所有节点
-        matching = [n for n in self.node_by_filename.values() if n.output_tree == current_output_tree_hash]
+        matching = [
+            n for n in self.view_model.current_page_nodes if n.output_tree == current_output_tree_hash
+        ]
         logger.debug(f"DEBUG: Found {len(matching)} matching nodes in current page map.")
 
         target_node = matching[0] if matching else None
@@ -246,7 +241,7 @@ class QuipuUiApp(App[Optional[UiResult]]):
                 table.cursor_coordinate = Coordinate(row=row_index, column=0)
 
                 # 2. 同步逻辑状态 (防止事件未触发)
-                self.current_selected_node = target_node
+                self.view_model.select_node_by_key(row_key)
 
                 # 3. 刷新关联视图
                 if self.is_split_mode:
@@ -261,15 +256,15 @@ class QuipuUiApp(App[Optional[UiResult]]):
     @on(DataTable.RowHighlighted)
     def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         row_key = event.row_key.value
-        if row_key and (node := self.node_by_filename.get(row_key)):
-            self.current_selected_node = node
+        if row_key:
+            self.view_model.select_node_by_key(row_key)
             if self.is_split_mode:
                 self._update_content_view()
 
     def _update_content_view(self):
-        if not self.current_selected_node:
+        node = self.view_model.get_selected_node()
+        if not node:
             return
-        node = self.current_selected_node
         header = self.query_one("#content-header", Static)
         header.update(f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}")
         content = self.view_model.get_content_bundle(node)
