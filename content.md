@@ -1,52 +1,43 @@
-你的观察非常敏锐，这确实是一个非常微妙但在高性能 UI 中常见的问题。
+你的观察非常细致。
 
-**原因分析：**
-你看到的“先显示旧内容，再显示新内容”的现象，是因为 `Markdown` 组件的 `update()` 操作是**异步**的。
-1.  当防抖定时器触发时，我们调用 `markdown_widget.update(new_content)`。
-2.  紧接着，我们设置 `markdown_widget.display = True`。
-3.  **关键点**：`Textual` 可能会在 `Markdown` 组件完成新内容的解析和渲染**之前**，就先处理了 `display = True` 的指令。
-4.  结果就是：组件变得可见了，但缓冲区里还是**上一次**渲染的内容（旧节点）。一瞬间后，新内容的渲染完成，界面才刷新变成新节点。这就是你看到的“闪烁”或“覆盖”。
+**问题分析**：
+目前的实现中，Header（顶部状态栏，显示 Hash 和时间）的更新逻辑被放在了 `_debounced_update_content_view` 函数里。这意味着它和繁重的 Markdown 渲染一样，只有在你**停止滚动**触发防抖后才会更新。
+在滚动过程中，Header 会“卡”在开始滚动前的那个节点上，导致它显示的信息与下方的占位符（已经实时更新为新节点的 summary）不一致。
 
-**关于“两次渲染开销”：**
-如果不处理，确实存在一种认知上的“双重视觉更新”（旧->新）。虽然计算层面上 `update` 只调了一次，但视觉层面上用户被迫处理了两次信息变化，体验不好。
+**解决方案**：
+`Header` 实际上是一个 `Static` 组件，更新它的文本开销极低（和占位符一样）。我们完全没有理由对它进行防抖。
+我们应该将 Header 的更新逻辑从防抖函数中提取出来，放回 `on_row_highlighted` 事件中，使其**实时跟随**光标移动。
 
-**解决方案：**
-在隐藏组件时（即用户开始滚动、离开当前节点时），显式清空 `Markdown` 组件的内容。
-这样做有两个好处：
-1.  **消除重影**：当组件再次显示时，即使新内容还没渲染好，它也是空白的，而不是显示误导性的旧内容。
-2.  **释放内存**：清空大文本有助于 Python 的垃圾回收，特别是当历史记录中包含大文件时。
+这样，在快速滚动时：
+1.  **Header**: 实时跳变，显示当前经过节点的 Hash/时间。
+2.  **占位符**: 实时跳变，显示当前经过节点的 Summary。
+3.  **Markdown**: 保持空白/隐藏，直到停止滚动才加载。
 
-解析空字符串 `""` 的开销是可以忽略不计的，所以这不会引入性能问题。
+这将提供最连贯的视觉反馈。
 
-## [WIP] fix: TUI 切换节点时的旧内容残留问题 (Ghosting)
-
-### 错误分析
-在防抖加载机制中，`Markdown` 组件的 `update(content)` 是异步执行的。当我们在回调中紧接着调用 `display = True` 时，组件可能在内部状态尚未更新完毕的情况下就被渲染到了屏幕上，导致展示了上一次的旧内容（Ghosting）。这给用户造成了视觉干扰和“双重加载”的错觉。
+## [WIP] fix: 让 TUI Header 信息实时跟随滚动更新
 
 ### 用户需求
-1.  消除在加载新节点内容时，旧节点内容一闪而过的现象。
-2.  确保每次内容视图出现时，要么是新的内容，要么是空白，绝不能是过期的内容。
+在 TUI 快速滚动列表时，右侧顶部的 Header（显示节点类型、哈希和时间戳）应实时更新，而不是等待防抖延迟后才更新。
 
 ### 评论
-这是一个涉及 UI 渲染时序的细节优化。通过“离开即销毁”的策略，我们可以保证视图状态的纯洁性。
+这是一个低成本高收益的 UX 修复。将轻量级的元数据更新与重量级的内容渲染解耦，是提升 UI 响应感的关键策略。
 
 ### 目标
-在 `on_row_highlighted` 方法中，当我们将 `Markdown` 组件设为 `display = False` (隐藏) 时，立即调用 `markdown_widget.update("")` 将其内容清空。
-
-### 基本原理
-利用 `Markdown` 解析器处理空字符串极快的特性，在用户离开节点的瞬间“擦除”旧数据。这样，下一次 `_debounced_update_content_view` 将组件设为可见时，即使存在渲染延迟，用户也只会看到空白背景变为新内容，而不是旧内容变为新内容。
+1.  修改 `on_row_highlighted`：在检测到行高亮时，立即更新 Header 的内容。
+2.  修改 `_debounced_update_content_view`：移除其中重复的 Header 更新逻辑（或者保留作为冗余安全措施，但在高亮时必须已经更新）。为了代码清晰，建议移除或简化。
 
 ### 标签
-#intent/fix #flow/ready #priority/high
+#intent/fix #flow/ready #priority/medium
 #comp/cli #concept/ui #scope/ux
-#ai/brainstorm
-#task/domain/ui #task/object/tui-performance #task/action/bug-fix #task/state/end #task/status/completed
+#ai/instruct
+#task/domain/ui #task/object/tui-header #task/action/synchronization #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 在隐藏 Markdown 组件时清空内容
+#### Acts 1: 移动 Header 更新逻辑
 
 我们将修改 `packages/quipu-cli/src/quipu/cli/tui.py`。
 
@@ -55,31 +46,84 @@ patch_file
 packages/quipu-cli/src/quipu/cli/tui.py
 ~~~~~
 ~~~~~python
-            placeholder_text = "*Loading...*"
+        if self.is_split_mode:
+            placeholder_widget = self.query_one("#content-placeholder", Static)
+            markdown_widget = self.query_one("#content-body", Markdown)
+
+            # Instantly update the cheap placeholder and make it visible
+            if selected_node and selected_node.summary:
+                placeholder_text = f"### {selected_node.summary}\n\n---\n*Loading full content...*"
+            else:
+                placeholder_text = "*Loading...*"
             placeholder_widget.update(placeholder_text)
             
             placeholder_widget.display = True
-            markdown_widget.display = False
-
-            # Schedule the expensive update
-            self.update_timer = self.set_timer(self.debounce_delay_seconds, self._debounced_update_content_view)
 ~~~~~
 ~~~~~python
-            placeholder_text = "*Loading...*"
+        if self.is_split_mode:
+            placeholder_widget = self.query_one("#content-placeholder", Static)
+            markdown_widget = self.query_one("#content-body", Markdown)
+            header = self.query_one("#content-header", Static)
+
+            # Instantly update the cheap header
+            if selected_node:
+                header.update(f"[{selected_node.node_type.upper()}] {selected_node.short_hash} - {selected_node.timestamp}")
+
+            # Instantly update the cheap placeholder and make it visible
+            if selected_node and selected_node.summary:
+                placeholder_text = f"### {selected_node.summary}\n\n---\n*Loading full content...*"
+            else:
+                placeholder_text = "*Loading...*"
             placeholder_widget.update(placeholder_text)
             
             placeholder_widget.display = True
-            markdown_widget.display = False
-            # Clear old content immediately to prevent "ghosting" when reappearing
-            markdown_widget.update("")
+~~~~~
 
-            # Schedule the expensive update
-            self.update_timer = self.set_timer(self.debounce_delay_seconds, self._debounced_update_content_view)
+~~~~~act
+patch_file
+packages/quipu-cli/src/quipu/cli/tui.py
+~~~~~
+~~~~~python
+    def _debounced_update_content_view(self) -> None:
+        """The expensive update logic, called only after the user stops scrolling."""
+        node = self.view_model.get_selected_node()
+        if not node:
+            return
+        
+        placeholder_widget = self.query_one("#content-placeholder", Static)
+        markdown_widget = self.query_one("#content-body", Markdown)
+        header = self.query_one("#content-header", Static)
+
+        # Update header
+        header.update(f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}")
+
+        # Update the expensive markdown widget while it's hidden
+        content = self.view_model.get_content_bundle(node)
+        markdown_widget.update(content)
+~~~~~
+~~~~~python
+    def _debounced_update_content_view(self) -> None:
+        """The expensive update logic, called only after the user stops scrolling."""
+        node = self.view_model.get_selected_node()
+        if not node:
+            return
+        
+        placeholder_widget = self.query_one("#content-placeholder", Static)
+        markdown_widget = self.query_one("#content-body", Markdown)
+        
+        # Header is already updated in on_row_highlighted
+
+        # Update the expensive markdown widget while it's hidden
+        content = self.view_model.get_content_bundle(node)
+        markdown_widget.update(content)
 ~~~~~
 
 ### 下一步建议
-至此，针对 TUI 性能和体验的一系列优化（防抖、静态占位符、消除重影）均已完成。
+现在 TUI 的交互逻辑应该非常完善了：
+1.  **Header**: 实时跟手。
+2.  **Placeholder**: 实时跟手，显示语义摘要。
+3.  **Content**: 防抖加载，无旧内容残留。
 
-建议步骤：
-1.  验证修改：再次运行 `quipu ui`，快速切换节点，确认“旧内容一闪而过”的现象消失。
-2.  **提交代码**：由于我们已经通过多个 WIP 步骤解决了整个问题链，现在可以生成最终的 `[COMMIT]` 计划来合并所有变更。你需要我生成这个 Commit 计划吗？
+请进行最后一次验证，如果没有问题，我强烈建议将这四次代码变更（防抖、Placeholder语义化、CSS修复、Header实时化、反Ghosting）打包成一个 `[COMMIT]` 提交，因为它们共同构成了一个完整的“TUI 性能与体验优化”功能集。
+
+你需要我为你生成这个合并后的 Commit 计划吗？

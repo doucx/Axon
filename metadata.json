@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix: TUI 切换节点时的旧内容残留问题 (Ghosting)", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764325479.2477276, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix: 让 TUI Header 信息实时跟随滚动更新", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764325627.7514906, "duration_ms": 0}}
