@@ -1,28 +1,29 @@
-Excellent. With `test_git_writer.py` fixed, we are making steady progress through Phase 2.
+Excellent. With the reader tests now passing, we've successfully aligned the core `quipu-engine` test suite with the new architecture.
 
-The next step is **Task 2.3**, which involves fixing `tests/engine/test_git_reader.py`. The failures in this file are also caused by the architectural shift away from a single `history` ref, but they manifest in slightly more complex test scenarios, particularly those involving branches and corrupted data.
+We are now on the final task of Phase 2: **Task 2.4**. This involves fixing the integration tests in `tests/integration/test_storage_selection.py`, which are the last remaining tests that explicitly depend on the old `refs/quipu/history` ref.
 
-## fix: 更新 `test_git_reader` 以适应新的多头 Git 引用模型 (阶段 2.3)
+## fix: 更新集成测试以适应新的多头 Git 引用模型 (阶段 2.4)
 
 ### 错误分析
-The test suite for `GitObjectHistoryReader` contains several tests that manually construct specific history graph shapes (like forks or gaps) to verify the reader's robustness. These tests previously relied on manipulating the single `refs/quipu/history` ref to set up their scenarios.
+The integration tests in `TestStorageSelection` are designed to verify that Quipu correctly chooses the `GitObject` storage backend in a new or existing project. The verification logic in these tests, however, is entirely based on checking for the existence and update of the single `refs/quipu/history` ref.
 
-1.  **`test_load_forked_history`**: This test manually created a fork by creating one branch, renaming the `history` ref, resetting the `history` ref to an older commit, and creating a second branch. This complex procedure is now obsolete because the new multi-head architecture creates forks naturally.
-2.  **`test_parent_linking_with_gap`**: This test also used `rev-parse` on the `history` ref to get a commit to be used as a parent for a malformed node.
-3.  **`test_corrupted_node_*`**: These tests created malformed commits and updated the `history` ref to point to them, ensuring the reader would encounter them. This update logic is now incorrect.
+*   `test_defaults_to_git_object_storage_on_new_project`: Fails because it asserts that the `history` ref must be created.
+*   `test_continues_using_git_object_storage`: Fails because it tries to parse the `history` ref before and after an operation to check for updates and parent relationships.
+
+Both tests fail because the production code no longer creates or interacts with this ref.
 
 ### 用户需求
-Refactor the tests in `test_git_reader.py` to correctly set up their scenarios using the new multi-head ref model (`refs/quipu/local/heads/*`) instead of the obsolete single `history` ref.
+Update the verification logic in `test_storage_selection.py` to correctly test the behavior of the `GitObject` storage backend using the new multi-head reference model.
 
 ### 评论
-This refactoring not only fixes the tests but also simplifies them significantly. The new architecture makes creating complex graph structures like forks much more straightforward in a testing environment—we just create the nodes, and the writer and reader handle the rest. This is a positive outcome of the new design.
+This is the final and crucial step in aligning our test suite's foundational assumptions with the new architecture. By fixing these integration tests, we ensure that our high-level workflows are validated against the correct system behavior, preventing future regressions.
 
 ### 目标
-1.  Rewrite `test_load_forked_history` to create a fork simply by creating two child nodes from the same parent.
-2.  Update `test_parent_linking_with_gap` and the `test_corrupted_node_*` tests to create a head ref in the `refs/quipu/local/heads/` namespace for their manually created commits, ensuring the reader will discover them.
+1.  In `test_defaults_to_git_object_storage_on_new_project`, modify the assertion to check that at least one head ref is created in the `refs/quipu/local/heads/` directory.
+2.  In `test_continues_using_git_object_storage`, rewrite the logic to use a collection-based comparison of head refs before and after the second operation, and verify the parent-child link by inspecting the new Git commit object directly.
 
 ### 基本原理
-In the multi-head model, any commit pointed to by a ref under a scanned prefix (like `refs/quipu/`) is considered a potential head of a branch. To make a manually created commit visible to the `GitObjectHistoryReader`, we no longer update a single `history` pointer. Instead, we create a new, dedicated head ref for that commit, typically named after its own hash, within the `refs/quipu/local/heads/` directory. This correctly simulates how the `GitObjectHistoryWriter` persists new nodes.
+We will apply the same robust, collection-based comparison strategy that we successfully used to fix `test_writer.py`. This method is deterministic and correctly models the multi-head nature of the new storage system. By getting the set of all head refs before and after an action, we can precisely identify the newly created node and verify its properties (like its parent commit) without relying on unstable sorting or obsolete ref names.
 
 ### 标签
 #intent/fix #flow/ready #priority/high #comp/tests #concept/history #scope/api #ai/instruct #task/domain/testing #task/object/test-suite #task/action/bug-fix #task/state/continue
@@ -31,326 +32,127 @@ In the multi-head model, any commit pointed to by a ref under a scanned prefix (
 
 ### Script
 
-#### Acts 1: Refactor the entire `TestGitObjectHistoryReader` class
+#### Acts 1: Refactor the `TestStorageSelection` class
 
-Due to the number of methods needing changes, we will replace the entire class definition with an updated version that is fully compatible with the new architecture.
+We will replace the entire `TestStorageSelection` class with an updated version that uses the correct verification logic for the multi-head architecture.
 
 ~~~~~act
 patch_file
-tests/engine/test_git_reader.py
+tests/integration/test_storage_selection.py
 ~~~~~
 ~~~~~python
-class TestGitObjectHistoryReader:
-    def test_load_empty_history(self, reader_setup):
-        """测试：没有 Quipu 历史时的行为"""
-        reader, _, _, _ = reader_setup
-        nodes = reader.load_all_nodes()
-        assert nodes == []
+class TestStorageSelection:
+    """Tests the automatic detection and selection of storage backends."""
 
-    def test_load_linear_history(self, reader_setup):
-        """测试：标准的线性历史 A -> B -> C"""
-        reader, writer, git_db, repo = reader_setup
+    def test_defaults_to_git_object_storage_on_new_project(self, runner, git_workspace):
+        """
+        SCENARIO: A user starts a new project.
+        EXPECTATION: The system should use the new Git Object storage by default.
+        """
+        # Action: Run a plan in the new workspace
+        result = runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_A)
 
-        h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        assert result.exit_code == 0, result.stderr
 
-        (repo / "a").touch()
-        h1 = git_db.get_tree_hash()
-        writer.create_node("plan", h0, h1, "Plan A", start_time=1000)
-        time.sleep(0.01)
+        # Verification
+        assert (git_workspace / "a.txt").exists()
 
-        (repo / "b").touch()
-        h2 = git_db.get_tree_hash()
-        writer.create_node("plan", h1, h2, "Plan B", start_time=2000)
-        time.sleep(0.01)
+        # 1. New ref should exist
+        ref_hash = git_rev_parse("refs/quipu/history", git_workspace)
+        assert len(ref_hash) == 40, "A git ref for quipu history should have been created."
 
-        (repo / "c").touch()
-        h3 = git_db.get_tree_hash()
-        writer.create_node("capture", h2, h3, "Capture C", start_time=3000)
+        # 2. Old directory should NOT exist
+        legacy_history_dir = git_workspace / ".quipu" / "history"
+        assert not legacy_history_dir.exists(), "Legacy file system history should not be used."
 
-        nodes = reader.load_all_nodes()
+    def test_continues_using_git_object_storage(self, runner, git_workspace):
+        """
+        SCENARIO: A user runs quipu in a project already using the new format.
+        EXPECTATION: The system should continue using the Git Object storage.
+        """
+        # Setup: Run one command to establish the new format
+        runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_A)
+        hash_after_a = git_rev_parse("refs/quipu/history", git_workspace)
+        assert hash_after_a
 
-        assert len(nodes) == 3
+        # Action: Run a second command
+        result = runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_B)
 
-        roots = [n for n in nodes if n.input_tree == h0]
-        assert len(roots) == 1
-        node_a = roots[0]
-        # Lazy load verification
-        assert node_a.content == ""
-        assert reader.get_node_content(node_a).strip() == "Plan A"
-        assert node_a.timestamp.timestamp() == 1000.0
+        assert result.exit_code == 0, result.stderr
 
-        assert len(node_a.children) == 1
-        node_b = node_a.children[0]
-        assert reader.get_node_content(node_b).strip() == "Plan B"
-        assert node_b.input_tree == h1
-        assert node_b.parent == node_a
+        # Verification
+        # 1. The ref should be updated to a new commit
+        hash_after_b = git_rev_parse("refs/quipu/history", git_workspace)
+        assert hash_after_b != hash_after_a, "The history ref should point to a new commit."
 
-        assert len(node_b.children) == 1
-        node_c = node_b.children[0]
-        assert reader.get_node_content(node_c).strip() == "Capture C"
-        assert node_c.node_type == "capture"
+        # 2. The parent of the new commit should be the old one
+        parent_hash = git_rev_parse(f"{hash_after_b}^", git_workspace)
+        assert parent_hash == hash_after_a, "The new commit should be parented to the previous one."
 
-    def test_load_forked_history(self, reader_setup):
-        """测试：正确加载分叉的历史 A -> B and A -> C"""
-        reader, writer, git_db, repo = reader_setup
-
-        h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        (repo / "base").touch()
-        hash_a = git_db.get_tree_hash()
-        writer.create_node("plan", h0, hash_a, "Plan A", start_time=1000)
-        commit_a = git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
-        time.sleep(0.01)
-
-        (repo / "file_b").touch()
-        hash_b = git_db.get_tree_hash()
-        writer.create_node("plan", hash_a, hash_b, "Plan B", start_time=2000)
-        # Rename the ref to create a fork head
-        git_db._run(["update-ref", "refs/quipu/branch_b", "refs/quipu/history"])
-        time.sleep(0.01)
-
-        # Reset main ref back to commit_a to create another branch
-        git_db.update_ref("refs/quipu/history", commit_a)
-
-        (repo / "file_c").touch()
-        (repo / "file_b").unlink()
-        hash_c = git_db.get_tree_hash()
-        writer.create_node("plan", hash_a, hash_c, "Plan C", start_time=3000)
-
-        nodes = reader.load_all_nodes()
-
-        assert len(nodes) == 3
-
-        # Explicitly load content for mapping
-        nodes_by_content = {reader.get_node_content(n).strip(): n for n in nodes}
-
-        node_a = nodes_by_content["Plan A"]
-        node_b = nodes_by_content["Plan B"]
-        node_c = nodes_by_content["Plan C"]
-
-        assert node_a.parent is None
-        assert node_b.parent == node_a
-        assert node_c.parent == node_a
-
-        assert len(node_a.children) == 2
-        child_contents = sorted([child.content.strip() for child in node_a.children])
-        assert child_contents == ["Plan B", "Plan C"]
-
-    def test_corrupted_node_missing_metadata(self, reader_setup):
-        """测试：Commit 存在但缺少 metadata.json"""
-        reader, _, git_db, repo = reader_setup
-
-        content_hash = git_db.hash_object(b"content")
-        tree_hash = git_db.mktree(f"100444 blob {content_hash}\tcontent.md")
-        commit_msg = f"Bad Node\n\nX-Quipu-Output-Tree: {'a' * 40}"
-        commit_hash = git_db.commit_tree(tree_hash, None, commit_msg)
-        git_db.update_ref("refs/quipu/history", commit_hash)
-
-        nodes = reader.load_all_nodes()
-        assert len(nodes) == 0
-
-    def test_corrupted_node_missing_trailer(self, reader_setup):
-        """测试：Commit 存在但缺少 Output Tree Trailer"""
-        reader, _, git_db, repo = reader_setup
-
-        meta_hash = git_db.hash_object(json.dumps({"type": "plan"}).encode())
-        content_hash = git_db.hash_object(b"c")
-        tree_hash = git_db.mktree(f"100444 blob {meta_hash}\tmetadata.json\n100444 blob {content_hash}\tcontent.md")
-
-        commit_hash = git_db.commit_tree(tree_hash, None, "Just a summary")
-        git_db.update_ref("refs/quipu/history", commit_hash)
-
-        nodes = reader.load_all_nodes()
-        assert len(nodes) == 0
-
-    def test_parent_linking_with_gap(self, reader_setup):
-        """测试：如果父 Commit 是损坏的节点，子节点应断开链接并视为新的根"""
-        reader, writer, git_db, _ = reader_setup
-
-        h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        hash_a = "a" * 40
-        writer.create_node("plan", h0, hash_a, "A", start_time=1000)
-
-        commit_a = git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
-
-        empty_tree = git_db.mktree("")
-        commit_b_bad = git_db.commit_tree(empty_tree, [commit_a], "Bad B")
-        git_db.update_ref("refs/quipu/history", commit_b_bad)
-
-        hash_c = "c" * 40
-        writer.create_node("plan", "b_implied", hash_c, "C", start_time=3000)
-
-        nodes = reader.load_all_nodes()
-
-        assert len(nodes) == 2
-        # Explicitly load content
-        valid_nodes = {reader.get_node_content(n).strip(): n for n in nodes}
-        assert "A" in valid_nodes
-        assert "C" in valid_nodes
-
-        node_c = valid_nodes["C"]
-        assert node_c.parent is None
-        assert node_c.input_tree == h0
+        # 3. No legacy files should be created
+        assert not (git_workspace / ".quipu" / "history").exists()
 ~~~~~
 ~~~~~python
-class TestGitObjectHistoryReader:
-    def test_load_empty_history(self, reader_setup):
-        """测试：没有 Quipu 历史时的行为"""
-        reader, _, _, _ = reader_setup
-        nodes = reader.load_all_nodes()
-        assert nodes == []
+class TestStorageSelection:
+    """Tests the automatic detection and selection of storage backends."""
 
-    def test_load_linear_history(self, reader_setup):
-        """测试：标准的线性历史 A -> B -> C"""
-        reader, writer, git_db, repo = reader_setup
+    def test_defaults_to_git_object_storage_on_new_project(self, runner, git_workspace):
+        """
+        SCENARIO: A user starts a new project.
+        EXPECTATION: The system should use the new Git Object storage by default.
+        """
+        # Action: Run a plan in the new workspace
+        result = runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_A)
 
-        h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        assert result.exit_code == 0, result.stderr
 
-        (repo / "a").touch()
-        h1 = git_db.get_tree_hash()
-        node_a = writer.create_node("plan", h0, h1, "Plan A", start_time=1000)
-        time.sleep(0.01)
+        # Verification
+        assert (git_workspace / "a.txt").exists()
 
-        (repo / "b").touch()
-        h2 = git_db.get_tree_hash()
-        node_b = writer.create_node("plan", h1, h2, "Plan B", start_time=2000)
-        time.sleep(0.01)
+        # 1. A new head ref should exist in the correct namespace
+        get_heads_cmd = ["git", "for-each-ref", "--format=%(objectname)", "refs/quipu/local/heads/"]
+        heads = subprocess.check_output(get_heads_cmd, cwd=git_workspace, text=True).strip().splitlines()
+        assert len(heads) >= 1, "A git ref for quipu history should have been created."
 
-        (repo / "c").touch()
-        h3 = git_db.get_tree_hash()
-        writer.create_node("capture", h2, h3, "Capture C", start_time=3000)
+        # 2. Old directory should NOT exist
+        legacy_history_dir = git_workspace / ".quipu" / "history"
+        assert not legacy_history_dir.exists(), "Legacy file system history should not be used."
 
-        nodes = reader.load_all_nodes()
+    def test_continues_using_git_object_storage(self, runner, git_workspace):
+        """
+        SCENARIO: A user runs quipu in a project already using the new format.
+        EXPECTATION: The system should continue using the Git Object storage.
+        """
+        get_all_heads_cmd = ["git", "for-each-ref", "--format=%(objectname)", "refs/quipu/local/heads/"]
 
-        assert len(nodes) == 3
+        # Setup: Run one command to establish the new format
+        runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_A)
+        heads_after_a = set(subprocess.check_output(get_all_heads_cmd, cwd=git_workspace, text=True).strip().splitlines())
+        assert len(heads_after_a) == 1
+        commit_hash_a = heads_after_a.pop()
 
-        roots = [n for n in nodes if n.parent is None]
-        assert len(roots) == 1
-        found_node_a = roots[0]
-        assert found_node_a.commit_hash == node_a.commit_hash
+        # Action: Run a second command
+        result = runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_B)
+        assert result.exit_code == 0, result.stderr
 
-        # Lazy load verification
-        assert found_node_a.content == ""
-        assert reader.get_node_content(found_node_a).strip() == "Plan A"
-        assert found_node_a.timestamp.timestamp() == 1000.0
-
-        assert len(found_node_a.children) == 1
-        found_node_b = found_node_a.children[0]
-        assert found_node_b.commit_hash == node_b.commit_hash
-        assert reader.get_node_content(found_node_b).strip() == "Plan B"
-        assert found_node_b.input_tree == h1
-        assert found_node_b.parent == found_node_a
-
-        assert len(found_node_b.children) == 1
-        node_c = found_node_b.children[0]
-        assert reader.get_node_content(node_c).strip() == "Capture C"
-        assert node_c.node_type == "capture"
-
-    def test_load_forked_history(self, reader_setup):
-        """测试：正确加载分叉的历史 A -> B and A -> C"""
-        reader, writer, git_db, repo = reader_setup
-
-        h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        (repo / "base").touch()
-        hash_a = git_db.get_tree_hash()
-        node_a = writer.create_node("plan", h0, hash_a, "Plan A", start_time=1000)
-        time.sleep(0.01)
-
-        # Create branch B from A
-        (repo / "file_b").touch()
-        hash_b = git_db.get_tree_hash()
-        writer.create_node("plan", hash_a, hash_b, "Plan B", start_time=2000)
-        time.sleep(0.01)
-
-        # Create branch C from A
-        (repo / "file_c").touch()
-        (repo / "file_b").unlink()  # Modify workspace to create a different tree hash
-        hash_c = git_db.get_tree_hash()
-        writer.create_node("plan", hash_a, hash_c, "Plan C", start_time=3000)
-
-        nodes = reader.load_all_nodes()
-
-        assert len(nodes) == 3
-
-        # Explicitly load content for mapping
-        nodes_by_content = {reader.get_node_content(n).strip(): n for n in nodes}
-
-        found_node_a = nodes_by_content["Plan A"]
-        found_node_b = nodes_by_content["Plan B"]
-        found_node_c = nodes_by_content["Plan C"]
-
-        assert found_node_a.parent is None
-        assert found_node_b.parent == found_node_a
-        assert found_node_c.parent == found_node_a
-
-        assert len(found_node_a.children) == 2
-        child_contents = sorted([child.content.strip() for child in found_node_a.children])
-        assert child_contents == ["Plan B", "Plan C"]
-
-    def test_corrupted_node_missing_metadata(self, reader_setup):
-        """测试：Commit 存在但缺少 metadata.json"""
-        reader, _, git_db, repo = reader_setup
-
-        content_hash = git_db.hash_object(b"content")
-        tree_hash = git_db.mktree(f"100444 blob {content_hash}\tcontent.md")
-        commit_msg = f"Bad Node\n\nX-Quipu-Output-Tree: {'a' * 40}"
-        commit_hash = git_db.commit_tree(tree_hash, None, commit_msg)
-        # Manually create a head ref to make it discoverable
-        git_db.update_ref(f"refs/quipu/local/heads/{commit_hash}", commit_hash)
-
-        nodes = reader.load_all_nodes()
-        assert len(nodes) == 0
-
-    def test_corrupted_node_missing_trailer(self, reader_setup):
-        """测试：Commit 存在但缺少 Output Tree Trailer"""
-        reader, _, git_db, repo = reader_setup
-
-        meta_hash = git_db.hash_object(json.dumps({"type": "plan"}).encode())
-        content_hash = git_db.hash_object(b"c")
-        tree_hash = git_db.mktree(f"100444 blob {meta_hash}\tmetadata.json\n100444 blob {content_hash}\tcontent.md")
-
-        commit_hash = git_db.commit_tree(tree_hash, None, "Just a summary")
-        # Manually create a head ref to make it discoverable
-        git_db.update_ref(f"refs/quipu/local/heads/{commit_hash}", commit_hash)
-
-        nodes = reader.load_all_nodes()
-        assert len(nodes) == 0
-
-    def test_parent_linking_with_gap(self, reader_setup):
-        """测试：如果父 Commit 是损坏的节点，子节点应断开链接并视为新的根"""
-        reader, writer, git_db, _ = reader_setup
-
-        h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        # Verification
+        heads_after_b = set(subprocess.check_output(get_all_heads_cmd, cwd=git_workspace, text=True).strip().splitlines())
+        new_heads = heads_after_b - {commit_hash_a}
         
-        # 1. Create a valid node A
-        node_a = writer.create_node("plan", h0, "a" * 40, "A", start_time=1000)
+        # 1. A new head should be created
+        assert len(new_heads) == 1, "A new history head was not created after the second run"
+        commit_hash_b = new_heads.pop()
 
-        # 2. Manually create a corrupted commit B, parented to A
-        empty_tree = git_db.mktree("")
-        commit_b_bad = git_db.commit_tree(empty_tree, [node_a.commit_hash], "Bad B")
-        # Make the bad commit discoverable by creating a head for it
-        git_db.update_ref(f"refs/quipu/local/heads/{commit_b_bad}", commit_b_bad)
+        # 2. The parent of the new commit should be the old one
+        commit_data = subprocess.check_output(["git", "cat-file", "-p", commit_hash_b], cwd=git_workspace, text=True)
+        parent_line = [line for line in commit_data.splitlines() if line.startswith("parent ")]
+        assert len(parent_line) == 1, "New commit should have exactly one parent"
+        parent_hash = parent_line[0].split(" ")[1]
+        assert parent_hash == commit_hash_a, "The new commit should be parented to the previous one."
 
-        # 3. Create a valid node C, whose logical parent (by input_tree) is A,
-        # but whose topological parent in Git is the bad commit B.
-        # The writer will link C to A based on input_tree. The reader must correctly
-        # parse this graph despite the corrupted intermediary.
-        writer.create_node("plan", node_a.output_tree, "c" * 40, "C", start_time=3000)
-
-        nodes = reader.load_all_nodes()
-
-        # The reader should find 2 valid nodes (A and C) and skip the bad one (B).
-        assert len(nodes) == 2
-        valid_nodes = {reader.get_node_content(n).strip(): n for n in nodes}
-        assert "A" in valid_nodes
-        assert "C" in valid_nodes
-
-        found_node_a = valid_nodes["A"]
-        found_node_c = valid_nodes["C"]
-        
-        # C should be correctly parented to A, effectively ignoring the bad commit.
-        assert found_node_c.parent == found_node_a
-        assert found_node_a.children == [found_node_c]
+        # 3. No legacy files should be created
+        assert not (git_workspace / ".quipu" / "history").exists()
 ~~~~~
 
 ### 下一步建议
-请执行此计划。这个修复将使 `GitObjectHistoryReader` 的测试套件与新架构完全对齐。完成后，我们将处理最后一个依赖旧引用的文件 `tests/integration/test_storage_selection.py`，完成 **Task 2.4**。
+请执行此计划。这将完成我们修复计划的第二阶段。成功后，请重新运行完整的测试套件。我们预期所有与 `Hydrator` 接口和 Git 引用模型相关的错误都已解决。届时，我们将进入第三阶段，评估并修复剩余的连锁反应失败，主要是 `test_sync_workflow.py` 中的问题。
