@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] refactor(cli): 增强 `show` 命令以支持 JSON 输出和动态文件提取", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764321286.2082973, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(interfaces): 修复 `storage.py` 中缺失的 `Dict` 类型导入", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764321383.949729, "duration_ms": 0}}
