@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "我们将彻底重写 `Hydrator.sync` 的逻辑，使其在重建时能够正确地识别和处理**所有**需要补水的节点，而不仅仅是分支末端。", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764296324.4219348, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "feat: 创建外部迁移脚本以升级至 v1.1 架构", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764296978.9299507, "duration_ms": 0}}
