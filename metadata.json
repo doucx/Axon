@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(test): 修复测试用例对 `summary` 字段内容的假设过于严格", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764319737.4284563, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "错误分析", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764319834.023225, "duration_ms": 0}}

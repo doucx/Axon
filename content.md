@@ -1,121 +1,114 @@
-你分析得非常到位。测试失败暴露了一个关键问题：**测试用例对 `summary` 字段内容的假设过于严格。**
-
-## [WIP] fix(test): 修复测试用例对 `summary` 字段内容的假设过于严格
+好的，你已经发现了我们之前改动所带来的连锁反应。这些测试失败是**预料之中**的，并且是一个**积极的信号**，因为它证明了我们对输出流的重构是彻底且有效的。
 
 ### 错误分析
-测试失败的根本原因在于，`engine.capture_drift()` 在生成节点摘要 (`summary`) 时，不仅仅使用了我们传入的 `message` (`"Node 1"` 或 `"Bugfix B"`)，它还会**自动追加一些上下文信息**（例如操作类型和文件变更摘要，如 `Capture: A f1`），以形成一个更具信息量的完整摘要。
+所有这 5 个测试失败的根本原因完全相同：它们都编写于输出流重构之前，因此它们错误地假设**数据**和**元信息**都会被打印到同一个输出流 (`stderr` 或 `stdout`)。
 
-而我们的测试代码错误地假设了 `node.summary` 会与传入的 `message` **完全相等** (`==`)。当引擎的行为提供了更丰富的摘要时，这个严格的断言就失败了。
-
-这不是产品代码的 Bug，而是**测试代码的脆弱性 (brittleness)**。一个好的测试应该验证核心意图，而不是对实现的具体细节（如摘要的精确格式）进行过度拟合。
+当我们在 `log`、`find` 和 `--list-acts` 等命令中将数据输出重定向到 `stdout`，而将元信息（如 `"--- Quipu History Log ---"`）保留在 `stderr` 后，这些旧的断言就失效了。它们现在正在 `stderr` 中寻找本应存在于 `stdout` 的数据。
 
 ### 用户需求
-修正 `test_query_commands.py` 中的测试用例，使其断言更加健壮，能够适应 `summary` 字段中包含额外上下文信息的情况。
+更新所有受影响的测试用例 (`test_workspace_commands.py` 以及 `integration` 目录下的测试)，使其断言逻辑与当前 `stdout`/`stderr` 分离的实现保持一致。
 
 ### 评论
-这是一个典型的测试重构场景。通过将严格的相等性检查 (`==`) 放宽为包含性检查 (`in`)，我们使测试既能验证核心信息的正确性，又不会因为未来对摘要格式的微小改进（例如添加时间戳或作者信息）而轻易失败，从而提升了测试套件的长期可维护性。
+这是一次必要的“测试债务”清理。通过修复这些测试，我们确保了测试套件能够准确地反映和验证应用程序的当前行为，从而恢复其作为代码质量安全网的价值。
 
 ### 目标
-1.  修改 `test_log_json_output` 和 `test_find_json_output` 测试函数。
-2.  将其中对 `summary` 字段的断言从 `assert data[0]["summary"] == "..."` 修改为 `assert "..." in data[0]["summary"]`。
+1.  **对于 `test_workspace_commands.py`**: 修改 `test_save_with_changes`，使其在 `log_result.stdout` 中检查节点摘要。
+2.  **对于 `tests/integration/` 下的文件**: 修改所有失败的测试，将对数据内容的断言从检查 `stderr` 改为检查 `stdout`。
 
 ### 基本原理
-我们将采用更灵活的断言策略。我们真正关心的是用户提供的消息是否被成功记录在了摘要中，而不是摘要是否“只有”这个消息。因此，使用 Python 的 `in` 操作符来检查子字符串是否存在，是验证此核心需求的正确且健壮的方法。
-
-### 标签
-#intent/fix #flow/ready #priority/high #comp/tests #scope/dx #ai/instruct #task/domain/cli #task/object/json-output #task/action/implementation #task/state/continue
+我们将对所有失败的测试应用相同的修复模式：
+-   断言**元信息/标题**（如 `"--- Quipu History Log ---"`）存在于 `result.stderr` 中。
+-   断言**核心数据**（如 `"My Snapshot"`, `"write_file"`）存在于 `result.stdout` 中。
 
 ---
 
+由于我当前的上下文中没有 `tests/integration/` 目录下的文件内容，我将首先修复我能够访问的 `tests/cli/test_workspace_commands.py` 文件。然后，我将等待你提供其他文件以便完成修复。
+
 ### Script
 
-#### Acts 1: 修正 `test_query_commands.py` 中的断言逻辑
+#### Acts 1: 修正 `test_workspace_commands.py`
 
-我们将使用 `write_file` 来更新整个测试文件，以确保其内容完全正确。
+我们将更新 `test_save_with_changes`，使其正确地从 `stdout` 中验证 `log` 命令的输出。
 
 ~~~~~act
 write_file
-tests/cli/test_query_commands.py
+tests/cli/test_workspace_commands.py
 ~~~~~
 ~~~~~python
-import json
 from quipu.cli.main import app
 
 
-def test_log_empty(runner, quipu_workspace):
+def test_save_clean_workspace(runner, quipu_workspace):
+    work_dir, _, engine = quipu_workspace
+    
+    # 创建一个初始状态
+    (work_dir / "file.txt").write_text("v1")
+    engine.capture_drift(engine.git_db.get_tree_hash(), message="Initial")
+    
+    # 无变更时执行 save
+    result = runner.invoke(app, ["save", "-w", str(work_dir)])
+    assert result.exit_code == 0
+    assert "无需创建快照" in result.stderr
+
+
+def test_save_with_changes(runner, quipu_workspace):
     work_dir, _, _ = quipu_workspace
-    result = runner.invoke(app, ["log", "-w", str(work_dir)])
-    assert result.exit_code == 0
-    assert "历史记录为空" in result.stderr
+
+    # 制造变更
+    (work_dir / "file.txt").write_text("v2")
+
+    result = runner.invoke(app, ["save", "My Snapshot", "-w", str(work_dir)])
+    assert result.exit_code == 0, f"Save command failed with stderr: {result.stderr}"
+    assert "快照已保存" in result.stderr
+    assert "(My Snapshot)" in result.stderr
+
+    # 验证历史记录已增加，通过 log 命令
+    log_result = runner.invoke(app, ["log", "-w", str(work_dir)])
+    assert log_result.exit_code == 0
+    # 验证元信息在 stderr
+    assert "--- Quipu History Log ---" in log_result.stderr
+    # 验证数据在 stdout
+    assert "My Snapshot" in log_result.stdout
 
 
-def test_log_output(runner, quipu_workspace):
+def test_discard_changes(runner, quipu_workspace):
     work_dir, _, engine = quipu_workspace
-    (work_dir / "f1").touch()
-    engine.capture_drift(engine.git_db.get_tree_hash(), message="Node 1")
-    (work_dir / "f2").touch()
-    engine.capture_drift(engine.git_db.get_tree_hash(), message="Node 2")
-    result = runner.invoke(app, ["log", "-w", str(work_dir)])
+    
+    # 初始状态 v1
+    (work_dir / "file.txt").write_text("v1")
+    initial_node = engine.capture_drift(engine.git_db.get_tree_hash())
+    
+    # 制造脏状态 v2
+    (work_dir / "file.txt").write_text("v2")
+    
+    # 执行 discard (带 force)
+    result = runner.invoke(app, ["discard", "-f", "-w", str(work_dir)])
     assert result.exit_code == 0
-    assert "--- Quipu History Log ---" in result.stderr
-    assert "Node 1" in result.stdout
-    assert "Node 2" in result.stdout
-    assert "Node 1" not in result.stderr
+    assert "已成功恢复" in result.stderr
+    
+    # 验证文件回滚
+    assert (work_dir / "file.txt").read_text() == "v1"
 
 
-def test_find_command(runner, quipu_workspace):
+def test_discard_interactive_abort(runner, quipu_workspace):
     work_dir, _, engine = quipu_workspace
-    (work_dir / "f1").touch()
-    hash_v1 = engine.git_db.get_tree_hash()
-    engine.capture_drift(hash_v1, message="Fix bug")
-    (work_dir / "f2").touch()
-    hash_v2 = engine.git_db.get_tree_hash()
-    engine.create_plan_node(input_tree=hash_v1, output_tree=hash_v2, plan_content="content", summary_override="Implement feature")
-    result = runner.invoke(app, ["find", "-s", "Fix", "-w", str(work_dir)])
-    assert "--- 查找结果 ---" in result.stderr
-    assert "Fix bug" in result.stdout
-    assert "Implement feature" not in result.stdout
-    assert "Fix bug" not in result.stderr
-
-
-def test_log_json_output(runner, quipu_workspace):
-    work_dir, _, engine = quipu_workspace
-    (work_dir / "f1").touch()
-    engine.capture_drift(engine.git_db.get_tree_hash(), message="Node 1")
-    result = runner.invoke(app, ["log", "--json", "-w", str(work_dir)])
-    assert result.exit_code == 0
-    assert result.stderr.strip() == ""
-    data = json.loads(result.stdout)
-    assert isinstance(data, list)
-    assert len(data) == 1
-    assert "Node 1" in data[0]["summary"]  # Use 'in' for robust check
-    assert "output_tree" in data[0]
-    assert "short_hash" in data[0]
-    assert "parent" not in data[0]  # Check for excluded field
-
-
-def test_find_json_output(runner, quipu_workspace):
-    work_dir, _, engine = quipu_workspace
-    (work_dir / "f1").touch()
-    engine.capture_drift(engine.git_db.get_tree_hash(), message="Feature A")
-    (work_dir / "f2").touch()
-    engine.capture_drift(engine.git_db.get_tree_hash(), message="Bugfix B")
-    result = runner.invoke(app, ["find", "--summary", "Bugfix", "--json", "-w", str(work_dir)])
-    assert result.exit_code == 0
-    assert result.stderr.strip() == ""
-    data = json.loads(result.stdout)
-    assert isinstance(data, list)
-    assert len(data) == 1
-    assert "Bugfix B" in data[0]["summary"]  # Use 'in' for robust check
-
-
-def test_log_json_empty(runner, quipu_workspace):
-    work_dir, _, _ = quipu_workspace
-    result = runner.invoke(app, ["log", "--json", "-w", str(work_dir)])
-    assert result.exit_code == 0
-    assert result.stderr.strip() == ""
-    assert result.stdout.strip() == "[]"
+    
+    (work_dir / "file.txt").write_text("v1")
+    engine.capture_drift(engine.git_db.get_tree_hash())
+    (work_dir / "file.txt").write_text("v2")
+    
+    # 模拟输入 'n'
+    result = runner.invoke(app, ["discard", "-w", str(work_dir)], input="n")
+    assert result.exit_code == 1
+    assert "操作已取消" in result.stderr
+    assert (work_dir / "file.txt").read_text() == "v2"
 ~~~~~
 
 ### 下一步建议
-我们已经修复了测试用例。现在，请重新运行测试以确认所有问题都已解决。如果测试通过，我将为你生成最终的 `[COMMIT]` 计划，将这个功能及其健壮的测试一同提交。
+`tests/cli/test_workspace_commands.py` 文件现已修复。
+
+请提供以下集成测试文件的内容，以便我应用相同的修复逻辑：
+-   `tests/integration/test_cli_workflow.py`
+-   `tests/integration/test_storage_selection.py`
+
+收到文件后，我将立即生成修复它们的计划。
