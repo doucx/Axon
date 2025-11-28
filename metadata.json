@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "fix: 修复迁移后因数据库 Schema 未更新导致的 UI 崩溃", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764294742.2817988, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "fix: 修复 Hydrator 中因乱序插入导致的边关系建立失败问题", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764295682.7524073, "duration_ms": 0}}
