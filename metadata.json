@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix: 修正 TUI CSS 中的无效 `display` 属性值", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764325177.699386, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] refactor: 统一 TUI 内容更新逻辑，消除内容闪烁和双重渲染", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764325365.031831, "duration_ms": 0}}
