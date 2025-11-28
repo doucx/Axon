@@ -255,8 +255,8 @@ def sync(
     remote = remote_option or config.get("sync.remote_name", "origin")
 
     # --- 1.3: 首次使用的“引导 (Onboarding)”逻辑 ---
-    user_id = config.get("sync.user_id")
-    if not user_id:
+    final_user_id = config.get("sync.user_id")
+    if not final_user_id:
         typer.secho("🤝 首次使用 sync 功能，正在自动配置用户身份...", fg=typer.colors.BLUE, err=True)
         try:
             result = subprocess.run(
@@ -266,10 +266,10 @@ def sync(
             if not email:
                 raise ValueError("Git user.email is empty.")
 
-            user_id = get_user_id_from_email(email)
-            config.set("sync.user_id", user_id)
+            final_user_id = get_user_id_from_email(email)
+            config.set("sync.user_id", final_user_id)
             config.save()
-            typer.secho(f"✅ 已根据你的 Git 邮箱 '{email}' 生成并保存用户 ID: {user_id}", fg=typer.colors.GREEN, err=True)
+            typer.secho(f"✅ 已根据你的 Git 邮箱 '{email}' 生成并保存用户 ID: {final_user_id}", fg=typer.colors.GREEN, err=True)
 
         except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
             typer.secho("❌ 错误：无法获取你的 Git 用户邮箱。", fg=typer.colors.RED, err=True)
@@ -282,15 +282,18 @@ def sync(
 
         # --- Push Flow ---
         typer.secho(f"⬆️  正在向 '{remote}' 推送你的本地历史...", fg=typer.colors.BLUE, err=True)
-        git_db.push_quipu_refs(remote, user_id)
+        git_db.push_quipu_refs(remote, final_user_id)
 
         # --- Fetch Flow ---
         subscriptions = config.get("sync.subscriptions", [])
-        target_ids_to_fetch = set([user_id] + subscriptions)
-        typer.secho(f"⬇️  正在从 '{remote}' 拉取 {len(target_ids_to_fetch)} 个用户的历史...", fg=typer.colors.BLUE, err=True)
-
-        for target_id in sorted(list(target_ids_to_fetch)):
-            git_db.fetch_quipu_refs(remote, target_id)
+        # 确保始终拉取自己的历史，以支持跨设备同步
+        target_ids_to_fetch = set(subscriptions)
+        target_ids_to_fetch.add(final_user_id)
+        
+        if target_ids_to_fetch:
+            typer.secho(f"⬇️  正在从 '{remote}' 拉取 {len(target_ids_to_fetch)} 个用户的历史...", fg=typer.colors.BLUE, err=True)
+            for target_id in sorted(list(target_ids_to_fetch)):
+                git_db.fetch_quipu_refs(remote, target_id)
 
         typer.secho("\n✅ Quipu 引用同步完成。", fg=typer.colors.GREEN, err=True)
         typer.secho(

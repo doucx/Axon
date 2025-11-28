@@ -29,34 +29,32 @@ def test_branching_creation(branching_env):
     Reader 应能读取到所有节点。
     """
     repo, git_db, writer, reader = branching_env
+    ref_prefix = "refs/quipu/local/heads"
 
     # 1. Base Node A
     (repo / "f.txt").write_text("v1")
     hash_a = git_db.get_tree_hash()
     writer.create_node("plan", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", hash_a, "Node A")
+    heads_after_a = git_db.get_all_ref_heads(ref_prefix)
+    assert len(heads_after_a) == 1
 
     # 2. Node B (Child of A)
     (repo / "f.txt").write_text("v2")
     hash_b = git_db.get_tree_hash()
     writer.create_node("plan", hash_a, hash_b, "Node B")
-
-    # Verify linear state
-    heads = git_db.get_all_ref_heads("refs/quipu/heads")
-    assert len(heads) == 1  # Only B should be head
+    heads_after_b = git_db.get_all_ref_heads(ref_prefix)
+    assert len(heads_after_b) == 2, "创建子节点后，父节点的 head 不应被删除"
 
     # 3. Branching: Create C from A (Simulate Checkout A then Save C)
-    # Physical checkout isn't strictly needed for writer test, just correct input hash
     (repo / "f.txt").write_text("v3")
     hash_c = git_db.get_tree_hash()
-
-    # The writer should detect A is the parent based on input_tree=hash_a
     writer.create_node("plan", hash_a, hash_c, "Node C")
 
     # 4. Verify Branching State
-    heads = git_db.get_all_ref_heads("refs/quipu/heads")
-    assert len(heads) == 2  # B and C should be heads
+    heads_after_c = git_db.get_all_ref_heads(ref_prefix)
+    assert len(heads_after_c) == 3, "创建分支节点后，所有节点都应是独立的 head"
 
-    # 5. Verify Reader sees all
+    # 5. Verify Reader sees all and relationships are correct
     nodes = reader.load_all_nodes()
     assert len(nodes) == 3
 
@@ -65,6 +63,6 @@ def test_branching_creation(branching_env):
     node_b = node_map["Node B"]
     node_c = node_map["Node C"]
 
-    assert node_b.parent == node_a
-    assert node_c.parent == node_a
+    assert node_b.parent.output_tree == node_a.output_tree
+    assert node_c.parent.output_tree == node_a.output_tree
     assert len(node_a.children) == 2

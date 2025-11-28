@@ -49,20 +49,15 @@ def test_capture_drift_git_object(engine_setup):
     """
     engine, repo_path = engine_setup
 
+    # 1. Create initial state and corresponding node
     (repo_path / "main.py").write_text("version = 1", "utf-8")
     initial_hash = engine.git_db.get_tree_hash()
+    initial_node = engine.writer.create_node(
+        "plan", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", initial_hash, "Initial content"
+    )
+    engine.align()  # Load the new node into the engine's graph
 
-    # Manually create an initial commit to act as parent
-    initial_commit = engine.git_db.commit_tree(initial_hash, parent_hashes=None, message="Initial")
-    engine.git_db.update_ref("refs/quipu/history", initial_commit)
-
-    # Create the first node using the writer to simulate a full flow
-    engine.writer.create_node("plan", "_" * 40, initial_hash, "Initial content")
-    initial_commit = engine.git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
-
-    # Re-align to load the node we just created
-    engine.align()
-
+    # 2. Modify workspace to create a dirty state
     (repo_path / "main.py").write_text("version = 2", "utf-8")
     dirty_hash = engine.git_db.get_tree_hash()
     assert initial_hash != dirty_hash
@@ -77,17 +72,18 @@ def test_capture_drift_git_object(engine_setup):
     assert capture_node.node_type == "capture"
     assert capture_node.input_tree == initial_hash
 
-    # Key Assertion: Verify the Git ref was updated by the writer
-    latest_ref_commit = (
-        subprocess.check_output(["git", "rev-parse", "refs/quipu/history"], cwd=repo_path).decode().strip()
-    )
-    assert latest_ref_commit != initial_commit, "Git 引用必须更新到新的锚点"
+    # Key Assertion: Verify that two distinct head refs now exist
+    heads_cmd = ["git", "for-each-ref", "--format=%(objectname)", "refs/quipu/local/heads/"]
+    all_heads = set(subprocess.check_output(heads_cmd, cwd=repo_path, text=True).strip().splitlines())
+    assert len(all_heads) == 2, "应该存在两个独立的 head 引用"
+    assert initial_node.commit_hash in all_heads
+    assert capture_node.commit_hash in all_heads
 
     # Verify the new commit has the correct parent
-    parent_of_latest = (
-        subprocess.check_output(["git", "rev-parse", f"{latest_ref_commit}^"], cwd=repo_path).decode().strip()
+    parent_of_capture = (
+        subprocess.check_output(["git", "rev-parse", f"{capture_node.commit_hash}^"], cwd=repo_path).decode().strip()
     )
-    assert parent_of_latest == initial_commit
+    assert parent_of_capture == initial_node.commit_hash
 
 
 class TestEngineFindNodes:

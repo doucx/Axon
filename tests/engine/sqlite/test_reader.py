@@ -51,7 +51,7 @@ class TestSQLiteHistoryReader:
         node_b_git = git_writer.create_node("plan", hash_a, hash_b, "Content B")
 
         # 2. 补水到数据库
-        hydrator.sync()
+        hydrator.sync("test-user")
 
         # 3. 使用 SQLite Reader 读取
         nodes = reader.load_all_nodes()
@@ -81,7 +81,7 @@ class TestSQLiteHistoryReader:
         commit_hash_c = node_c_git.commit_hash
 
         # 2. 补水 (这将创建一个 plan_md_cache 为 NULL 的记录)
-        hydrator.sync()
+        hydrator.sync("test-user")
 
         # 3. 验证初始状态：缓存为 NULL
         conn = db_manager._get_conn()
@@ -143,7 +143,7 @@ def populated_db(tmp_path_factory):
         parent_hash = output_hash
 
     # First, hydrate the nodes table from git objects
-    hydrator.sync()
+    hydrator.sync("test-user")
 
     # Now, with nodes in the DB, we can add private data referencing them
     db_manager.execute_write(

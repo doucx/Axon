@@ -78,11 +78,13 @@ class TestGitObjectHistoryWriterIntegration:
         )
 
         # 3. 验证 Git 状态
-        # 3.1 检查引用是否更新
-        commit_hash = subprocess.check_output(
-            ["git", "rev-parse", "refs/quipu/history"], cwd=repo_path, text=True
-        ).strip()
+        commit_hash = node.commit_hash
         assert len(commit_hash) == 40
+
+        # 3.1 检查引用是否更新为新的 head 格式
+        ref_path = repo_path / ".git" / "refs" / "quipu" / "local" / "heads" / commit_hash
+        assert ref_path.is_file(), "A new head ref file was not created."
+        assert ref_path.read_text().strip() == commit_hash, "The head ref does not point to the correct commit."
 
         # 3.2 检查 Commit 内容
         commit_data = subprocess.check_output(["git", "cat-file", "-p", commit_hash], cwd=repo_path, text=True)

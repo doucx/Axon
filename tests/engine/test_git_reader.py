@@ -40,12 +40,12 @@ class TestGitObjectHistoryReader:
 
         (repo / "a").touch()
         h1 = git_db.get_tree_hash()
-        writer.create_node("plan", h0, h1, "Plan A", start_time=1000)
+        node_a = writer.create_node("plan", h0, h1, "Plan A", start_time=1000)
         time.sleep(0.01)
 
         (repo / "b").touch()
         h2 = git_db.get_tree_hash()
-        writer.create_node("plan", h1, h2, "Plan B", start_time=2000)
+        node_b = writer.create_node("plan", h1, h2, "Plan B", start_time=2000)
         time.sleep(0.01)
 
         (repo / "c").touch()
@@ -56,22 +56,25 @@ class TestGitObjectHistoryReader:
 
         assert len(nodes) == 3
 
-        roots = [n for n in nodes if n.input_tree == h0]
+        roots = [n for n in nodes if n.parent is None]
         assert len(roots) == 1
-        node_a = roots[0]
+        found_node_a = roots[0]
+        assert found_node_a.commit_hash == node_a.commit_hash
+
         # Lazy load verification
-        assert node_a.content == ""
-        assert reader.get_node_content(node_a).strip() == "Plan A"
-        assert node_a.timestamp.timestamp() == 1000.0
+        assert found_node_a.content == ""
+        assert reader.get_node_content(found_node_a).strip() == "Plan A"
+        assert found_node_a.timestamp.timestamp() == 1000.0
 
-        assert len(node_a.children) == 1
-        node_b = node_a.children[0]
-        assert reader.get_node_content(node_b).strip() == "Plan B"
-        assert node_b.input_tree == h1
-        assert node_b.parent == node_a
+        assert len(found_node_a.children) == 1
+        found_node_b = found_node_a.children[0]
+        assert found_node_b.commit_hash == node_b.commit_hash
+        assert reader.get_node_content(found_node_b).strip() == "Plan B"
+        assert found_node_b.input_tree == h1
+        assert found_node_b.parent == found_node_a
 
-        assert len(node_b.children) == 1
-        node_c = node_b.children[0]
+        assert len(found_node_b.children) == 1
+        node_c = found_node_b.children[0]
         assert reader.get_node_content(node_c).strip() == "Capture C"
         assert node_c.node_type == "capture"
 
@@ -82,22 +85,18 @@ class TestGitObjectHistoryReader:
         h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
         (repo / "base").touch()
         hash_a = git_db.get_tree_hash()
-        writer.create_node("plan", h0, hash_a, "Plan A", start_time=1000)
-        commit_a = git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
+        node_a = writer.create_node("plan", h0, hash_a, "Plan A", start_time=1000)
         time.sleep(0.01)
 
+        # Create branch B from A
         (repo / "file_b").touch()
         hash_b = git_db.get_tree_hash()
         writer.create_node("plan", hash_a, hash_b, "Plan B", start_time=2000)
-        # Rename the ref to create a fork head
-        git_db._run(["update-ref", "refs/quipu/branch_b", "refs/quipu/history"])
         time.sleep(0.01)
 
-        # Reset main ref back to commit_a to create another branch
-        git_db.update_ref("refs/quipu/history", commit_a)
-
+        # Create branch C from A
         (repo / "file_c").touch()
-        (repo / "file_b").unlink()
+        (repo / "file_b").unlink()  # Modify workspace to create a different tree hash
         hash_c = git_db.get_tree_hash()
         writer.create_node("plan", hash_a, hash_c, "Plan C", start_time=3000)
 
@@ -108,16 +107,16 @@ class TestGitObjectHistoryReader:
         # Explicitly load content for mapping
         nodes_by_content = {reader.get_node_content(n).strip(): n for n in nodes}
 
-        node_a = nodes_by_content["Plan A"]
-        node_b = nodes_by_content["Plan B"]
-        node_c = nodes_by_content["Plan C"]
+        found_node_a = nodes_by_content["Plan A"]
+        found_node_b = nodes_by_content["Plan B"]
+        found_node_c = nodes_by_content["Plan C"]
 
-        assert node_a.parent is None
-        assert node_b.parent == node_a
-        assert node_c.parent == node_a
+        assert found_node_a.parent is None
+        assert found_node_b.parent == found_node_a
+        assert found_node_c.parent == found_node_a
 
-        assert len(node_a.children) == 2
-        child_contents = sorted([child.content.strip() for child in node_a.children])
+        assert len(found_node_a.children) == 2
+        child_contents = sorted([child.content.strip() for child in found_node_a.children])
         assert child_contents == ["Plan B", "Plan C"]
 
     def test_corrupted_node_missing_metadata(self, reader_setup):
@@ -128,7 +127,8 @@ class TestGitObjectHistoryReader:
         tree_hash = git_db.mktree(f"100444 blob {content_hash}\tcontent.md")
         commit_msg = f"Bad Node\n\nX-Quipu-Output-Tree: {'a' * 40}"
         commit_hash = git_db.commit_tree(tree_hash, None, commit_msg)
-        git_db.update_ref("refs/quipu/history", commit_hash)
+        # Manually create a head ref to make it discoverable
+        git_db.update_ref(f"refs/quipu/local/heads/{commit_hash}", commit_hash)
 
         nodes = reader.load_all_nodes()
         assert len(nodes) == 0
@@ -142,7 +142,8 @@ class TestGitObjectHistoryReader:
         tree_hash = git_db.mktree(f"100444 blob {meta_hash}\tmetadata.json\n100444 blob {content_hash}\tcontent.md")
 
         commit_hash = git_db.commit_tree(tree_hash, None, "Just a summary")
-        git_db.update_ref("refs/quipu/history", commit_hash)
+        # Manually create a head ref to make it discoverable
+        git_db.update_ref(f"refs/quipu/local/heads/{commit_hash}", commit_hash)
 
         nodes = reader.load_all_nodes()
         assert len(nodes) == 0
@@ -152,26 +153,33 @@ class TestGitObjectHistoryReader:
         reader, writer, git_db, _ = reader_setup
 
         h0 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        hash_a = "a" * 40
-        writer.create_node("plan", h0, hash_a, "A", start_time=1000)
+        
+        # 1. Create a valid node A
+        node_a = writer.create_node("plan", h0, "a" * 40, "A", start_time=1000)
 
-        commit_a = git_db._run(["rev-parse", "refs/quipu/history"]).stdout.strip()
-
+        # 2. Manually create a corrupted commit B, parented to A
         empty_tree = git_db.mktree("")
-        commit_b_bad = git_db.commit_tree(empty_tree, [commit_a], "Bad B")
-        git_db.update_ref("refs/quipu/history", commit_b_bad)
+        commit_b_bad = git_db.commit_tree(empty_tree, [node_a.commit_hash], "Bad B")
+        # Make the bad commit discoverable by creating a head for it
+        git_db.update_ref(f"refs/quipu/local/heads/{commit_b_bad}", commit_b_bad)
 
-        hash_c = "c" * 40
-        writer.create_node("plan", "b_implied", hash_c, "C", start_time=3000)
+        # 3. Create a valid node C, whose logical parent (by input_tree) is A,
+        # but whose topological parent in Git is the bad commit B.
+        # The writer will link C to A based on input_tree. The reader must correctly
+        # parse this graph despite the corrupted intermediary.
+        writer.create_node("plan", node_a.output_tree, "c" * 40, "C", start_time=3000)
 
         nodes = reader.load_all_nodes()
 
+        # The reader should find 2 valid nodes (A and C) and skip the bad one (B).
         assert len(nodes) == 2
-        # Explicitly load content
         valid_nodes = {reader.get_node_content(n).strip(): n for n in nodes}
         assert "A" in valid_nodes
         assert "C" in valid_nodes
 
-        node_c = valid_nodes["C"]
-        assert node_c.parent is None
-        assert node_c.input_tree == h0
+        found_node_a = valid_nodes["A"]
+        found_node_c = valid_nodes["C"]
+        
+        # C should be correctly parented to A, effectively ignoring the bad commit.
+        assert found_node_c.parent == found_node_a
+        assert found_node_a.children == [found_node_c]

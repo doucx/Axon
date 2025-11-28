@@ -47,7 +47,7 @@ class TestHydration:
         assert len(db_manager.get_all_node_hashes()) == 0
 
         # 3. 执行补水
-        hydrator.sync()
+        hydrator.sync("test-user")
 
         # 4. 验证
         db_hashes = db_manager.get_all_node_hashes()
@@ -71,7 +71,7 @@ class TestHydration:
         (repo / "a.txt").touch()
         hash_a = git_db.get_tree_hash()
         writer.create_node("plan", "genesis", hash_a, "Node A")
-        hydrator.sync()
+        hydrator.sync("test-user")
         assert len(db_manager.get_all_node_hashes()) == 1
 
         # 2. 创建节点 B
@@ -80,7 +80,7 @@ class TestHydration:
         writer.create_node("plan", hash_a, hash_b, "Node B")
 
         # 3. 再次补水
-        hydrator.sync()
+        hydrator.sync("test-user")
 
         # 4. 验证，总数应为 2
         assert len(db_manager.get_all_node_hashes()) == 2
@@ -98,7 +98,7 @@ class TestHydration:
         writer.create_node("plan", "genesis", hash_a, "Node A")
 
         # 运行两次
-        hydrator.sync()
-        hydrator.sync()
+        hydrator.sync("test-user")
+        hydrator.sync("test-user")
 
         assert len(db_manager.get_all_node_hashes()) == 1

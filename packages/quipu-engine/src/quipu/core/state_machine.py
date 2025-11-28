@@ -193,11 +193,29 @@ class Engine:
             try:
                 config = ConfigManager(self.root_dir)
                 user_id = config.get("sync.user_id")
+
                 if not user_id:
-                    # 在 align 阶段，我们假设 user_id 应该已经存在。
-                    # 如果不存在（例如，用户从未运行过 sync），补水器将无法正确识别本地节点所有者。
-                    # 这是一个合理的回退，因为在 sync 之前，所有节点都应该是本地的。
-                    logger.debug("补水时未找到 user_id，本地所有权可能无法确定。")
+                    # 关键修复: 在测试环境或未配置 sync 的情况下，尝试从 git config 动态生成 user_id
+                    try:
+                        import subprocess
+                        from quipu.common.identity import get_user_id_from_email
+
+                        result = subprocess.run(
+                            ["git", "config", "user.email"],
+                            cwd=self.root_dir,
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        )
+                        email = result.stdout.strip()
+                        if email:
+                            user_id = get_user_id_from_email(email)
+                            logger.debug(f"补水时从 Git config 动态获取 user_id: {user_id}")
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        pass  # 忽略错误，继续使用回退逻辑
+
+                if not user_id:
+                    logger.debug("补水时未找到 user_id，将使用默认回退值 'unknown-local-user'。")
                     user_id = "unknown-local-user"
 
                 hydrator = Hydrator(self.git_db, self.db_manager)

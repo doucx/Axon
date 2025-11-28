@@ -48,26 +48,30 @@ class TestSQLiteWriterIntegration:
         """
         验证 `quipu run` 在 SQLite 模式下是否能正确地双写到 Git 和 DB，并建立父子关系。
         """
+        # Command to get all local head commit hashes
+        get_all_heads_cmd = ["git", "for-each-ref", "--format=%(objectname)", "refs/quipu/local/heads/"]
+
         # --- Action 1: Create first node ---
         result_a = run_quipu(PLAN_A, work_dir=sqlite_workspace, yolo=True)
         assert result_a.success, f"run_quipu failed on Plan A: {result_a.message}"
 
-        # Get its commit hash using the stable ref
-        commit_hash_a = subprocess.check_output(
-            ["git", "rev-parse", "refs/quipu/history"], cwd=sqlite_workspace, text=True
-        ).strip()
-        assert len(commit_hash_a) == 40
+        # Get the state after the first run
+        heads_after_a = set(subprocess.check_output(get_all_heads_cmd, cwd=sqlite_workspace, text=True).strip().splitlines())
+        assert len(heads_after_a) == 1
+        commit_hash_a = heads_after_a.pop()
 
         # --- Action 2: Create second node, which should be a child of the first ---
         result_b = run_quipu(PLAN_B, work_dir=sqlite_workspace, yolo=True)
         assert result_b.success, f"run_quipu failed on Plan B: {result_b.message}"
 
-        # Get the new commit hash from the updated ref
-        commit_hash_b = subprocess.check_output(
-            ["git", "rev-parse", "refs/quipu/history"], cwd=sqlite_workspace, text=True
-        ).strip()
-        assert len(commit_hash_b) == 40
-        assert commit_hash_a != commit_hash_b, "History ref was not updated after second run"
+        # Get the state after the second run and find the new commit
+        heads_before_b = {commit_hash_a} # The set of heads before this action
+        heads_after_b = set(subprocess.check_output(get_all_heads_cmd, cwd=sqlite_workspace, text=True).strip().splitlines())
+        
+        new_heads = heads_after_b - heads_before_b
+        assert len(new_heads) == 1, "Expected exactly one new head to be created"
+        commit_hash_b = new_heads.pop()
+        assert commit_hash_a != commit_hash_b
 
         # --- Verification ---
         db_path = sqlite_workspace / ".quipu" / "history.sqlite"

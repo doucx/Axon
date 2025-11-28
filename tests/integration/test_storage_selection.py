@@ -66,9 +66,10 @@ class TestStorageSelection:
         # Verification
         assert (git_workspace / "a.txt").exists()
 
-        # 1. New ref should exist
-        ref_hash = git_rev_parse("refs/quipu/history", git_workspace)
-        assert len(ref_hash) == 40, "A git ref for quipu history should have been created."
+        # 1. A new head ref should exist in the correct namespace
+        get_heads_cmd = ["git", "for-each-ref", "--format=%(objectname)", "refs/quipu/local/heads/"]
+        heads = subprocess.check_output(get_heads_cmd, cwd=git_workspace, text=True).strip().splitlines()
+        assert len(heads) >= 1, "A git ref for quipu history should have been created."
 
         # 2. Old directory should NOT exist
         legacy_history_dir = git_workspace / ".quipu" / "history"
@@ -79,24 +80,32 @@ class TestStorageSelection:
         SCENARIO: A user runs quipu in a project already using the new format.
         EXPECTATION: The system should continue using the Git Object storage.
         """
+        get_all_heads_cmd = ["git", "for-each-ref", "--format=%(objectname)", "refs/quipu/local/heads/"]
+
         # Setup: Run one command to establish the new format
         runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_A)
-        hash_after_a = git_rev_parse("refs/quipu/history", git_workspace)
-        assert hash_after_a
+        heads_after_a = set(subprocess.check_output(get_all_heads_cmd, cwd=git_workspace, text=True).strip().splitlines())
+        assert len(heads_after_a) == 1
+        commit_hash_a = heads_after_a.pop()
 
         # Action: Run a second command
         result = runner.invoke(app, ["run", "-y", "-w", str(git_workspace)], input=PLAN_B)
-
         assert result.exit_code == 0, result.stderr
 
         # Verification
-        # 1. The ref should be updated to a new commit
-        hash_after_b = git_rev_parse("refs/quipu/history", git_workspace)
-        assert hash_after_b != hash_after_a, "The history ref should point to a new commit."
+        heads_after_b = set(subprocess.check_output(get_all_heads_cmd, cwd=git_workspace, text=True).strip().splitlines())
+        new_heads = heads_after_b - {commit_hash_a}
+        
+        # 1. A new head should be created
+        assert len(new_heads) == 1, "A new history head was not created after the second run"
+        commit_hash_b = new_heads.pop()
 
         # 2. The parent of the new commit should be the old one
-        parent_hash = git_rev_parse(f"{hash_after_b}^", git_workspace)
-        assert parent_hash == hash_after_a, "The new commit should be parented to the previous one."
+        commit_data = subprocess.check_output(["git", "cat-file", "-p", commit_hash_b], cwd=git_workspace, text=True)
+        parent_line = [line for line in commit_data.splitlines() if line.startswith("parent ")]
+        assert len(parent_line) == 1, "New commit should have exactly one parent"
+        parent_hash = parent_line[0].split(" ")[1]
+        assert parent_hash == commit_hash_a, "The new commit should be parented to the previous one."
 
         # 3. No legacy files should be created
         assert not (git_workspace / ".quipu" / "history").exists()
