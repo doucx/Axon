@@ -1,52 +1,129 @@
-好的，这是一个关于如何将旧版本 Quipu 数据迁移到新版本 v1.1 架构的完整分析和执行计划。
+好的，我分析了你提供的 `migrate-data` 命令输出和 `ui` 命令的 Traceback。这是一个非常典型的数据库迁移问题。
 
-此计划将遵循你项目中的 [结构化计划模板](02_PROMPTS/04_Quipu结构化计划模板.md) 格式。
+这是一个修复计划，旨在解决迁移后 UI 崩溃的问题。
 
----
+## fix: 修复迁移后因数据库 Schema 未更新导致的 UI 崩溃
 
-我将为你生成一个完整的迁移方案。核心任务是将旧的、单用户模式的 Git 引用 (`refs/quipu/heads/*`) 迁移到新的、支持多用户的本地命名空间 (`refs/quipu/local/heads/*`)，并确保 SQLite 缓存能正确识别和补水这些数据。
-
-## feat: 为 v1.1 架构创建数据迁移工具
+### 错误分析
+1.  **根本原因**: `IndexError: No item with that key` 发生在 `SQLiteHistoryReader` 尝试访问 `row["owner_id"]` 时。这明确指出，尽管代码期望 `nodes` 表中存在 `owner_id` 列，但执行 `SELECT * FROM nodes` 查询返回的结果集中并**不包含**该列。
+2.  **迁移脚本的缺陷**:
+    *   **Schema 未升级**: 我之前设计的 `MigrationManager` 和 `DatabaseManager.init_schema` 存在一个疏忽。`init_schema` 使用 `CREATE TABLE IF NOT EXISTS`，这意味着如果 `nodes` 表已经存在（在旧版本中创建的），它**不会**向其中添加新的 `owner_id` 列。
+    *   **补水逻辑失效**: `migrate-data` 命令的日志显示 `发现 0 个需要补水的节点`。这是因为 `Hydrator` 的 `sync` 方法是**增量设计**的，它通过比较 Git 中的 Commit 哈希和数据库中的 Commit 哈希来查找**数据库中不存在**的新节点。在迁移场景下，所有节点的 `commit_hash` 已经存在于数据库中，因此 `Hydrator` 认为无事可做，跳过了所有节点的更新。
 
 ### 用户需求
-用户需要一个可靠的、一次性的工具，将现有的、基于旧版（v1.0）引用规范的 Quipu 历史数据，无损地迁移到 v1.1 规范。迁移过程应当是自动化的，并能正确处理用户身份 (`owner_id`) 的分配。
+-   `quipu migrate-data` 命令必须能够处理旧数据库的 Schema，并为其添加 `owner_id` 列。
+-   迁移命令必须能为数据库中所有现存的、属于本地用户的节点**回填 (backfill)** 正确的 `owner_id`。
+-   迁移完成后，`quipu ui` 命令必须能正常启动并显示历史记录。
 
 ### 评论
-这是一个关键的赋能型任务，确保了项目的向后兼容性和用户数据的平滑过渡。由于变更直接触及底层的 Git 引用，因此操作必须是原子的、幂等的，并有充分的安全检查。
+这是一个关键的修复，它使迁移功能变得完整和健壮。通过增强 `DatabaseManager` 的 Schema 管理能力和 `MigrationManager` 的数据回填能力，我们可以确保平滑、无损的用户体验。
 
 ### 目标
-1.  创建一个新的 CLI 命令 `quipu migrate-data`，专门用于执行一次性迁移。
-2.  该命令能自动检测旧版（v1.0）的引用格式。
-3.  将所有旧的 `refs/quipu/heads/{hash}` 引用，移动到新的 `refs/quipu/local/heads/{hash}` 路径下。
-4.  在迁移后，触发 SQLite 的数据补水 (`Hydrator`)，以确保 `nodes` 表中的新 `owner_id` 字段被正确填充。
-5.  在执行破坏性操作（删除旧引用）前，必须有明确的用户确认环节。
+1.  **增强 `DatabaseManager`**: 使 `init_schema` 方法能够检测并自动为旧的 `nodes` 表添加 `owner_id` 列。
+2.  **增强 `MigrationManager`**: 增加一个专门的数据回填步骤，在移动 Git 引用后，为数据库中所有现有行更新 `owner_id`。
+3.  **调整 `migrate-data` 命令**: 确保它能正确地将 `DatabaseManager` 实例传递给 `MigrationManager` 以执行数据库操作。
 
 ### 基本原理
-迁移的核心在于移动 Git 的指针（引用），而非修改 Git 的数据对象（commits, trees, blobs）。此过程分为三步：
-1.  **识别 (Identify)**: 扫描 `.git/refs/quipu/heads/` 目录，找到所有代表旧版历史分支末端的 commit 哈希。
-2.  **重定位 (Relocate)**: 为每一个找到的 commit 哈希，在新的 `refs/quipu/local/heads/` 目录下创建一个同名的新引用，然后安全地删除旧引用。
-3.  **补水 (Hydrate)**: 在引用重定位后，原有的 SQLite 缓存可能已过时或不包含 `owner_id`。通过运行 `Hydrator`，可以强制它重新扫描所有 `refs/quipu/` 下的引用（包括新路径），并根据引用路径（本地分支归属于当前用户）来增量更新数据库，填入正确的 `owner_id`。
+-   **Schema 迁移**: 使用 `PRAGMA table_info(nodes);` SQL 命令来检查表结构。如果 `owner_id` 列不存在，则执行 `ALTER TABLE nodes ADD COLUMN owner_id TEXT;`。这将使数据库 Schema 升级变得幂等和安全。
+-   **数据回填**: 在 `MigrationManager` 中，直接执行 `UPDATE nodes SET owner_id = ? WHERE owner_id IS NULL`。这个 SQL 语句会高效地为所有 `owner_id` 为空的行填充当前的本地用户 ID。
 
 ### 标签
-#intent/build #flow/ready #priority/critical 
-#comp/cli #comp/engine #concept/history #scope/core 
-#ai/brainstorm
-#task/domain/storage #task/object/data-migration #task/action/build
-#task/state/begin
+#intent/fix #flow/ready #priority/critical 
+#comp/cli #comp/engine #scope/core 
+#ai/instruct
+#task/domain/storage #task/object/data-migration #task/action/bug-fix
+#task/state/continue
 
 ---
 
 ### Script
 
-我们将创建一个新的 `migration.py` 模块来封装迁移逻辑，并在 `main.py` 中添加对应的命令入口。
+#### Acts 1: 升级 `DatabaseManager` 以支持 Schema 自动迁移
 
-#### Acts 1: 在 `quipu-cli` 中创建迁移逻辑模块
-
-首先，我们需要一个专门处理迁移过程的文件。
+我们将使 `init_schema` 能够处理已存在的旧表。
 
 ~~~~~act
-write_file
+patch_file
+packages/quipu-engine/src/quipu/core/sqlite_db.py
+~~~~~
+~~~~~python
+        conn = self._get_conn()
+        try:
+            with conn:
+                # nodes 表
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS nodes (
+                        commit_hash TEXT(40) PRIMARY KEY,
+                        owner_id TEXT,
+                        output_tree TEXT(40) NOT NULL,
+                        node_type TEXT NOT NULL,
+                        timestamp REAL NOT NULL,
+                        summary TEXT NOT NULL,
+                        generator_id TEXT,
+                        meta_json TEXT NOT NULL,
+                        plan_md_cache TEXT
+                    );
+                    """
+                )
+                # 索引
+                conn.execute("CREATE INDEX IF NOT EXISTS IDX_nodes_timestamp ON nodes(timestamp);")
+                conn.execute("CREATE INDEX IF NOT EXISTS IDX_nodes_output_tree ON nodes(output_tree);")
+
+                # edges 表
+                conn.execute(
+~~~~~
+~~~~~python
+        conn = self._get_conn()
+        try:
+            with conn:
+                # nodes 表 (v1.1 schema)
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS nodes (
+                        commit_hash TEXT(40) PRIMARY KEY,
+                        owner_id TEXT,
+                        output_tree TEXT(40) NOT NULL,
+                        node_type TEXT NOT NULL,
+                        timestamp REAL NOT NULL,
+                        summary TEXT NOT NULL,
+                        generator_id TEXT,
+                        meta_json TEXT NOT NULL,
+                        plan_md_cache TEXT
+                    );
+                    """
+                )
+                
+                # --- Schema Migration Logic ---
+                # 检查并添加 owner_id 列（用于从 v1.0 升级）
+                cursor = conn.execute("PRAGMA table_info(nodes);")
+                columns = [row[1] for row in cursor.fetchall()]
+                if 'owner_id' not in columns:
+                    logger.info("🔧 检测到旧版数据库 Schema，正在升级 'nodes' 表...")
+                    conn.execute("ALTER TABLE nodes ADD COLUMN owner_id TEXT;")
+                    logger.info("✅ 'nodes' 表已成功添加 'owner_id' 列。")
+
+                # 索引
+                conn.execute("CREATE INDEX IF NOT EXISTS IDX_nodes_timestamp ON nodes(timestamp);")
+                conn.execute("CREATE INDEX IF NOT EXISTS IDX_nodes_output_tree ON nodes(output_tree);")
+
+                # edges 表
+                conn.execute(
+~~~~~
+
+#### Acts 2: 增强 `MigrationManager` 以执行数据回填
+
+现在，我们修改迁移逻辑，用数据回填替换无效的补水调用。
+
+~~~~~act
+patch_file
 packages/quipu-cli/src/quipu/cli/migration.py
+~~~~~
+~~~~~python
+from quipu.core.git_db import GitDB
+from quipu.core.hydrator import Hydrator
+from quipu.core.config import ConfigManager
+from quipu.common.identity import get_user_id_from_email
 ~~~~~
 ~~~~~python
 import logging
@@ -57,10 +134,14 @@ from quipu.core.git_db import GitDB
 from quipu.core.hydrator import Hydrator
 from quipu.core.config import ConfigManager
 from quipu.common.identity import get_user_id_from_email
+from quipu.core.sqlite_db import DatabaseManager
+~~~~~
 
-logger = logging.getLogger(__name__)
-
-
+~~~~~act
+patch_file
+packages/quipu-cli/src/quipu/cli/migration.py
+~~~~~
+~~~~~python
 class MigrationManager:
     """负责将旧版 Quipu 数据迁移到 v1.1 架构。"""
 
@@ -74,29 +155,29 @@ class MigrationManager:
         self.root_dir = git_db.root
 
     def _find_legacy_heads(self) -> List[str]:
-        """查找所有旧格式的 head commit 哈希。"""
-        ref_tuples = self.git_db.get_all_ref_heads(self.LEGACY_REFS_PREFIX)
-        return [commit_hash for commit_hash, ref_name in ref_tuples]
+~~~~~
+~~~~~python
+class MigrationManager:
+    """负责将旧版 Quipu 数据迁移到 v1.1 架构。"""
 
-    def _get_local_user_id(self) -> str:
-        """获取或生成本地用户的 ID，用于补水。"""
-        user_id = self.config_manager.get("sync.user_id")
-        if user_id:
-            return user_id
+    LEGACY_REFS_PREFIX = "refs/quipu/heads/"
+    NEW_REFS_PREFIX = "refs/quipu/local/heads/"
 
-        try:
-            result = subprocess.run(
-                ["git", "config", "user.email"],
-                cwd=self.root_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            email = result.stdout.strip()
-            if email:
-                return get_user_id_from_email(email)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logger.warning("无法从 git config 获取 user.email，将使用默认值。")
+    def __init__(self, git_db: GitDB, config_manager: ConfigManager, db_manager: DatabaseManager, hydrator: Hydrator):
+        self.git_db = git_db
+        self.config_manager = config_manager
+        self.db_manager = db_manager
+        self.hydrator = hydrator
+        self.root_dir = git_db.root
+
+    def _find_legacy_heads(self) -> List[str]:
+~~~~~
+
+~~~~~act
+patch_file
+packages/quipu-cli/src/quipu/cli/migration.py
+~~~~~
+~~~~~python
         
         return "unknown-local-user"
 
@@ -129,73 +210,64 @@ class MigrationManager:
         
         logger.info("🎉 迁移完成！")
         return True
+~~~~~
+~~~~~python
+        
+        return "unknown-local-user"
 
+    def _backfill_owner_ids(self, user_id: str):
+        """为数据库中现有的、没有 owner_id 的节点回填所有者信息。"""
+        logger.info(f"✍️  正在为本地节点回填所有者 ID: {user_id} ...")
+        try:
+            conn = self.db_manager._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE nodes SET owner_id = ? WHERE owner_id IS NULL", (user_id,))
+            conn.commit()
+            logger.info(f"✅ {cursor.rowcount} 个节点的 'owner_id' 已更新。")
+        except Exception as e:
+            logger.error(f"❌ 数据回填失败: {e}", exc_info=True)
+            raise
+
+    def run(self) -> bool:
+        """执行完整的迁移流程。"""
+        legacy_heads = self._find_legacy_heads()
+        if not legacy_heads:
+            logger.info("✅ 未找到旧版（v1.0）数据引用，无需迁移。")
+            return True
+
+        logger.info(f"🔍 发现 {len(legacy_heads)} 个旧版历史分支，准备迁移...")
+
+        # 步骤 1: 移动 Git 引用
+        for commit_hash in legacy_heads:
+            old_ref = f"{self.LEGACY_REFS_PREFIX}{commit_hash}"
+            new_ref = f"{self.NEW_REFS_PREFIX}{commit_hash}"
+            
+            logger.debug(f"  - 正在移动: {old_ref} -> {new_ref}")
+            self.git_db.update_ref(new_ref, commit_hash)
+            self.git_db.delete_ref(old_ref)
+        logger.info("✅ Git 引用已成功迁移到 v1.1 格式。")
+
+        # 步骤 2: 为现有数据库条目回填 owner_id
+        user_id = self._get_local_user_id()
+        self._backfill_owner_ids(user_id)
+
+        # 步骤 3: （可选但安全）运行常规补水，以防万一有不一致的情况
+        logger.info("💧 正在执行增量同步以确保数据一致性...")
+        self.hydrator.sync(local_user_id=user_id)
+        
+        logger.info("🎉 迁移完成！")
+        return True
 ~~~~~
 
-#### Acts 2: 在 `main.py` 中添加 `migrate-data` 命令
+#### Acts 3: 更新 `migrate-data` 命令以注入 `DatabaseManager`
 
-现在，我们将这个迁移逻辑暴露为一个用户可以执行的 CLI 命令。
+最后，我们需要确保 `MigrationManager` 能获得它所需的 `DatabaseManager` 实例。
 
 ~~~~~act
 patch_file
 packages/quipu-cli/src/quipu/cli/main.py
 ~~~~~
 ~~~~~python
-from .utils import find_git_repository_root
-from .view_model import GraphViewModel
-from quipu.core.plugin_loader import load_plugins
-from quipu.core.executor import Executor
-~~~~~
-~~~~~python
-from .utils import find_git_repository_root
-from .view_model import GraphViewModel
-from quipu.core.plugin_loader import load_plugins
-from quipu.core.executor import Executor
-from .migration import MigrationManager
-from quipu.core.hydrator import Hydrator
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/main.py
-~~~~~
-~~~~~python
-@cache_app.command("rebuild")
-def cache_rebuild(
-    ctx: typer.Context,
-~~~~~
-~~~~~python
-@app.command("migrate-data")
-def migrate_data(
-    ctx: typer.Context,
-    work_dir: Annotated[
-        Path,
-        typer.Option(
-            "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
-        ),
-    ] = DEFAULT_WORK_DIR,
-    force: Annotated[bool, typer.Option("--force", "-f", help="强制执行，跳过确认提示。")] = False,
-):
-    """
-    将旧版（v1.0）的 Quipu 数据迁移到新的 v1.1 格式。
-    这是一个一次性操作。
-    """
-    setup_logging()
-    project_root = find_git_repository_root(work_dir) or work_dir
-    
-    if not force:
-        prompt = (
-            "🚨 即将开始数据迁移。此操作将重命名内部 Git 引用以兼容新版本。\n"
-            "   该过程通常是安全的，但建议在执行前备份您的 .git 目录。\n"
-            "   是否继续？"
-        )
-        if not _prompt_for_confirmation(prompt, default=False):
-            typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
-            raise typer.Abort()
-
-    engine = None
-    try:
-        # 我们需要一个 engine 实例来获取其内部组件
         engine = create_engine(project_root, lazy=True)
         config = ConfigManager(project_root)
         hydrator = Hydrator(engine.git_db, engine.db_manager)
@@ -204,43 +276,26 @@ def migrate_data(
         success = manager.run()
         
         if success:
-            typer.secho("✅ 数据迁移成功完成。", fg=typer.colors.GREEN, err=True)
-        else:
-            typer.secho("❌ 数据迁移过程中发生错误。", fg=typer.colors.RED, err=True)
+~~~~~
+~~~~~python
+        engine = create_engine(project_root, lazy=True)
+        config = ConfigManager(project_root)
+        # 确保 db_manager 存在
+        if not engine.db_manager:
+            typer.secho("❌ 错误: 数据库管理器未能初始化。请检查配置。", fg=typer.colors.RED, err=True)
             ctx.exit(1)
             
-    except Exception as e:
-        typer.secho(f"❌ 迁移失败，发生意外错误: {e}", fg=typer.colors.RED, err=True)
-        logger.error("Migration failed", exc_info=True)
-        ctx.exit(1)
-    finally:
-        if engine:
-            engine.close()
-
-
-@cache_app.command("rebuild")
-def cache_rebuild(
-    ctx: typer.Context,
+        hydrator = Hydrator(engine.git_db, engine.db_manager)
+        
+        manager = MigrationManager(engine.git_db, config, engine.db_manager, hydrator)
+        success = manager.run()
+        
+        if success:
 ~~~~~
 
-#### Acts 3: 验证 `Hydrator` 对新本地路径的支持
-
-检查 `hydrator.py` 中的 `_get_owner_from_ref` 函数是否能正确处理 `refs/quipu/local/heads/` 路径。
-
-根据你提供的 `packages/quipu-engine/src/quipu/core/hydrator.py` 文件内容：
-```python
-    def _get_owner_from_ref(self, ref_name: str, local_user_id: str) -> Optional[str]:
-        """从 Git ref 路径中解析 owner_id。"""
-        # ... (remote match)
-
-        # 匹配 local heads
-        if ref_name.startswith("refs/quipu/local/heads/"):
-            return local_user_id
-
-        return None
-```
-该函数已经能够正确处理新的本地引用路径。因此，我们无需修改 `quipu-engine`，迁移脚本可以直接复用现有的补水逻辑。这是一个好消息，它简化了迁移过程。
-
 ### 下一步建议
-1.  **编写集成测试**: 为 `MigrationManager` 编写一个集成测试，模拟一个包含旧版引用的 Git 仓库，运行迁移，并断言新引用已创建、旧引用已删除、SQLite 数据库中的节点具有正确的 `owner_id`。
-2.  **更新文档**: 在用户文档中增加一个“版本升级”章节，说明何时以及如何运行 `quipu migrate-data` 命令。
+1.  **清除旧状态**: 删除你本地的 `history.sqlite` 文件，然后再次运行 `qd migrate-data` 命令。
+2.  **验证**:
+    *   检查 `migrate-data` 的输出，确认 `节点 'owner_id' 已更新` 的日志是否显示了正确的更新数量。
+    *   再次运行 `qd ui`，它现在应该可以正常启动了。
+    *   在 UI 中，检查节点信息是否包含了 `(unknown-local-user)` 或你的用户 ID。
