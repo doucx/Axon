@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] feat: 实现 `quipu show` 命令以查看节点元数据", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764320912.9439802, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] refactor(cli): 增强 `show` 命令以支持 JSON 输出和动态文件提取", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764321286.2082973, "duration_ms": 0}}
