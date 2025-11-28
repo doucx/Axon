@@ -129,24 +129,21 @@ class TestGitObjectWorkflow:
         # 3. Use `log` to check history
         res_log = runner.invoke(app, ["log", "-w", str(git_workspace)])
         assert res_log.exit_code == 0
-        assert "add b.txt" in res_log.stderr  # Summary of the save message
-        assert "Write: a.txt" in res_log.stderr  # Summary of the plan (Updated format)
+        assert "--- Quipu History Log ---" in res_log.stderr
+        assert "add b.txt" in res_log.stdout  # Check data in stdout
+        assert "Write: a.txt" in res_log.stdout  # Check data in stdout
 
         # 4. Use `find` and `checkout` to go back to state A
-        # --- REFACTOR START ---
-        # Use the robust find_nodes API via CLI to get the target hash
         res_find = runner.invoke(app, ["find", "--summary", "Write: a.txt", "-w", str(git_workspace)])
         assert res_find.exit_code == 0
+        assert "--- 查找结果 ---" in res_find.stderr
 
         # Parse the output to get the full hash
-        found_line = res_find.stderr.strip().splitlines()[-1]  # Get the last line of output
+        found_line = res_find.stdout.strip().splitlines()[-1]  # Get data from stdout
         parts = found_line.split()
-        # Format: YYYY-MM-DD HH:MM:SS [TYPE] HASH - Summary
-        # Index:    0          1         2     3
         output_tree_a = parts[3]
 
         assert len(output_tree_a) == 40
-        # --- REFACTOR END ---
 
         res_checkout = runner.invoke(app, ["checkout", output_tree_a[:8], "-f", "-w", str(git_workspace)])
         assert res_checkout.exit_code == 0, res_checkout.stderr
@@ -169,16 +166,18 @@ class TestFindCliCommand:
     def test_find_cli_by_type(self, runner, populated_workspace):
         result = runner.invoke(app, ["find", "--type", "plan", "-w", str(populated_workspace)])
         assert result.exit_code == 0
-        assert "[PLAN]" in result.stderr
-        assert "[CAPTURE]" not in result.stderr
-        assert "Write: a.txt" in result.stderr
+        assert "--- 查找结果 ---" in result.stderr
+        assert "[PLAN]" in result.stdout
+        assert "[CAPTURE]" not in result.stdout
+        assert "Write: a.txt" in result.stdout
 
     def test_find_cli_by_summary(self, runner, populated_workspace):
         result = runner.invoke(app, ["find", "-s", "snapshot", "-w", str(populated_workspace)])
         assert result.exit_code == 0
-        assert "[CAPTURE]" in result.stderr
-        assert "Snapshot 1" in result.stderr
-        assert "[PLAN]" not in result.stderr
+        assert "--- 查找结果 ---" in result.stderr
+        assert "[CAPTURE]" in result.stdout
+        assert "Snapshot 1" in result.stdout
+        assert "[PLAN]" not in result.stdout
 
     def test_find_cli_no_results(self, runner, populated_workspace):
         result = runner.invoke(app, ["find", "-s", "non-existent", "-w", str(populated_workspace)])

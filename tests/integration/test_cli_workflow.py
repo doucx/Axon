@@ -159,7 +159,8 @@ class TestCLIWrapper:
         # --list-acts 是 'run' 命令的一个选项
         result = runner.invoke(app, ["run", "--list-acts"])
         assert result.exit_code == 0
-        assert "write_file" in result.stderr
+        assert "可用的 Quipu 指令列表" in result.stderr
+        assert "write_file" in result.stdout
 
     def test_cli_run_file_not_found(self):
         """测试 `run` 命令在文件不存在时的行为"""

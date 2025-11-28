@@ -28,7 +28,10 @@ def test_save_with_changes(runner, quipu_workspace):
     # 验证历史记录已增加，通过 log 命令
     log_result = runner.invoke(app, ["log", "-w", str(work_dir)])
     assert log_result.exit_code == 0
-    assert "My Snapshot" in log_result.stderr
+    # 验证元信息在 stderr
+    assert "--- Quipu History Log ---" in log_result.stderr
+    # 验证数据在 stdout
+    assert "My Snapshot" in log_result.stdout
 
 
 def test_discard_changes(runner, quipu_workspace):
