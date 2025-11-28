@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(cli): 移除 show --extract 命令对 JSON 输出的行号", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764323257.1113725, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(cli): 禁用 rich console 的自动换行以防止输出截断", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764323393.5034025, "duration_ms": 0}}
