@@ -319,12 +319,21 @@ class GitDB:
 
         return results
 
-    def get_all_ref_heads(self, prefix: str) -> List[str]:
-        """查找指定前缀下的所有 ref heads 并返回其 commit 哈希。"""
-        res = self._run(["for-each-ref", f"--format=%(objectname)", prefix], check=False)
+    def get_all_ref_heads(self, prefix: str) -> List[Tuple[str, str]]:
+        """
+        查找指定前缀下的所有 ref heads。
+        返回 (commit_hash, ref_name) 元组列表。
+        """
+        res = self._run(["for-each-ref", f"--format=%(objectname) %(refname)", prefix], check=False)
         if res.returncode != 0 or not res.stdout.strip():
             return []
-        return res.stdout.strip().splitlines()
+        
+        results = []
+        for line in res.stdout.strip().splitlines():
+            parts = line.split(" ", 1)
+            if len(parts) == 2:
+                results.append((parts[0], parts[1]))
+        return results
 
     def has_quipu_ref(self) -> bool:
         """检查是否存在任何 'refs/quipu/' 引用，用于判断存储格式。"""
@@ -372,3 +381,21 @@ class GitDB:
                     }
                 )
         return parsed_logs
+
+    def push_quipu_refs(self, remote: str, user_id: str):
+        """
+        将本地 Quipu heads 推送到远程用户专属的命名空间。
+        遵循 QDPS v1.1 规范。
+        """
+        refspec = f"refs/quipu/local/heads/*:refs/quipu/users/{user_id}/heads/*"
+        logger.info(f"🚀 Pushing Quipu history to {remote} for user {user_id}...")
+        self._run(["push", remote, "--prune", refspec])
+
+    def fetch_quipu_refs(self, remote: str, user_id: str):
+        """
+        从远程用户专属命名空间拉取 Quipu heads 到本地镜像。
+        遵循 QDPS v1.1 规范。
+        """
+        refspec = f"refs/quipu/users/{user_id}/heads/*:refs/quipu/remotes/{remote}/{user_id}/heads/*"
+        logger.info(f"🔍 Fetching Quipu history from {remote} for user {user_id}...")
+        self._run(["fetch", remote, "--prune", refspec])

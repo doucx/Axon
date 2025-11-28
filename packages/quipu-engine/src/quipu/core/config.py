@@ -13,6 +13,8 @@ DEFAULTS = {
     "sync": {
         "remote_name": "origin",
         "persistent_ignores": [".idea", ".vscode", ".envs", "__pycache__", "node_modules", "o.md"],
+        "user_id": None,
+        "subscriptions": [],
     },
     "list_files": {"ignore_patterns": [".git", "__pycache__", ".idea", ".vscode", "node_modules", ".quipu"]},
 }
@@ -78,3 +80,26 @@ class ConfigManager:
             else:
                 return None
         return current
+
+    def set(self, key: str, value: Any):
+        """
+        设置一个配置值，支持点状符号进行嵌套访问。
+        如果中间路径的字典不存在，会自动创建。
+        """
+        keys = key.split(".")
+        d = self.user_config
+        for k in keys[:-1]:
+            d = d.setdefault(k, {})
+        d[keys[-1]] = value
+        logger.debug(f"配置已更新: {key} = {value}")
+
+    def save(self):
+        """将当前的 user_config 写回到 .quipu/config.yml 文件。"""
+        try:
+            self.config_path.parent.mkdir(exist_ok=True)
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                yaml.dump(self.user_config, f, default_flow_style=False, allow_unicode=True)
+            logger.info(f"✅ 配置文件已保存至: {self.config_path}")
+        except Exception as e:
+            logger.error(f"❌ 保存配置文件失败: {e}")
+            raise

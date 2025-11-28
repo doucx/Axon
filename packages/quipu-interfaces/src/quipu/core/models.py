@@ -32,6 +32,9 @@ class QuipuNode:
     # 从元数据或内容生成的单行摘要
     summary: str = ""
 
+    # 所有者 ID，从 Git Ref 或数据库中填充
+    owner_id: Optional[str] = None
+
     # --- 图遍历字段 (由加载器填充) ---
     parent: Optional[QuipuNode] = None
     children: List[QuipuNode] = dataclasses.field(default_factory=list)

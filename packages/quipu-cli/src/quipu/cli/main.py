@@ -20,6 +20,7 @@ from quipu.core.git_db import GitDB
 import inspect
 import subprocess
 from quipu.core.config import ConfigManager
+from quipu.common.identity import get_user_id_from_email
 
 
 # 注意：不要在模块级别直接调用 setup_logging()，
@@ -240,7 +241,7 @@ def sync(
             "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
         ),
     ] = DEFAULT_WORK_DIR,
-    remote: Annotated[Optional[str], typer.Option("--remote", "-r", help="Git 远程仓库的名称 (覆盖配置文件)。")] = None,
+    remote_option: Annotated[Optional[str], typer.Option("--remote", "-r", help="Git 远程仓库的名称 (覆盖配置文件)。")] = None,
 ):
     """
     与远程仓库同步 Quipu 历史图谱。
@@ -250,39 +251,58 @@ def sync(
     sync_dir = find_git_repository_root(work_dir) or work_dir
     config = ConfigManager(sync_dir)
 
-    if remote is None:
-        remote = config.get("sync.remote_name", "origin")
-    refspec = "refs/quipu/history:refs/quipu/history"
+    # 修复：实现远程名称的正确解析逻辑
+    remote = remote_option or config.get("sync.remote_name", "origin")
 
-    def run_git_command(args: list[str]):
+    # --- 1.3: 首次使用的“引导 (Onboarding)”逻辑 ---
+    user_id = config.get("sync.user_id")
+    if not user_id:
+        typer.secho("🤝 首次使用 sync 功能，正在自动配置用户身份...", fg=typer.colors.BLUE, err=True)
         try:
-            result = subprocess.run(["git"] + args, cwd=sync_dir, capture_output=True, text=True, check=True)
-            if result.stdout:
-                typer.echo(result.stdout, err=True)
-            if result.stderr:
-                typer.echo(result.stderr, err=True)
-        except subprocess.CalledProcessError as e:
-            typer.secho(f"❌ Git 命令执行失败: git {' '.join(args)}", fg=typer.colors.RED, err=True)
-            typer.secho(e.stderr, fg=typer.colors.YELLOW, err=True)
-            ctx.exit(1)
-        except FileNotFoundError:
-            typer.secho("❌ 错误: 未找到 'git' 命令。", fg=typer.colors.RED, err=True)
+            result = subprocess.run(
+                ["git", "config", "user.email"], cwd=sync_dir, capture_output=True, text=True, check=True
+            )
+            email = result.stdout.strip()
+            if not email:
+                raise ValueError("Git user.email is empty.")
+
+            user_id = get_user_id_from_email(email)
+            config.set("sync.user_id", user_id)
+            config.save()
+            typer.secho(f"✅ 已根据你的 Git 邮箱 '{email}' 生成并保存用户 ID: {user_id}", fg=typer.colors.GREEN, err=True)
+
+        except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+            typer.secho("❌ 错误：无法获取你的 Git 用户邮箱。", fg=typer.colors.RED, err=True)
+            typer.secho("💡 请先运行以下命令进行设置:", fg=typer.colors.YELLOW, err=True)
+            typer.echo("  git config --global user.email \"you@example.com\"")
             ctx.exit(1)
 
-    typer.secho(f"⬇️  正在从 '{remote}' 拉取 Quipu 历史...", fg=typer.colors.BLUE, err=True)
-    run_git_command(["fetch", remote, refspec])
-    typer.secho(f"⬆️  正在向 '{remote}' 推送 Quipu 历史...", fg=typer.colors.BLUE, err=True)
-    run_git_command(["push", remote, refspec])
-    typer.secho("\n✅ Quipu 历史同步完成。", fg=typer.colors.GREEN, err=True)
+    try:
+        git_db = GitDB(sync_dir)
 
-    config_get_res = subprocess.run(
-        ["git", "config", "--get", f"remote.{remote}.fetch"], cwd=sync_dir, capture_output=True, text=True
-    )
-    if refspec not in config_get_res.stdout:
+        # --- Push Flow ---
+        typer.secho(f"⬆️  正在向 '{remote}' 推送你的本地历史...", fg=typer.colors.BLUE, err=True)
+        git_db.push_quipu_refs(remote, user_id)
+
+        # --- Fetch Flow ---
+        subscriptions = config.get("sync.subscriptions", [])
+        target_ids_to_fetch = set([user_id] + subscriptions)
+        typer.secho(f"⬇️  正在从 '{remote}' 拉取 {len(target_ids_to_fetch)} 个用户的历史...", fg=typer.colors.BLUE, err=True)
+
+        for target_id in sorted(list(target_ids_to_fetch)):
+            git_db.fetch_quipu_refs(remote, target_id)
+
+        typer.secho("\n✅ Quipu 引用同步完成。", fg=typer.colors.GREEN, err=True)
         typer.secho(
-            "\n💡 提示: 为了让 `git pull` 自动同步 Quipu 历史，请执行以下命令:", fg=typer.colors.YELLOW, err=True
+            "\n💡 提示: 运行 `quipu cache sync` 来更新本地数据库和 UI 视图。",
+            fg=typer.colors.YELLOW,
+            err=True,
         )
-        typer.echo(f'  git config --add remote.{remote}.fetch "{refspec}"')
+
+    except RuntimeError as e:
+        # Catch errors from GitDB._run
+        typer.secho(f"\n❌ 同步操作失败: {e}", fg=typer.colors.RED, err=True)
+        ctx.exit(1)
 
 
 @app.command()

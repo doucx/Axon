@@ -173,7 +173,13 @@ class QuipuUiApp(App[Optional[UiResult]]):
             graph_chars = self._get_graph_chars(tracks, node, base_color, dim_tag, end_dim_tag)
             ts_str = f"{dim_tag}{node.timestamp.strftime('%Y-%m-%d %H:%M')}{end_dim_tag}"
             summary = self._get_node_summary(node)
-            info_text = f"[{base_color}][{node.node_type.upper()}] {node.short_hash}[/{base_color}] - {summary}"
+
+            owner_info = ""
+            if node.owner_id:
+                owner_display = node.owner_id[:12]
+                owner_info = f"[yellow]({owner_display}) [/yellow]"
+
+            info_text = f"{owner_info}[{base_color}][{node.node_type.upper()}] {node.short_hash}[/{base_color}] - {summary}"
             info_str = f"{dim_tag}{info_text}{end_dim_tag}"
             table.add_row(ts_str, "".join(graph_chars), info_str, key=str(node.filename))
 

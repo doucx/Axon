@@ -77,10 +77,11 @@ class GitObjectHistoryReader(HistoryReader):
         5. 组装 Nodes
         """
         # Step 1: Get Commits
-        all_heads = self.git_db.get_all_ref_heads("refs/quipu/")
-        if not all_heads:
+        ref_tuples = self.git_db.get_all_ref_heads("refs/quipu/")
+        if not ref_tuples:
             return []
-
+        
+        all_heads = list(set(t[0] for t in ref_tuples))
         log_entries = self.git_db.log_ref(all_heads)
         if not log_entries:
             return []
@@ -444,12 +445,10 @@ class GitObjectHistoryWriter(HistoryWriter):
         commit_message = f"{summary}\n\nX-Quipu-Output-Tree: {output_tree}"
         new_commit_hash = self.git_db.commit_tree(tree_hash=tree_hash, parent_hashes=parents, message=commit_message)
 
-        # 3. 引用管理 (Multi-Head Strategy)
-        self.git_db.update_ref("refs/quipu/history", new_commit_hash)
-        self.git_db.update_ref(f"refs/quipu/heads/{new_commit_hash}", new_commit_hash)
-
-        if parent_commit:
-            self.git_db.delete_ref(f"refs/quipu/heads/{parent_commit}")
+        # 3. 引用管理 (QDPS v1.1 - Local Heads Namespace)
+        # 在本地工作区命名空间中为新的 commit 创建一个持久化的 head 引用。
+        # 这是 push 操作的唯一来源，并且支持多分支图谱，因此不再删除父节点的 head。
+        self.git_db.update_ref(f"refs/quipu/local/heads/{new_commit_hash}", new_commit_hash)
 
         logger.info(f"✅ History node created as commit {new_commit_hash[:7]}")
 

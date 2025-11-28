@@ -54,6 +54,7 @@ class DatabaseManager:
                     """
                     CREATE TABLE IF NOT EXISTS nodes (
                         commit_hash TEXT(40) PRIMARY KEY,
+                        owner_id TEXT,
                         output_tree TEXT(40) NOT NULL,
                         node_type TEXT NOT NULL,
                         timestamp REAL NOT NULL,
@@ -124,8 +125,8 @@ class DatabaseManager:
         conn = self._get_conn()
         sql = """
             INSERT OR IGNORE INTO nodes 
-            (commit_hash, output_tree, node_type, timestamp, summary, generator_id, meta_json, plan_md_cache)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (commit_hash, owner_id, output_tree, node_type, timestamp, summary, generator_id, meta_json, plan_md_cache)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         try:
             with conn:

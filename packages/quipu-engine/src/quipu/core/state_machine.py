@@ -191,8 +191,17 @@ class Engine:
         # 如果使用 SQLite，先进行数据补水
         if self.db_manager:
             try:
+                config = ConfigManager(self.root_dir)
+                user_id = config.get("sync.user_id")
+                if not user_id:
+                    # 在 align 阶段，我们假设 user_id 应该已经存在。
+                    # 如果不存在（例如，用户从未运行过 sync），补水器将无法正确识别本地节点所有者。
+                    # 这是一个合理的回退，因为在 sync 之前，所有节点都应该是本地的。
+                    logger.debug("补水时未找到 user_id，本地所有权可能无法确定。")
+                    user_id = "unknown-local-user"
+
                 hydrator = Hydrator(self.git_db, self.db_manager)
-                hydrator.sync()
+                hydrator.sync(local_user_id=user_id)
             except Exception as e:
                 logger.error(f"❌ 自动数据补水失败: {e}", exc_info=True)
 

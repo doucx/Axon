@@ -48,6 +48,7 @@ class SQLiteHistoryReader(HistoryReader):
                 summary=row["summary"],
                 # 内容是懒加载的
                 content=row["plan_md_cache"] if row["plan_md_cache"] is not None else "",
+                owner_id=row["owner_id"],
             )
             temp_nodes[commit_hash] = node
 
@@ -150,6 +151,7 @@ class SQLiteHistoryReader(HistoryReader):
                     node_type=row["node_type"],
                     summary=row["summary"],
                     content=row["plan_md_cache"] if row["plan_md_cache"] is not None else "",
+                    owner_id=row["owner_id"],
                 )
 
             # 2. Fetch edges to identify parents
@@ -359,6 +361,7 @@ class SQLiteHistoryReader(HistoryReader):
         results = []
         for row in rows:
             node = QuipuNode(
+                commit_hash=row["commit_hash"],
                 input_tree="",  # 查找结果是扁平列表，不包含父子关系
                 output_tree=row["output_tree"],
                 timestamp=datetime.fromtimestamp(row["timestamp"]),
@@ -366,6 +369,7 @@ class SQLiteHistoryReader(HistoryReader):
                 node_type=row["node_type"],
                 summary=row["summary"],
                 content=row["plan_md_cache"] if row["plan_md_cache"] is not None else "",
+                owner_id=row["owner_id"],
             )
             results.append(node)
 
