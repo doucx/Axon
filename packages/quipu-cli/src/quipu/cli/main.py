@@ -1,6 +1,6 @@
 import logging
 import typer
-from .commands import cache, navigation, query, remote, run, ui, workspace
+from .commands import axon, cache, navigation, query, remote, run, ui, workspace
 
 # 初始化日志记录器，但不配置 handler
 # handler 的配置（stderr 或 file）由具体命令在执行时决定
@@ -18,6 +18,7 @@ app = typer.Typer(
 app.add_typer(cache.cache_app)
 
 # 注册顶级命令
+axon.register(app)
 workspace.register(app)
 navigation.register(app)
 query.register(app)
