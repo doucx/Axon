@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] feat: 为 export 命令添加导航栏和 zip 压缩功能", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764402950.781672, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] test: 为 `export` 命令添加全面的单元和集成测试", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764403041.7440865, "duration_ms": 0}}
