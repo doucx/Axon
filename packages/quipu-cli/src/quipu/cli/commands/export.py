@@ -68,53 +68,60 @@ def _filter_nodes(
 
 
 def _generate_navbar(
-    current_node: QuipuNode, exported_hashes_set: Set[str], filename_map: Dict[str, str]
+    current_node: QuipuNode,
+    exported_hashes_set: Set[str],
+    filename_map: Dict[str, str],
+    hidden_link_types: Set[str],
 ) -> str:
     """生成导航栏 Markdown 字符串。"""
     nav_links = []
 
     # 1. 总结节点 (↑)
-    ancestor = current_node.parent
-    while ancestor:
-        if ancestor.input_tree == ancestor.output_tree and ancestor.commit_hash in exported_hashes_set:
-            nav_links.append(f"> ↑ [总结节点]({filename_map[ancestor.commit_hash]})")
-            break
-        ancestor = ancestor.parent
+    if "summary" not in hidden_link_types:
+        ancestor = current_node.parent
+        while ancestor:
+            if ancestor.input_tree == ancestor.output_tree and ancestor.commit_hash in exported_hashes_set:
+                nav_links.append(f"> ↑ [总结节点]({filename_map[ancestor.commit_hash]})")
+                break
+            ancestor = ancestor.parent
 
     # 2. 上一分支点 (↓)
-    # Find the nearest ancestor that is a branch point.
-    ancestor = current_node.parent
-    found_branch_point = None
-    while ancestor:
-        if len(ancestor.children) > 1 and ancestor.commit_hash in exported_hashes_set:
-            found_branch_point = ancestor
-            break
-        ancestor = ancestor.parent
-    
-    # Add the link only if a branch point was found AND it's not the direct parent
-    # (to avoid a redundant link).
-    if found_branch_point and current_node.parent and found_branch_point.commit_hash != current_node.parent.commit_hash:
-        nav_links.append(f"> ↓ [上一分支点]({filename_map[found_branch_point.commit_hash]})")
+    if "branch" not in hidden_link_types:
+        ancestor = current_node.parent
+        found_branch_point = None
+        while ancestor:
+            if len(ancestor.children) > 1 and ancestor.commit_hash in exported_hashes_set:
+                found_branch_point = ancestor
+                break
+            ancestor = ancestor.parent
+        if found_branch_point and current_node.parent and found_branch_point.commit_hash != current_node.parent.commit_hash:
+            nav_links.append(f"> ↓ [上一分支点]({filename_map[found_branch_point.commit_hash]})")
 
     # 3. 父节点 (←)
-    if current_node.parent and current_node.parent.commit_hash in exported_hashes_set:
-        nav_links.append(f"> ← [父节点]({filename_map[current_node.parent.commit_hash]})")
+    if "parent" not in hidden_link_types:
+        if current_node.parent and current_node.parent.commit_hash in exported_hashes_set:
+            nav_links.append(f"> ← [父节点]({filename_map[current_node.parent.commit_hash]})")
 
     # 4. 子节点 (→)
-    # 子节点已按时间升序排列
-    for child in current_node.children:
-        if child.commit_hash in exported_hashes_set:
-            nav_links.append(f"> → [子节点]({filename_map[child.commit_hash]})")
+    if "child" not in hidden_link_types:
+        for child in current_node.children:
+            if child.commit_hash in exported_hashes_set:
+                nav_links.append(f"> → [子节点]({filename_map[child.commit_hash]})")
 
     if not nav_links:
         return ""
-    
+
     return "\n\n" + "> [!nav] 节点导航\n" + "\n".join(nav_links)
 
 
 def _generate_file_content(
-    node: QuipuNode, engine: Engine, no_frontmatter: bool, no_nav: bool,
-    exported_hashes_set: Set[str], filename_map: Dict[str, str]
+    node: QuipuNode,
+    engine: Engine,
+    no_frontmatter: bool,
+    no_nav: bool,
+    exported_hashes_set: Set[str],
+    filename_map: Dict[str, str],
+    hidden_link_types: Set[str],
 ) -> str:
     """构建单个 Markdown 文件的完整内容。"""
     parts = []
@@ -129,13 +136,13 @@ def _generate_file_content(
     if private_content:
         parts.append("# 开发者意图")
         parts.append(private_content.strip())
-        
+
     content_str = "\n\n".join(parts)
 
     if not no_nav:
-        navbar_str = _generate_navbar(node, exported_hashes_set, filename_map)
+        navbar_str = _generate_navbar(node, exported_hashes_set, filename_map, hidden_link_types)
         content_str += navbar_str
-        
+
     return content_str
 
 
@@ -151,8 +158,14 @@ def register(app: typer.Typer):
         zip_output: Annotated[bool, typer.Option("--zip", help="压缩导出目录")] = False,
         no_nav: Annotated[bool, typer.Option("--no-nav", help="禁用导航栏")] = False,
         no_frontmatter: Annotated[bool, typer.Option("--no-frontmatter", help="禁用 Frontmatter")] = False,
+        hide_link_type: Annotated[
+            Optional[List[str]],
+            typer.Option("--hide-link-type", help="禁用特定类型的导航链接 (可多次使用: summary, branch, parent, child)"),
+        ] = None,
     ):
         """将 Quipu 历史记录导出为一组人类可读的 Markdown 文件。"""
+        hidden_types = set(hide_link_type) if hide_link_type else set()
+
         with engine_context(work_dir) as engine:
             if not engine.history_graph:
                 typer.secho("📜 历史记录为空，无需导出。", fg=typer.colors.YELLOW, err=True); ctx.exit(0)
@@ -180,7 +193,9 @@ def register(app: typer.Typer):
             with typer.progressbar(nodes_to_export, label="导出进度") as progress:
                 for node in progress:
                     filename = filename_map[node.commit_hash]
-                    content = _generate_file_content(node, engine, no_frontmatter, no_nav, exported_hashes_set, filename_map)
+                    content = _generate_file_content(
+                        node, engine, no_frontmatter, no_nav, exported_hashes_set, filename_map, hidden_types
+                    )
                     (output_dir / filename).write_text(content, encoding="utf-8")
 
             if zip_output:
