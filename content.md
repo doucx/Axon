@@ -1,206 +1,55 @@
-好的，我们继续扩展测试覆盖。
+好的，测试通过。我们已经成功地将健壮性测试覆盖到了所有核心的交互式命令。
 
-根据你的指示，我们将把为 `quipu run` 建立的健壮性测试模式，应用到另外两个关键的交互式命令：`quipu discard` 和 `quipu checkout`。这将确保整个工具链在面对用户取消或在非交互式环境中运行时，行为一致且安全。
+现在，我将生成一个 `[COMMIT]` 计划，将这项重要的改进固化到项目的历史记录中。
 
-我将直接在现有的 `test_unfriendly_paths.py` 文件中追加新的测试用例，并为其创建一个共享的 `pytest` fixture，以准备一个包含历史和未提交变更的通用测试环境。
-
-## [WIP] test: 扩展“不友好路径”测试以覆盖 discard 和 checkout
+## [COMMIT] test(cli): 将不友好路径测试扩展至 discard 和 checkout
 
 ### 用户需求
-将 `quipu run` 命令的“不友好路径”测试模式（用户取消和非交互式环境）扩展到 `quipu discard` 和 `quipu checkout` 命令，以确保它们在这些场景下也能安全地中止操作。
+将为 `quipu run` 命令建立的“不友好路径”测试模式（用户取消和非交互式环境）扩展到 `quipu discard` 和 `quipu checkout` 命令，以确保整个 CLI 工具链在这些场景下行为一致且安全。
 
 ### 评论
-这是一个系统性的健壮性增强。通过确保所有具有潜在破坏性的交互式命令都遵循相同的安全中止逻辑，我们极大地提升了 Quipu CLI 的可靠性和用户信任度。
+这是一项系统性的健壮性增强。通过确保所有具有潜在破坏性的交互式命令都遵循相同的安全中止逻辑，我们极大地提升了 Quipu CLI 的可靠性和用户信任度。这标志着我们“全面审查测试套件”任务的完成。
 
 ### 目标
-1.  在 `tests/cli/test_unfriendly_paths.py` 文件中，创建一个新的 `pytest` fixture，用于构建一个包含两个历史节点和一些未提交变更的测试工作区。
-2.  为 `quipu discard` 命令添加两个测试用例：一个模拟用户输入 `n` 取消操作，另一个模拟在非交互式环境中自动中止。
-3.  为 `quipu checkout` 命令添加两个类似的测试用例。
-4.  验证在所有这些场景下，命令都正确中止，并且文件系统状态未被修改。
+1.  已在 `test_unfriendly_paths.py` 中添加了一个共享的 `dirty_workspace` fixture，用于提供一个包含历史和变更的通用测试环境。
+2.  已成功为 `quipu discard` 命令添加了“用户取消”和“非交互式环境”两个测试用例。
+3.  已成功为 `quipu checkout` 命令添加了两个功能相同的测试用例。
+4.  通过一个 Git 提交，将这些测试的改进持久化。
 
 ### 基本原理
-我们将利用 `pytest` 的 fixture 机制来创建一个可复用的、包含多阶段历史的工作区，从而避免在每个测试用例中重复设置代码。然后，我们将复用 `monkeypatch` 技术来精确模拟 `click.getchar()` 在用户取消 (`return 'n'`) 和非交互式环境 (`raise EOFError`) 下的行为。断言将检查命令的退出码、`stderr` 中的提示信息以及工作区文件的内容，以确保操作被完全、干净地中止了。
+我们利用 `pytest` 的 fixture 机制创建了一个可复用的、包含多阶段历史的工作区，简化了测试设置。通过复用 `monkeypatch` 技术来精确模拟 `click.getchar()` 在不同场景下的行为，我们确保了测试的可靠性和确定性。断言逻辑验证了命令的退出码、stderr 输出和文件系统状态，确保操作在被中止时没有产生任何副作用。
 
 ### 标签
-#intent/tooling #flow/ready #priority/high #comp/cli #comp/tests #concept/navigation #scope/dx #ai/instruct #task/domain/testing #task/object/unfriendly-paths #task/action/implementation #task/state/continue
+#intent/tooling #flow/ready #priority/high #comp/cli #comp/tests #concept/navigation #scope/dx #ai/instruct #task/domain/testing #task/object/unfriendly-paths #task/action/implementation #task/state/end #task/status/completed
 
 ---
 
 ### Script
 
-#### Acts 1: 扩展 `test_unfriendly_paths.py`
+#### Acts 1: 提交测试变更
 
-我们将使用 `write_file` 全量更新此文件，在原有内容的基础上增加新的 fixture 和四个测试用例。
+现在，我们将修改后的测试文件添加到 Git 暂存区，并创建一个内容详尽的提交。
 
 ~~~~~act
-write_file
+git_add
 tests/cli/test_unfriendly_paths.py
 ~~~~~
-~~~~~python
-import pytest
-import click
-from typer.testing import CliRunner
-from quipu.cli.main import app
-from quipu.engine.state_machine import Engine
 
+~~~~~act
+git_commit
+~~~~~
+~~~~~text
+test(cli): extend unfriendly path tests to discard and checkout
 
-@pytest.fixture
-def dirty_workspace(quipu_workspace):
-    """
-    提供一个包含历史记录和未提交变更的工作区。
-    - State A: file.txt -> "v1"
-    - State B (HEAD): file.txt -> "v2"
-    - Dirty State: file.txt -> "v3"
-    """
-    work_dir, _, engine = quipu_workspace
-    file_path = work_dir / "file.txt"
+Extends the robust testing pattern for "unfriendly paths" (user cancellation and non-interactive environments) to the `discard` and `checkout` commands.
 
-    # State A
-    file_path.write_text("v1")
-    hash_a = engine.git_db.get_tree_hash()
-    engine.capture_drift(hash_a, message="State A")
+This ensures that all critical interactive commands that can alter the file system behave consistently and safely when user confirmation is denied or unavailable.
 
-    # State B (HEAD)
-    file_path.write_text("v2")
-    engine.capture_drift(engine.git_db.get_tree_hash(), message="State B")
-
-    # Dirty State
-    file_path.write_text("v3")
-
-    return work_dir, engine, hash_a
-
-
-# --- Tests for `quipu run` ---
-
-
-def test_run_command_user_cancellation(runner: CliRunner, quipu_workspace, monkeypatch):
-    """
-    不友好路径测试: 验证当用户输入 'n' 时，`run` 操作会被正确取消。
-    """
-    work_dir, _, _ = quipu_workspace
-    output_file = work_dir / "output.txt"
-    assert not output_file.exists()
-
-    plan_content = f"""
-```act
-run_command
-```
-```text
-echo "Should not run" > {output_file.name}
-```
-"""
-
-    def mock_getchar_n(echo):
-        click.echo("n", err=True)
-        return "n"
-
-    monkeypatch.setattr(click, "getchar", mock_getchar_n)
-
-    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content)
-
-    assert result.exit_code == 2, f"CLI command should have been cancelled. Stderr:\n{result.stderr}"
-    assert "操作已取消" in result.stderr
-    assert not output_file.exists()
-
-
-def test_run_command_in_non_interactive_env(runner: CliRunner, quipu_workspace, monkeypatch):
-    """
-    不友好路径测试: 验证在非交互式环境 (无法 getchar) 中，`run` 操作会自动中止。
-    """
-    work_dir, _, _ = quipu_workspace
-    output_file = work_dir / "output.txt"
-    assert not output_file.exists()
-
-    plan_content = f"""
-```act
-run_command
-```
-```text
-echo "Should not run" > {output_file.name}
-```
-"""
-
-    def mock_getchar_fail(echo):
-        raise EOFError("Simulating non-interactive environment")
-
-    monkeypatch.setattr(click, "getchar", mock_getchar_fail)
-    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content)
-
-    assert result.exit_code == 2
-    assert "操作已取消" in result.stderr
-    assert "(non-interactive)" in result.stderr
-    assert not output_file.exists()
-
-
-# --- Tests for `quipu discard` ---
-
-
-def test_discard_user_cancellation(runner: CliRunner, dirty_workspace, monkeypatch):
-    """不友好路径测试: 验证 `discard` 操作可以被用户取消。"""
-    work_dir, _, _ = dirty_workspace
-
-    def mock_getchar_n(echo):
-        click.echo("n", err=True)
-        return "n"
-
-    monkeypatch.setattr(click, "getchar", mock_getchar_n)
-    result = runner.invoke(app, ["discard", "-w", str(work_dir)])
-
-    assert result.exit_code == 1  # typer.Abort exits with 1
-    assert "操作已取消" in result.stderr
-    assert (work_dir / "file.txt").read_text() == "v3", "File should not be changed."
-
-
-def test_discard_in_non_interactive_env(runner: CliRunner, dirty_workspace, monkeypatch):
-    """不友好路径测试: 验证 `discard` 在非交互式环境中安全中止。"""
-    work_dir, _, _ = dirty_workspace
-
-    def mock_getchar_fail(echo):
-        raise EOFError("Simulating non-interactive environment")
-
-    monkeypatch.setattr(click, "getchar", mock_getchar_fail)
-    result = runner.invoke(app, ["discard", "-w", str(work_dir)])
-
-    assert result.exit_code == 1
-    assert "(non-interactive)" in result.stderr
-    assert (work_dir / "file.txt").read_text() == "v3", "File should not be changed."
-
-
-# --- Tests for `quipu checkout` ---
-
-
-def test_checkout_user_cancellation(runner: CliRunner, dirty_workspace, monkeypatch):
-    """不友好路径测试: 验证 `checkout` 操作可以被用户取消。"""
-    work_dir, _, hash_a = dirty_workspace
-
-    def mock_getchar_n(echo):
-        click.echo("n", err=True)
-        return "n"
-
-    monkeypatch.setattr(click, "getchar", mock_getchar_n)
-    result = runner.invoke(app, ["checkout", hash_a[:7], "-w", str(work_dir)])
-
-    assert result.exit_code == 1
-    assert "操作已取消" in result.stderr
-    assert (work_dir / "file.txt").read_text() == "v3", "File should not be changed."
-
-
-def test_checkout_in_non_interactive_env(runner: CliRunner, dirty_workspace, monkeypatch):
-    """不友好路径测试: 验证 `checkout` 在非交互式环境中安全中止。"""
-    work_dir, _, hash_a = dirty_workspace
-
-    def mock_getchar_fail(echo):
-        raise EOFError("Simulating non-interactive environment")
-
-    monkeypatch.setattr(click, "getchar", mock_getchar_fail)
-    result = runner.invoke(app, ["checkout", hash_a[:7], "-w", str(work_dir)])
-
-    assert result.exit_code == 1
-    assert "(non-interactive)" in result.stderr
-    assert (work_dir / "file.txt").read_text() == "v3", "File should not be changed."
+A shared `dirty_workspace` fixture has been added to streamline the setup for these tests. The `monkeypatch` approach is used to simulate `click.getchar()` behavior, verifying that operations are cleanly aborted without side effects.
 ~~~~~
 
 ### 下一步建议
-我们已经成功地将健壮性测试覆盖到了 `run`, `discard`, 和 `checkout` 三个核心交互命令。请运行完整的测试套件以确认所有改动都按预期工作。
+我们已经成功完成了对核心交互命令的“不友好路径”测试覆盖任务。
 
-测试通过后，我们可以将这些测试的变更进行提交。
+- **任务完成**: 我们可以认为“全面审查现有的测试套件，为所有涉及用户输入或文件系统交互的命令，补充‘不友好路径’测试用例”这项任务已经完成。
+- **未来方向**: 我们可以继续审查代码库，寻找其他可以提升健壮性或测试覆盖率的领域。
