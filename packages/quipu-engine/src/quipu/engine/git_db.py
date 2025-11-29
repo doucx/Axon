@@ -419,15 +419,19 @@ class GitDB:
                 )
         return parsed_logs
 
-    def push_quipu_refs(self, remote: str, user_id: str):
+    def push_quipu_refs(self, remote: str, user_id: str, force: bool = False):
         """
         将本地 Quipu heads 推送到远程用户专属的命名空间。
         遵循 QDPS v1.1 规范。
         """
         refspec = f"refs/quipu/local/heads/*:refs/quipu/users/{user_id}/heads/*"
-        logger.info(f"🚀 Pushing Quipu history to {remote} for user {user_id}...")
-        # 移除了 --prune 选项，使推送操作变为非破坏性。
-        self._run(["push", remote, refspec])
+        action = "Force-pushing" if force else "Pushing"
+        logger.info(f"🚀 {action} Quipu history to {remote} for user {user_id}...")
+
+        cmd = ["push", remote, refspec]
+        if force:
+            cmd.extend(["--force", "--prune"])
+        self._run(cmd)
 
     def fetch_quipu_refs(self, remote: str, user_id: str):
         """
@@ -469,3 +473,29 @@ class GitDB:
             logger.info(f"✅ Reconciliation complete. Added {reconciled_count} new history branches from remote.")
         else:
             logger.debug("✅ Local history is already up-to-date with remote.")
+
+    def prune_local_from_remote(self, remote: str, user_id: str):
+        """
+        用远程镜像修剪本地历史。
+        删除本地存在但远程镜像中已不存在的 'local/heads'。
+        """
+        local_prefix = "refs/quipu/local/heads/"
+        remote_prefix = f"refs/quipu/remotes/{remote}/{user_id}/heads/"
+
+        local_heads = {ref.replace(local_prefix, "") for _, ref in self.get_all_ref_heads(local_prefix)}
+        remote_heads = {ref.replace(remote_prefix, "") for _, ref in self.get_all_ref_heads(remote_prefix)}
+
+        to_delete = local_heads - remote_heads
+        if not to_delete:
+            logger.debug("✅ No local refs to prune.")
+            return
+
+        deleted_count = 0
+        for ref_suffix in to_delete:
+            local_ref_to_delete = local_prefix + ref_suffix
+            self.delete_ref(local_ref_to_delete)
+            deleted_count += 1
+            logger.info(f"🗑️  Pruned local ref: {local_ref_to_delete}")
+
+        if deleted_count > 0:
+            logger.info(f"✅ Pruning complete. Removed {deleted_count} stale local refs.")

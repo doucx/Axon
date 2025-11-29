@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 from typing import Annotated, Optional
+from enum import Enum
 
 import typer
 from quipu.common.identity import get_user_id_from_email
@@ -10,6 +11,14 @@ from quipu.engine.git_db import GitDB
 from ..config import DEFAULT_WORK_DIR
 from ..logger_config import setup_logging
 from ..utils import find_git_repository_root
+
+
+class SyncMode(str, Enum):
+    BIDIRECTIONAL = "bidirectional"
+    PUSH_FORCE = "push-force"
+    PUSH_ONLY = "push-only"
+    PULL_PRUNE = "pull-prune"
+    PULL_ONLY = "pull-only"
 
 
 def register(app: typer.Typer):
@@ -25,6 +34,15 @@ def register(app: typer.Typer):
         remote_option: Annotated[
             Optional[str], typer.Option("--remote", "-r", help="Git 远程仓库的名称 (覆盖配置文件)。")
         ] = None,
+        mode: Annotated[
+            SyncMode,
+            typer.Option(
+                "--mode",
+                "-m",
+                help="同步模式: 'bidirectional' (默认), 'push-force', 'push-only', 'pull-prune', 'pull-only'",
+                case_sensitive=False,
+            ),
+        ] = SyncMode.BIDIRECTIONAL,
     ):
         """
         与远程仓库同步 Quipu 历史图谱。
@@ -62,30 +80,52 @@ def register(app: typer.Typer):
 
         try:
             git_db = GitDB(sync_dir)
-
-            # --- Stage 1: Fetch ---
             subscriptions = config.get("sync.subscriptions", [])
             target_ids_to_fetch = set(subscriptions)
             target_ids_to_fetch.add(final_user_id)
 
-            if target_ids_to_fetch:
-                typer.secho(
-                    f"⬇️  正在从 '{remote}' 拉取 {len(target_ids_to_fetch)} 个用户的历史...",
-                    fg=typer.colors.BLUE,
-                    err=True,
-                )
-                for target_id in sorted(list(target_ids_to_fetch)):
-                    git_db.fetch_quipu_refs(remote, target_id)
+            typer.secho(f"⚙️  模式: {mode.value}", fg=typer.colors.YELLOW, err=True)
 
-            # --- Stage 2: Reconcile ---
-            typer.secho(f"🤝 正在将远程历史与本地进行调和...", fg=typer.colors.BLUE, err=True)
-            git_db.reconcile_local_with_remote(remote, final_user_id)
+            # --- Operation Dispatch based on Mode ---
+            match mode:
+                case SyncMode.BIDIRECTIONAL:
+                    typer.secho("⬇️  正在拉取...", fg=typer.colors.BLUE, err=True)
+                    for target_id in sorted(list(target_ids_to_fetch)):
+                        git_db.fetch_quipu_refs(remote, target_id)
+                    typer.secho("🤝 正在调和...", fg=typer.colors.BLUE, err=True)
+                    git_db.reconcile_local_with_remote(remote, final_user_id)
+                    typer.secho("⬆️  正在推送...", fg=typer.colors.BLUE, err=True)
+                    git_db.push_quipu_refs(remote, final_user_id)
+                    typer.secho("\n✅ Quipu 双向同步完成。", fg=typer.colors.GREEN, err=True)
 
-            # --- Stage 3: Push ---
-            typer.secho(f"⬆️  正在向 '{remote}' 推送合并后的本地历史...", fg=typer.colors.BLUE, err=True)
-            git_db.push_quipu_refs(remote, final_user_id)
+                case SyncMode.PULL_ONLY:
+                    typer.secho("⬇️  正在拉取...", fg=typer.colors.BLUE, err=True)
+                    for target_id in sorted(list(target_ids_to_fetch)):
+                        git_db.fetch_quipu_refs(remote, target_id)
+                    typer.secho("🤝 正在调和...", fg=typer.colors.BLUE, err=True)
+                    git_db.reconcile_local_with_remote(remote, final_user_id)
+                    typer.secho("\n✅ Quipu 拉取同步完成。", fg=typer.colors.GREEN, err=True)
 
-            typer.secho("\n✅ Quipu 双向同步完成。", fg=typer.colors.GREEN, err=True)
+                case SyncMode.PULL_PRUNE:
+                    typer.secho("⬇️  正在拉取 (带修剪)...", fg=typer.colors.BLUE, err=True)
+                    for target_id in sorted(list(target_ids_to_fetch)):
+                        git_db.fetch_quipu_refs(remote, target_id)
+                    typer.secho("🤝 正在调和...", fg=typer.colors.BLUE, err=True)
+                    git_db.reconcile_local_with_remote(remote, final_user_id)
+                    typer.secho("🗑️  正在修剪本地...", fg=typer.colors.BLUE, err=True)
+                    git_db.prune_local_from_remote(remote, final_user_id)
+                    typer.secho("\n✅ Quipu 拉取同步 (带修剪) 完成。", fg=typer.colors.GREEN, err=True)
+
+                case SyncMode.PUSH_ONLY:
+                    typer.secho("⬆️  正在推送...", fg=typer.colors.BLUE, err=True)
+                    git_db.push_quipu_refs(remote, final_user_id, force=False)
+                    typer.secho("\n✅ Quipu 推送同步完成。", fg=typer.colors.GREEN, err=True)
+
+                case SyncMode.PUSH_FORCE:
+                    typer.secho("⬆️  正在强制推送...", fg=typer.colors.RED, bold=True, err=True)
+                    git_db.push_quipu_refs(remote, final_user_id, force=True)
+                    typer.secho("\n✅ Quipu 强制推送完成。", fg=typer.colors.GREEN, err=True)
+
             typer.secho(
                 "\n💡 提示: 运行 `quipu cache sync` 来更新本地数据库和 UI 视图。", fg=typer.colors.YELLOW, err=True
             )

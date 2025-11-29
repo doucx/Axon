@@ -121,8 +121,9 @@ class TestSyncWorkflow:
         # --- Step 3: User B Syncs (Fetch) ---
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--remote", "origin"])
         assert sync_result.exit_code == 0
-        # Should pull self + User A
-        assert f"拉取 2 个用户的历史" in sync_result.stderr
+        # [FIX] Updated assertion to match new, more granular output
+        assert "⬇️  正在拉取..." in sync_result.stderr
+        assert "🤝 正在调和..." in sync_result.stderr
 
         # Verify local mirror ref in User B's repo
         local_refs_b = run_git_command(user_b_path, ["for-each-ref", "--format=%(refname)"])
