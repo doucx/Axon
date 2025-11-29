@@ -1,0 +1,13 @@
+{
+  "common.error.generic": "❌ 系统错误: {error}",
+  "common.prompt.cancel": "\n🚫 操作已取消。",
+  "workspace.save.success": "📸 快照已保存: {short_hash}{msg_suffix}",
+  "workspace.save.noChanges": "✅ 工作区状态未发生变化，无需创建快照。",
+  "workspace.save.error": "❌ 创建快照失败: {error}",
+  "workspace.discard.success": "✅ 工作区已成功恢复到节点 {short_hash}。",
+  "workspace.discard.noChanges": "✅ 工作区已经是干净状态 ({short_hash})，无需操作。",
+  "workspace.discard.error.noHistory": "❌ 错误: 找不到任何历史记录，无法确定要恢复到哪个状态。",
+  "workspace.discard.error.generic": "❌ 恢复状态失败: {error}",
+  "workspace.discard.warning.headMissing": "⚠️  HEAD 指针丢失或无效，将恢复到最新历史节点: {short_hash}",
+  "workspace.discard.ui.diffHeader": "\n以下是即将被丢弃的变更:"
+}

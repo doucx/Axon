@@ -6,6 +6,7 @@ import typer
 from .helpers import engine_context
 from ..config import DEFAULT_WORK_DIR
 from ..ui_utils import prompt_for_confirmation
+from quipu.common.messaging import bus
 
 
 def register(app: typer.Typer):
@@ -30,16 +31,15 @@ def register(app: typer.Typer):
             is_genesis_clean = (not engine.history_graph) and (current_tree_hash == EMPTY_TREE_HASH)
 
             if is_node_clean or is_genesis_clean:
-                typer.secho("✅ 工作区状态未发生变化，无需创建快照。", fg=typer.colors.GREEN, err=True)
+                bus.success("workspace.save.noChanges")
                 ctx.exit(0)
 
             try:
                 node = engine.capture_drift(current_tree_hash, message=message)
                 msg_suffix = f" ({message})" if message else ""
-                typer.secho(f"📸 快照已保存: {node.short_hash}{msg_suffix}", fg=typer.colors.GREEN, err=True)
+                bus.success("workspace.save.success", short_hash=node.short_hash, msg_suffix=msg_suffix)
             except Exception as e:
-                logger.error("创建快照失败", exc_info=True)
-                typer.secho(f"❌ 创建快照失败: {e}", fg=typer.colors.RED, err=True)
+                bus.error("workspace.save.error", error=str(e))
                 ctx.exit(1)
 
     @app.command()
@@ -59,7 +59,7 @@ def register(app: typer.Typer):
         with engine_context(work_dir) as engine:
             graph = engine.history_graph
             if not graph:
-                typer.secho("❌ 错误: 找不到任何历史记录，无法确定要恢复到哪个状态。", fg=typer.colors.RED, err=True)
+                bus.error("workspace.discard.error.noHistory")
                 ctx.exit(1)
 
             target_tree_hash = engine._read_head()
@@ -73,21 +73,15 @@ def register(app: typer.Typer):
             if not latest_node:
                 latest_node = max(graph.values(), key=lambda n: n.timestamp)
                 target_tree_hash = latest_node.output_tree
-                typer.secho(
-                    f"⚠️  HEAD 指针丢失或无效，将恢复到最新历史节点: {latest_node.short_hash}",
-                    fg=typer.colors.YELLOW,
-                    err=True,
-                )
+                bus.warning("workspace.discard.warning.headMissing", short_hash=latest_node.short_hash)
 
             current_hash = engine.git_db.get_tree_hash()
             if current_hash == target_tree_hash:
-                typer.secho(
-                    f"✅ 工作区已经是干净状态 ({latest_node.short_hash})，无需操作。", fg=typer.colors.GREEN, err=True
-                )
+                bus.success("workspace.discard.noChanges", short_hash=latest_node.short_hash)
                 ctx.exit(0)
 
             diff_stat = engine.git_db.get_diff_stat(target_tree_hash, current_hash)
-            typer.secho("\n以下是即将被丢弃的变更:", fg=typer.colors.YELLOW, err=True)
+            bus.info("workspace.discard.ui.diffHeader")
             typer.secho("-" * 20, err=True)
             typer.echo(diff_stat, err=True)
             typer.secho("-" * 20, err=True)
@@ -95,13 +89,12 @@ def register(app: typer.Typer):
             if not force:
                 prompt = f"🚨 即将丢弃上述所有变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？"
                 if not prompt_for_confirmation(prompt, default=False):
-                    typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
+                    bus.warning("common.prompt.cancel")
                     raise typer.Abort()
 
             try:
                 engine.visit(target_tree_hash)
-                typer.secho(f"✅ 工作区已成功恢复到节点 {latest_node.short_hash}。", fg=typer.colors.GREEN, err=True)
+                bus.success("workspace.discard.success", short_hash=latest_node.short_hash)
             except Exception as e:
-                logger.error(f"恢复工作区状态失败", exc_info=True)
-                typer.secho(f"❌ 恢复状态失败: {e}", fg=typer.colors.RED, err=True)
+                bus.error("workspace.discard.error.generic", error=str(e))
                 ctx.exit(1)
