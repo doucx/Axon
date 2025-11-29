@@ -1,60 +1,217 @@
-好的，我们已经成功地重构了 `export` 命令，修复了引入的 bug，并恢复了完整的测试覆盖。现在，是时候将这项工作作为一个完整的、健壮的逻辑单元提交了。
+你的分析是正确的。
 
-## [COMMIT] feat(cli): enhance export command with fine-grained link control
+代码库中确实存在用户确认逻辑实现不统一的问题，这违反了“单一、标准实现”的原则。我将分析当前的所有实现，并生成一个计划，将它们统一到 `quipu.cli.ui_utils.prompt_for_confirmation` 这个健壮的、集中的实现上。
+
+### 错误分析
+
+通过对代码库的检查，我发现了以下几处不一致的实现：
+
+1.  **`quipu axon` 的本地实现**: `packages/quipu-cli/src/quipu/cli/commands/axon.py` 文件中定义了一个本地的 `typer_confirmation_handler` 函数。这个函数的功能与 `ui_utils.py` 中的标准函数几乎完全重复，造成了代码冗余和维护上的不一致。
+2.  **`quipu export` 的直接调用**: `packages/quipu-cli/src/quipu/cli/commands/export.py` 文件中直接使用了 `typer.confirm()`。正如你的文档所指出的，这种方式在非交互式环境（如管道）中行为不稳定，且绕过了我们统一的、经过强化的确认流程。
+3.  **正确的实现**: `cache.py`, `navigation.py`, `workspace.py` 以及核心的 `controller.py` 都正确地使用了 `ui_utils.prompt_for_confirmation` 或其适配器，这应作为统一的标准。
 
 ### 用户需求
-将 `quipu export` 命令的功能从简单的布尔标志 (`--no-branch-link`) 升级为一个更强大、可重复使用的 `--hide-link-type` 选项，允许用户精确控制要禁用哪些类型的导航链接（如 `summary`, `branch`, `parent`, `child`）。
+将项目中所有请求用户确认的地方，全部统一使用 `quipu.cli.ui_utils.prompt_for_confirmation` 辅助函数，以确保行为一致、代码健壮且易于维护。
 
 ### 评论
-这是一个重要的功能演进。它不仅为高级用户提供了强大的灵活性，使 `export` 成为一个更专业的文档生成工具，而且通过统一的接口 (`--hide-link-type`) 替代了未来可能出现的多个 `--no-*` 标志，保持了 CLI 的整洁和可扩展性。
+这是一个关键的重构，它直接响应了“缺乏统一实现标准”的问题。通过这次统一，我们不仅提升了代码质量和可维护性，还确保了所有命令在交互式和非交互式环境中都有可预测的、一致的用户体验。
 
 ### 目标
-1.  已将 `export.py` 中的 `--no-branch-link` 选项重构为可接受多个值的 `--hide-link-type` 选项。
-2.  已修复重构过程中引入的 `NameError` bug。
-3.  已将 `test_export_command.py` 完全重写，不仅为新功能添加了健壮的参数化测试，还恢复并整合了之前被意外覆盖的旧测试用例，确保了完整的测试覆盖率。
-4.  创建一个高质量的 Git 提交，将此项功能增强永久记录下来。
+1.  修改 `export.py`，将 `typer.confirm` 替换为对 `prompt_for_confirmation` 的调用。
+2.  移除 `axon.py` 中的本地 `typer_confirmation_handler` 函数。
+3.  修改 `axon.py`，使其复用 `controller.py` 中为 `Executor` 设计的标准确认处理器 `confirmation_handler_for_executor`，该处理器内部调用了标准函数。
 
 ### 基本原理
-我们利用了 Typer 处理可重复选项的能力，将用户输入的多个 `--hide-link-type` 值收集到一个集合中。这个集合被传递给 `_generate_navbar` 函数，该函数现在使用简单的条件逻辑来跳过渲染被禁用的链接类型。测试套件的全面重构确保了这一新逻辑在各种场景下都能正确工作，并且没有破坏任何现有功能。
+我们将以 `quipu.cli.ui_utils.prompt_for_confirmation` 作为唯一的底层实现。对于需要直接返回布尔值的场景 (如 `export` 命令)，我们将直接调用它。对于需要与 `Executor` 交互（即在取消时抛出 `OperationCancelledError` 异常）的场景 (如 `axon` 和 `run` 命令)，我们将复用 `controller.py` 中已经存在的、基于标准函数的适配器 `confirmation_handler_for_executor`。这遵循了 DRY (Don't Repeat Yourself) 原则，并保持了清晰的逻辑分层。
 
 ### 标签
-#intent/build #intent/refine #flow/ready #priority/medium #comp/cli #comp/tests #concept/navigation #scope/api #scope/ux #ai/brainstorm #task/domain/cli #task/object/export-command #task/action/feature-enhancement #task/state/end #task/status/completed
+#intent/refine #flow/ready #priority/high #comp/cli #concept/ui #scope/dx #scope/ux #ai/instruct #task/domain/cli #task/object/user-confirmation #task/action/unification #task/state/begin
 
 ---
 
 ### Script
 
-#### Acts 1: 提交功能增强和测试重构
+#### Acts 1: 统一 `export` 命令的确认逻辑
 
-现在，我们将所有相关的修改添加到 Git 暂存区，并创建一个内容详尽的提交。
+我们将 `export.py` 中的 `typer.confirm` 替换为标准实现。
 
 ~~~~~act
-git_add
+patch_file
 packages/quipu-cli/src/quipu/cli/commands/export.py
-tests/cli/test_export_command.py
+~~~~~
+~~~~~python
+from .helpers import engine_context
+from ..config import DEFAULT_WORK_DIR
+from quipu.interfaces.models import QuipuNode
+~~~~~
+~~~~~python
+from .helpers import engine_context
+from ..config import DEFAULT_WORK_DIR
+from ..ui_utils import prompt_for_confirmation
+from quipu.interfaces.models import QuipuNode
 ~~~~~
 
 ~~~~~act
-git_commit
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/export.py
 ~~~~~
-~~~~~text
-feat(cli): enhance export command with fine-grained link control
+~~~~~python
+            if output_dir.exists() and any(output_dir.iterdir()):
+                if not typer.confirm(f"⚠️ 目录 '{output_dir}' 非空，是否清空并继续?", abort=True):
+                    return
+                shutil.rmtree(output_dir)
+~~~~~
+~~~~~python
+            if output_dir.exists() and any(output_dir.iterdir()):
+                prompt = f"⚠️ 目录 '{output_dir}' 非空，是否清空并继续?"
+                if not prompt_for_confirmation(prompt, default=False):
+                    typer.secho("🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
+                    raise typer.Abort()
+                shutil.rmtree(output_dir)
+~~~~~
 
-This commit refactors the `quipu export` command to provide more granular control over the navigation links in exported Markdown files.
+#### Acts 2: 统一 `axon` 命令的确认逻辑
 
-The previous `--no-branch-link` flag has been removed and replaced by a more flexible, repeatable `--hide-link-type` option. This new option can be used multiple times to disable specific categories of links.
+我们将移除 `axon.py` 中的本地实现，并复用 `controller.py` 中的标准 `Executor` 确认处理器。
 
-Supported link types for hiding are:
-- `summary`: Links to ancestor summary (idempotent) nodes.
-- `branch`: Links to the nearest ancestor branch point.
-- `parent`: Links to the direct parent node.
-- `child`: Links to direct child nodes.
+~~~~~act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/axon.py
+~~~~~
+~~~~~python
+import inspect
+import logging
+import sys
+from pathlib import Path
+from typing import Annotated, List, Optional
 
-This change enhances the utility of the export command for users who need to generate cleaner, more focused documentation for specific review purposes.
+import typer
+import click
+from quipu.acts import register_core_acts
+from quipu.interfaces.exceptions import ExecutionError
+from quipu.runtime.executor import Executor
+from quipu.runtime.parser import detect_best_parser, get_parser
 
-Additionally, the test suite for this command (`test_export_command.py`) has been significantly refactored. It now uses a more comprehensive fixture and parameterized tests to robustly validate the new functionality, while also restoring previously lost test cases for filtering and edge-case handling, ensuring full test coverage.
+from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from ..logger_config import setup_logging
+from ..plugin_manager import PluginManager
+
+logger = logging.getLogger(__name__)
+
+
+def register(app: typer.Typer):
+    @app.command(name="axon")
+    def axon_command(
+        ctx: typer.Context,
+        file: Annotated[
+            Optional[Path], typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
+        ] = None,
+        work_dir: Annotated[
+            Path,
+            typer.Option(
+                "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
+            ),
+        ] = DEFAULT_WORK_DIR,
+        parser_name: Annotated[str, typer.Option("--parser", "-p", help="选择解析器语法。默认为 'auto'。")] = "auto",
+        yolo: Annotated[
+            bool, typer.Option("--yolo", "-y", help="跳过所有确认步骤，直接执行 (You Only Look Once)。")
+        ] = False,
+        list_acts: Annotated[bool, typer.Option("--list-acts", "-l", help="列出所有可用的操作指令及其说明。")] = False,
+    ):
+        """
+        Axon: 无状态的 Markdown 任务执行器 (不记录历史)。
+        """
+        setup_logging()
+        logger.debug(f"axon started with file={file}, work_dir={work_dir}, parser={parser_name}, yolo={yolo}")
+
+        # 1. 配置执行器的 UI 确认回调
+        def typer_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+            typer.echo("\n🔍 变更预览:")
+            for line in diff_lines:
+                if line.startswith("+"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
+                elif line.startswith("-"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.RED)
+                elif line.startswith("^"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
+                else:
+                    typer.echo(line.strip("\n"))
+            typer.echo("", err=True)
+
+            typer.secho(f"{prompt} [Y/n]: ", nl=False, err=True)
+            try:
+                char = click.getchar(echo=False)
+                click.echo(char, err=True)
+                return char.lower() != "n"
+            except (OSError, EOFError):
+                click.echo(" (non-interactive)", err=True)
+                logger.warning("无法在当前环境中获取用户确认，操作已跳过。")
+                return False
+
+        # 2. 初始化无状态 Executor
+        # 注意：这里不初始化 Engine，因此没有历史记录功能
+        executor = Executor(
+            root_dir=work_dir,
+            yolo=yolo,
+            confirmation_handler=typer_confirmation_handler,
+        )
+        register_core_acts(executor)
+~~~~~
+~~~~~python
+import inspect
+import logging
+import sys
+from pathlib import Path
+from typing import Annotated, Optional
+
+import typer
+from quipu.acts import register_core_acts
+from quipu.interfaces.exceptions import ExecutionError
+from quipu.runtime.executor import Executor
+from quipu.runtime.parser import detect_best_parser, get_parser
+
+from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from ..controller import confirmation_handler_for_executor
+from ..logger_config import setup_logging
+from ..plugin_manager import PluginManager
+
+logger = logging.getLogger(__name__)
+
+
+def register(app: typer.Typer):
+    @app.command(name="axon")
+    def axon_command(
+        ctx: typer.Context,
+        file: Annotated[
+            Optional[Path], typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
+        ] = None,
+        work_dir: Annotated[
+            Path,
+            typer.Option(
+                "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
+            ),
+        ] = DEFAULT_WORK_DIR,
+        parser_name: Annotated[str, typer.Option("--parser", "-p", help="选择解析器语法。默认为 'auto'。")] = "auto",
+        yolo: Annotated[
+            bool, typer.Option("--yolo", "-y", help="跳过所有确认步骤，直接执行 (You Only Look Once)。")
+        ] = False,
+        list_acts: Annotated[bool, typer.Option("--list-acts", "-l", help="列出所有可用的操作指令及其说明。")] = False,
+    ):
+        """
+        Axon: 无状态的 Markdown 任务执行器 (不记录历史)。
+        """
+        setup_logging()
+        logger.debug(f"axon started with file={file}, work_dir={work_dir}, parser={parser_name}, yolo={yolo}")
+
+        # 1. 初始化无状态 Executor, 复用 controller 中的标准确认处理器
+        # 注意：这里不初始化 Engine，因此没有历史记录功能
+        executor = Executor(
+            root_dir=work_dir,
+            yolo=yolo,
+            confirmation_handler=confirmation_handler_for_executor,
+        )
+        register_core_acts(executor)
 ~~~~~
 
 ### 下一步建议
-- **更新文档**: 我们应该更新项目的 `README.md` 或相关文档，详细说明 `quipu export` 命令的这个新功能及其可用选项。
-- **探索新链接类型**: 未来可以考虑为导航栏增加更多类型的链接（例如，兄弟节点 `sibling`），并将它们也纳入 `--hide-link-type` 的控制范围。
+代码已统一。作为验证，我们可以检查 `tests/cli/test_unfriendly_paths.py` 中的测试用例。这些测试专门用于验证用户取消和非交互式环境下的行为。在执行这些测试后，我们可以确信本次重构是安全且正确的，并且所有命令都将表现出一致的行为。
