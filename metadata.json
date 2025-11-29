@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(tests): 为测试用的 Plan 文件添加标题以稳定摘要匹配", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764408824.798028, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] test: 修正 `test_pull_only_mode` 中关于本地引用污染的错误断言", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764409298.927071, "duration_ms": 0}}

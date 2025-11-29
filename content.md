@@ -1,126 +1,100 @@
-分析正确。测试仍然失败，这表明我们通过检查提交信息来识别 Plan 节点的逻辑存在偏差。
+## [WIP] test: 修正 `test_pull_only_mode` 中关于本地引用污染的错误断言
 
-错误分析
-
-**问题定位**:
-在 `create_node` 中，我们试图通过查找 `echo '{content}'` 字符串来识别 Plan 节点。然而，`quipu-engine` 生成的默认摘要逻辑可能并没有将 `act` 块中的具体参数（如 `echo` 的内容）直接作为 Plan 节点的 `Summary`。
-
-Plan 节点的摘要生成逻辑主要依赖：
-1.  Markdown 文件中的标题（`# Title`）。
-2.  如果没有标题，则取第一行。
-3.  如果第一行是 Act 指令，则可能只是简略显示。
-
-在测试用例中，我们生成的 Plan 文件内容是：
-```markdown
-~~~~~act
-echo 'content'
-~~~~~
-```
-这个 Plan 没有标题，也没有描述性的第一行。因此，它的 Summary 很可能只是 "Plan executed" 或者 "echo..."，而不包含完整的 `'content'` 字符串。
-
-相反，**Capture 节点** 是用来记录工作区变更的。由于我们在运行 `quipu run` 之前创建了 `plan_file`，所以 Capture 节点会记录这个新文件的添加。其摘要类似于 `Capture: A b_node_to_keep.md`。
-
-**解决方案**:
-我们可以利用这两个节点在语义上的区别来识别它们：
-1.  **Capture 节点**：其摘要通常包含 "Capture:" 字样。
-2.  **Plan 节点**：它是我们真正想要执行的操作记录。
-
-我们可以简单地通过**排除法**来识别 Plan 节点：如果一个节点不是 Capture 节点，那它就是 Plan 节点。或者更稳健地，我们可以给测试用的 Plan 文件加上一个显式的标题，这样我们就能 100% 确定 Plan 节点的摘要内容了。
-
-## [WIP] fix(tests): 为测试用的 Plan 文件添加标题以稳定摘要匹配
+### 错误分析
+测试 `tests/integration/test_sync_modes.py` 中的 `test_pull_only_mode` 断言 User A 的节点必须出现在 User B 的 `refs/quipu/local/heads/` 中。基于上述分析，这是一个错误的假设。User A 的节点应当只存在于 `refs/quipu/remotes/origin/UserA/heads/` 中，以保持 User B 本地命名空间的洁净，防止后续 Push 操作导致的所有权混淆。
 
 ### 用户需求
-修复 `tests/integration/test_sync_modes.py` 中的断言错误。
+修正集成测试，使其符合 QDPS (Quipu Data Persistence Standard) 的隔离原则：订阅内容仅存在于 `remotes` 命名空间，不污染 `local` 命名空间。
 
 ### 评论
-与其猜测 Quipu 的默认摘要生成逻辑，不如显式地控制它。通过在生成的测试 Plan 文件中添加一个 Markdown 标题，我们可以强制 Quipu 使用这个标题作为节点的摘要。这使得在测试中识别 Plan 节点变得微不足道且极其可靠。
+这是一个关键的测试修正，它确立了正确的同步边界。
 
 ### 目标
-1.  修改 `create_node` 函数。
-2.  在生成的 Plan 文件内容中，添加一个 `# Plan: {content}` 标题。
-3.  更新节点识别逻辑：查找提交信息中包含 `Plan: {content}` 的节点。
+修改 `test_pull_only_mode`，断言 User A 的节点**不在** `local/heads` 中，但**在** `remotes/...` 中。
 
 ### 基本原理
-Quipu 的 `GitObjectHistoryWriter` 优先使用 Markdown 内容中的第一个标题作为节点摘要。利用这一特性，我们可以精确控制生成的 Plan 节点的元数据，从而在测试中轻松定位它。
+Quipu 的 Hydrator (`hydrator.py`) 已经设计为扫描所有 `refs/quipu/`（包括 `remotes`），因此即使不在 `local/heads`，这些节点依然会进入 SQLite 数据库并在 UI 中可见。这是正确的行为。
 
 ### 标签
-#intent/fix #intent/tooling #flow/ready #priority/high #comp/tests #concept/sync #scope/core #ai/instruct #task/domain/sync #task/object/test-helpers #task/action/refactor #task/state/continue
+#intent/fix #flow/ready #priority/high #comp/tests #concept/sync #scope/core #ai/instruct #task/domain/testing #task/object/sync-test #task/action/correction #task/state/begin
 
 ---
 
 ### Script
 
-#### Acts 1: 增强 `create_node`，添加显式标题
+#### Acts 1: 修正测试断言
+
+我们将修改 `test_sync_modes.py`，反转对 `local_refs_b` 的断言逻辑。
 
 ~~~~~act
 patch_file
 tests/integration/test_sync_modes.py
 ~~~~~
 ~~~~~python
-def create_node(work_dir: Path, content: str) -> str:
-    """Helper to create a node and return its commit hash."""
-    heads_before = get_local_quipu_heads(work_dir)
+        # Verify User B's local repo HAS User A's node (in remotes and local)
+        local_refs_b = run_git_command(user_b_path, ["for-each-ref"])
+        assert f"refs/quipu/remotes/origin/{user_a_id}/heads/{node_a}" in local_refs_b
+        assert f"refs/quipu/local/heads/{node_a}" in local_refs_b
 
-    plan_file = work_dir / f"{content}.md"
-    plan_file.write_text(f"~~~~~act\necho '{content}'\n~~~~~")
-    result = runner.invoke(app, ["run", str(plan_file), "--work-dir", str(work_dir), "-y"])
-    assert result.exit_code == 0
-
-    heads_after = get_local_quipu_heads(work_dir)
-    new_heads = heads_after - heads_before
-
-    if not new_heads:
-        raise AssertionError("No new Quipu nodes created.")
-
-    # If only 1 node created, return it.
-    if len(new_heads) == 1:
-        return new_heads.pop()
-
-    # If 2 nodes created (Capture + Plan), identify the Plan node by its message.
-    # The Plan node summary should contain the echoed content.
-    for head in new_heads:
-        msg = run_git_command(work_dir, ["log", "-1", "--format=%B", head])
-        if f"echo '{content}'" in msg:
-            return head
-
-    raise AssertionError(
-        f"Could not identify Plan node among {len(new_heads)} new heads: {new_heads}"
-    )
+        # Verify remote DOES NOT have User B's node
 ~~~~~
 ~~~~~python
-def create_node(work_dir: Path, content: str) -> str:
-    """Helper to create a node and return its commit hash."""
-    heads_before = get_local_quipu_heads(work_dir)
+        # Verify User B's local repo HAS User A's node (in remotes ONLY)
+        local_refs_b = run_git_command(user_b_path, ["for-each-ref"])
+        assert f"refs/quipu/remotes/origin/{user_a_id}/heads/{node_a}" in local_refs_b
+        # Crucial: Foreign nodes should NOT pollute local/heads to prevent re-pushing them as own
+        assert f"refs/quipu/local/heads/{node_a}" not in local_refs_b
 
-    # [FIX] Add an explicit title to the plan to ensure predictable node summary.
-    plan_title = f"Plan for {content}"
-    plan_file = work_dir / f"{content}.md"
-    plan_file.write_text(f"# {plan_title}\n\n~~~~~act\necho '{content}'\n~~~~~")
-    
-    result = runner.invoke(app, ["run", str(plan_file), "--work-dir", str(work_dir), "-y"])
-    assert result.exit_code == 0
-
-    heads_after = get_local_quipu_heads(work_dir)
-    new_heads = heads_after - heads_before
-
-    if not new_heads:
-        raise AssertionError("No new Quipu nodes created.")
-
-    # If only 1 node created, return it.
-    if len(new_heads) == 1:
-        return new_heads.pop()
-
-    # If 2 nodes created (Capture + Plan), identify the Plan node by checking if
-    # the explicit title is present in the commit message.
-    for head in new_heads:
-        msg = run_git_command(work_dir, ["log", "-1", "--format=%B", head])
-        if plan_title in msg:
-            return head
-
-    raise AssertionError(
-        f"Could not identify Plan node among {len(new_heads)} new heads: {new_heads}"
-    )
+        # Verify remote DOES NOT have User B's node
 ~~~~~
 
 ### 下一步建议
-这种方法消除了所有的猜测。现在测试应该非常稳健了。请再次运行测试。一旦确认通过，我们将合并这些改动。
+再次运行 `pytest tests/integration/test_sync_modes.py`。这次应该通过。
+
+---
+
+这是一个极其深刻且关键的指正。你是对的，我之前的提议（将所有订阅用户的引用调和到 `local/heads`）不仅是错误的，而且在架构上是**灾难性**的。
+
+这里是详细的解释：
+
+### 为什么它是灾难性的？
+
+**1. 身份窃取与回环污染 (Identity Hijacking & Loop Pollution)**
+
+`Quipu` 的同步协议（QDPS）基于一个核心假设：**`push` 操作会将 `refs/quipu/local/heads/*` 下的所有内容推送到远程的 `refs/quipu/users/ME/heads/*`。**
+
+如果 `sync` 操作自动将 **协作者 A** 的引用复制到了 **我** 的 `local/heads`：
+1.  我执行 `pull`（包含了 A 的数据）。
+2.  A 的分支出现在了我的 `local/heads` 中。
+3.  我执行 `push`。
+4.  **灾难发生**：系统会将 A 的分支作为**我**的数据，推送到**我的**远程用户目录下 (`users/ME/heads`)。
+
+这导致了：
+*   **数据重复**：A 的历史现在存在于两个地方（A 的目录和我的目录）。
+*   **所有权混淆**：在未来的图谱分析中，很难区分这是我 fork 的分支，还是仅仅是同步造成的垃圾副本。
+*   **无限增殖**：如果 B 也同步了我，B 会得到 A 的副本（来自我）和 A 的原件。
+
+**2. 本地工作区污染 (Workspace Pollution)**
+
+`refs/quipu/local/heads` 的语义是“**我的工作台**”。它应该只包含我正在进行的、或我显式保存的状态。
+如果订阅了 5 个活跃的协作者，每个协作者有 10 个分支，我的 `local/heads` 会突然多出 50 个我不关心的引用。这会破坏 `git log --branches` 的可用性，也会让 `checkout` 时的自动补全变得不可用。
+
+**3. 破坏修剪逻辑 (Pruning Logic Breakage)**
+
+`pull-prune` 模式旨在删除本地存在但远程已删除的分支。
+如果我们将别人的分支放入 `local/heads`，当我对照**我的**远程镜像进行修剪时，这些“别人的分支”会被视为“未在我的远程存在”，从而被立即误删。或者，我们需要编写极其复杂的逻辑来区分哪些 `local` 引用是“原生”的，哪些是“外来”的。
+
+### 正确的架构视图
+
+*   **`refs/quipu/remotes/origin/UserA/...`**: 这是**图书馆**。它是只读的，参考用的。UI 和数据库应该从这里读取数据来展示“别人的工作”。
+*   **`refs/quipu/local/heads/...`**: 这是**我的书桌**。只有我创造的，或者我显式决定“借阅”（Checkout/Branch off）的内容才应该在这里。
+
+### 结论
+
+**代码 (`remote.py`) 目前的逻辑（只调和当前用户）其实是正确的。**
+**出错的是测试用例 (`test_sync_modes.py`) 的断言。**
+
+该测试错误地假设“Pull 成功”意味着“出现在 `local/heads` 中”。实际上，Pull 成功意味着“出现在 `remotes/...` 中且能被 Hydrator 读取”。
+
+我们需要修改测试，而不是修改代码。
+
