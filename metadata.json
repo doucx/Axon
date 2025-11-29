@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] feat: 重构 remote, export, ui 命令以适配 MessageBus", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764415961.3703835, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] refactor: Finalize MessageBus migration and remove remaining secho calls", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764416145.634508, "duration_ms": 0}}
