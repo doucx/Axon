@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[COMMIT] style: 使用 ruff 格式化全库代码", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764396986.1958, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] refactor: 集中化测试 Fixture 以消除冗余", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764397347.7150278, "duration_ms": 0}}
