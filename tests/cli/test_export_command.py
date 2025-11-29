@@ -1,6 +1,7 @@
 import pytest
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock, ANY
 
 from quipu.cli.main import app
 from quipu.engine.state_machine import Engine
@@ -74,13 +75,18 @@ def history_for_all_links(engine_instance: Engine):
     return engine
 
 
-def test_export_basic(runner, populated_history):
+def test_export_basic(runner, populated_history, monkeypatch):
     """测试基本的导出功能。"""
     engine = populated_history
     output_dir = engine.root_dir / ".quipu" / "test_export"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     result = runner.invoke(app, ["export", "-w", str(engine.root_dir), "-o", str(output_dir)])
-    assert result.exit_code == 0, result.stderr
-    assert "导出成功" in result.stderr
+    
+    assert result.exit_code == 0
+    mock_bus.success.assert_called_once_with("export.success.dir")
+    
     assert output_dir.exists()
     files = list(output_dir.glob("*.md"))
     assert len(files) == 6
@@ -90,47 +96,77 @@ def test_export_basic(runner, populated_history):
     assert content.startswith("---") and "> [!nav] 节点导航" in content
 
 
-def test_export_filtering(runner, populated_history):
+def test_export_filtering(runner, populated_history, monkeypatch):
     """测试过滤选项。"""
     engine = populated_history
     output_dir = engine.root_dir / ".quipu" / "test_export_filter"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     result = runner.invoke(app, ["export", "-w", str(engine.root_dir), "-o", str(output_dir), "-n", "2"])
+    
     assert result.exit_code == 0
+    mock_bus.success.assert_called_once_with("export.success.dir")
     assert len(list(output_dir.glob("*.md"))) == 2
 
 
-def test_export_edge_cases(runner, quipu_workspace):
+def test_export_edge_cases(runner, quipu_workspace, monkeypatch):
     """测试边界情况。"""
     work_dir, _, engine = quipu_workspace
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
+    # Empty history
     result = runner.invoke(app, ["export", "-w", str(work_dir)])
-    assert result.exit_code == 0 and "历史记录为空" in result.stderr
+    assert result.exit_code == 0
+    mock_bus.info.assert_called_with("export.info.emptyHistory")
+
+    # No matching nodes
     (work_dir / "f").touch()
     engine.capture_drift(engine.git_db.get_tree_hash())
+    
+    # Reset mock for second call
+    mock_bus.reset_mock()
+    
     result = runner.invoke(app, ["export", "-w", str(work_dir), "--since", "2099-01-01 00:00"])
-    assert result.exit_code == 0 and "未找到符合条件的节点" in result.stderr
+    assert result.exit_code == 0
+    mock_bus.info.assert_called_with("export.info.noMatchingNodes")
 
 
-def test_export_no_frontmatter(runner, populated_history):
+def test_export_no_frontmatter(runner, populated_history, monkeypatch):
     engine = populated_history
     output_dir = engine.root_dir / ".quipu" / "test_export_no_fm"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     runner.invoke(app, ["export", "-w", str(engine.root_dir), "-o", str(output_dir), "--no-frontmatter", "-n", "1"])
     a_file = next(output_dir.glob("*.md"))
     assert not a_file.read_text().startswith("---")
 
 
-def test_export_no_nav(runner, populated_history):
+def test_export_no_nav(runner, populated_history, monkeypatch):
     engine = populated_history
     output_dir = engine.root_dir / ".quipu" / "test_export_no_nav"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     runner.invoke(app, ["export", "-w", str(engine.root_dir), "-o", str(output_dir), "--no-nav", "-n", "1"])
     a_file = next(output_dir.glob("*.md"))
     assert "> [!nav] 节点导航" not in a_file.read_text()
 
 
-def test_export_zip(runner, populated_history):
+def test_export_zip(runner, populated_history, monkeypatch):
     engine = populated_history
     output_dir = engine.root_dir / ".quipu" / "test_export_zip"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     result = runner.invoke(app, ["export", "-w", str(engine.root_dir), "-o", str(output_dir), "--zip"])
-    assert result.exit_code == 0 and "已保存为压缩包" in result.stderr
+    
+    assert result.exit_code == 0
+    mock_bus.info.assert_any_call("export.info.zipping")
+    mock_bus.success.assert_called_with("export.success.zip", path=ANY)
+    
     zip_path = output_dir.with_suffix(".zip")
     assert not output_dir.exists() and zip_path.exists()
     with zipfile.ZipFile(zip_path, "r") as zf:
@@ -147,15 +183,18 @@ def test_export_zip(runner, populated_history):
     ],
 )
 def test_export_hide_link_type(
-    runner, history_for_all_links, link_type_to_hide, text_not_expected, text_still_expected
+    runner, history_for_all_links, link_type_to_hide, text_not_expected, text_still_expected, monkeypatch
 ):
-    """验证 --hide-link-type 选项能成功禁用特定类型的链接。"""
+    """验证 --hide-link-type 选项能成功禁用特定类型的导航链接。"""
     engine = history_for_all_links
     output_dir = engine.root_dir / ".quipu" / "test_export_hide_links"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     result = runner.invoke(
         app, ["export", "-w", str(engine.root_dir), "-o", str(output_dir), "--hide-link-type", link_type_to_hide]
     )
-    assert result.exit_code == 0, result.stderr
+    assert result.exit_code == 0
     files = {f.name: f for f in output_dir.glob("*.md")}
     target_file = next(f for name, f in files.items() if "Test_Target_Node" in name)
     content = target_file.read_text()
@@ -163,10 +202,13 @@ def test_export_hide_link_type(
     assert text_still_expected in content
 
 
-def test_export_hide_multiple_link_types(runner, history_for_all_links):
+def test_export_hide_multiple_link_types(runner, history_for_all_links, monkeypatch):
     """验证可以同时禁用多种链接类型。"""
     engine = history_for_all_links
     output_dir = engine.root_dir / ".quipu" / "test_export_hide_multi"
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.export.bus", mock_bus)
+
     result = runner.invoke(
         app,
         [
@@ -181,7 +223,7 @@ def test_export_hide_multiple_link_types(runner, history_for_all_links):
             "child",
         ],
     )
-    assert result.exit_code == 0, result.stderr
+    assert result.exit_code == 0
     files = {f.name: f for f in output_dir.glob("*.md")}
     target_file = next(f for name, f in files.items() if "Test_Target_Node" in name)
     content = target_file.read_text()

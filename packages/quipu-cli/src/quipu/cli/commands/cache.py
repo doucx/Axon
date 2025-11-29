@@ -8,6 +8,7 @@ from .helpers import engine_context
 from ..config import DEFAULT_WORK_DIR
 from ..logger_config import setup_logging
 from ..ui_utils import prompt_for_confirmation
+from quipu.common.messaging import bus
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +28,14 @@ def cache_sync(
     """
     将 Git 历史增量同步到 SQLite 缓存。
     """
-    typer.secho("💧 正在执行增量数据补水...", fg=typer.colors.BLUE, err=True)
+    bus.info("cache.sync.info.hydrating")
     try:
         with engine_context(work_dir):
             pass
-        typer.secho("✅ 数据同步完成。", fg=typer.colors.GREEN, err=True)
+        bus.success("cache.sync.success")
     except Exception as e:
         logger.error("数据同步失败", exc_info=True)
-        typer.secho(f"❌ 数据同步失败: {e}", fg=typer.colors.RED, err=True)
+        bus.error("cache.sync.error", error=str(e))
         ctx.exit(1)
 
 
@@ -55,22 +56,22 @@ def cache_rebuild(
     setup_logging()
     db_path = work_dir.resolve() / ".quipu" / "history.sqlite"
     if not db_path.exists():
-        typer.secho("🤷 数据库文件不存在，将直接创建。无需重建。", fg=typer.colors.YELLOW, err=True)
+        bus.warning("cache.rebuild.info.dbNotFound")
         cache_sync(ctx, work_dir)
         return
 
     if not force:
         prompt = f"🚨 即将删除并重建数据库 {db_path}。\n此操作不可逆。是否继续？"
         if not prompt_for_confirmation(prompt, default=False):
-            typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
+            bus.warning("common.prompt.cancel")
             raise typer.Abort()
 
     try:
         db_path.unlink()
-        typer.secho("🗑️  旧数据库已删除。", err=True)
+        bus.info("cache.rebuild.info.deleting")
     except (OSError, PermissionError) as e:
         logger.error(f"删除旧数据库文件 '{db_path}' 失败", exc_info=True)
-        typer.secho(f"❌ 删除旧数据库失败: {e}", fg=typer.colors.RED, err=True)
+        bus.error("cache.rebuild.error.deleteFailed", error=str(e))
         ctx.exit(1)
 
     cache_sync(ctx, work_dir)

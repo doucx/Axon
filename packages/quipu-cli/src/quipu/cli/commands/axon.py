@@ -14,6 +14,7 @@ from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
 from ..controller import confirmation_handler_for_executor
 from ..logger_config import setup_logging
 from ..plugin_manager import PluginManager
+from quipu.common.messaging import bus
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +59,14 @@ def register(app: typer.Typer):
 
         # 4. 处理 --list-acts
         if list_acts:
-            typer.secho("\n📋 可用的 Axon 指令列表:\n", fg=typer.colors.GREEN, bold=True, err=True)
+            bus.info("axon.listActs.ui.header")
             acts = executor.get_registered_acts()
             for name in sorted(acts.keys()):
                 doc = acts[name]
                 clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
                 indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
-                typer.secho(f"🔹 {name}", fg=typer.colors.CYAN, bold=True)
-                typer.echo(f"{indented_doc}\n")
+                bus.info("axon.listActs.ui.actItem", name=name)
+                bus.data(f"{indented_doc}\n")
             ctx.exit(0)
 
         # 5. 获取输入内容 (文件 或 STDIN 或 默认文件)
@@ -73,7 +74,7 @@ def register(app: typer.Typer):
         source_desc = ""
         if file:
             if not file.exists():
-                typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
+                bus.error("common.error.fileNotFound", path=file)
                 ctx.exit(1)
             content = file.read_text(encoding="utf-8")
             source_desc = f"文件 ({file.name})"
@@ -92,7 +93,7 @@ def register(app: typer.Typer):
             source_desc = f"默认文件 ({DEFAULT_ENTRY_FILE.name})"
 
         if not content.strip():
-            typer.secho("⚠️  提示: 未提供输入 (文件或管道)，且未找到默认文件。", fg=typer.colors.YELLOW, err=True)
+            bus.warning("axon.warning.noInput")
             ctx.exit(0)
 
         logger.info(f"Axon 启动 | 源: {source_desc} | 工作区: {work_dir}")
@@ -107,23 +108,21 @@ def register(app: typer.Typer):
             statements = parser.parse(content)
 
             if not statements:
-                typer.secho(
-                    f"⚠️  未解析到任何有效指令 (Parser: {final_parser_name})。", fg=typer.colors.YELLOW, err=True
-                )
+                bus.warning("axon.warning.noStatements", parser=final_parser_name)
                 ctx.exit(0)
 
             # 7. 执行
             executor.execute(statements)
-            typer.secho("\n✨ Axon 执行完成。", fg=typer.colors.GREEN, err=True)
+            bus.success("axon.success")
 
         except ExecutionError as e:
-            typer.secho(f"\n❌ 执行失败: {e}", fg=typer.colors.RED, err=True)
+            bus.error("axon.error.executionFailed", error=str(e))
             ctx.exit(1)
         except ValueError as e:
             logger.error(f"无效的参数或配置: {e}", exc_info=True)
-            typer.secho(f"\n❌ 无效的参数或配置: {e}", fg=typer.colors.RED, err=True)
+            bus.error("common.error.invalidConfig", error=str(e))
             ctx.exit(1)
         except Exception as e:
             logger.error(f"未预期的系统错误: {e}", exc_info=True)
-            typer.secho(f"\n❌ 系统错误: {e}", fg=typer.colors.RED, err=True)
+            bus.error("common.error.generic", error=str(e))
             ctx.exit(1)

@@ -80,15 +80,11 @@ def register(app: typer.Typer):
                 bus.success("workspace.discard.noChanges", short_hash=latest_node.short_hash)
                 ctx.exit(0)
 
-            diff_stat = engine.git_db.get_diff_stat(target_tree_hash, current_hash)
-            bus.info("workspace.discard.ui.diffHeader")
-            typer.secho("-" * 20, err=True)
-            typer.echo(diff_stat, err=True)
-            typer.secho("-" * 20, err=True)
+            diff_stat_str = engine.git_db.get_diff_stat(target_tree_hash, current_hash)
 
             if not force:
-                prompt = f"🚨 即将丢弃上述所有变更，并恢复到状态 {latest_node.short_hash}。\n此操作不可逆。是否继续？"
-                if not prompt_for_confirmation(prompt, default=False):
+                prompt = bus.get("workspace.discard.prompt.confirm", short_hash=latest_node.short_hash)
+                if not prompt_for_confirmation(prompt, diff_lines=diff_stat_str.splitlines(), default=False):
                     bus.warning("common.prompt.cancel")
                     raise typer.Abort()
 

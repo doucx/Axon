@@ -2,6 +2,8 @@ import click
 import typer
 from typing import List, Optional
 
+from quipu.common.messaging import bus
+
 
 def prompt_for_confirmation(prompt: str, diff_lines: Optional[List[str]] = None, default: bool = False) -> bool:
     """
@@ -19,7 +21,7 @@ def prompt_for_confirmation(prompt: str, diff_lines: Optional[List[str]] = None,
         如果用户确认则返回 True，否则返回 False。
     """
     if diff_lines:
-        typer.echo("\n🔍 变更预览:", err=True)
+        bus.info("prompt.ui.diffHeader")
         for line in diff_lines:
             if line.startswith("+"):
                 typer.secho(line.strip("\n"), fg=typer.colors.GREEN, err=True)
@@ -31,7 +33,7 @@ def prompt_for_confirmation(prompt: str, diff_lines: Optional[List[str]] = None,
                 typer.echo(line.strip("\n"), err=True)
         typer.echo("", err=True)
 
-    prompt_suffix = " [Y/n]: " if default else " [y/N]: "
+    prompt_suffix = bus.get("prompt.suffix.yesDefault") if default else bus.get("prompt.suffix.noDefault")
     typer.secho(prompt + prompt_suffix, nl=False, err=True)
 
     try:
@@ -40,7 +42,7 @@ def prompt_for_confirmation(prompt: str, diff_lines: Optional[List[str]] = None,
         click.echo(char, err=True)  # 手动回显到 stderr
     except (OSError, EOFError):
         # 在完全没有 tty 的环境中 (例如 CI runner)，会抛出异常
-        click.echo(" (non-interactive)", err=True)
+        bus.info("prompt.info.nonInteractive")
         return False  # 非交互式环境应安全失败
 
     if not char or char == "\r" or char == "\n":

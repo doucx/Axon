@@ -10,6 +10,7 @@ from quipu.runtime.executor import Executor
 from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
 from ..controller import run_quipu
 from ..logger_config import setup_logging
+from quipu.common.messaging import bus
 
 logger = logging.getLogger(__name__)
 
@@ -42,24 +43,24 @@ def register(app: typer.Typer):
             from quipu.acts import register_core_acts
 
             register_core_acts(executor)
-            typer.secho("\n📋 可用的 Quipu 指令列表:\n", fg=typer.colors.GREEN, bold=True, err=True)
+            bus.info("run.listActs.ui.header")
             acts = executor.get_registered_acts()
             for name in sorted(acts.keys()):
                 doc = acts[name]
                 clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
                 indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
-                typer.secho(f"🔹 {name}", fg=typer.colors.CYAN, bold=True)
-                typer.echo(f"{indented_doc}\n")
+                bus.info("run.listActs.ui.actItem", name=name)
+                bus.data(f"{indented_doc}\n")
             ctx.exit(0)
 
         content = ""
         source_desc = ""
         if file:
             if not file.exists():
-                typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
+                bus.error("common.error.fileNotFound", path=file)
                 ctx.exit(1)
             if not file.is_file():
-                typer.secho(f"❌ 错误: 路径不是文件: {file}", fg=typer.colors.RED, err=True)
+                bus.error("common.error.pathNotFile", path=file)
                 ctx.exit(1)
             content = file.read_text(encoding="utf-8")
             source_desc = f"文件 ({file.name})"
@@ -75,29 +76,30 @@ def register(app: typer.Typer):
             content = DEFAULT_ENTRY_FILE.read_text(encoding="utf-8")
             source_desc = f"默认文件 ({DEFAULT_ENTRY_FILE.name})"
         if file and not file.exists() and file.name in ["log", "checkout", "sync", "init", "ui", "find"]:
-            typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
-            typer.secho(f"💡 提示: 你是不是想执行 'quipu {file.name}' 命令？", fg=typer.colors.YELLOW, err=True)
+            bus.error("common.error.fileNotFound", path=file)
+            bus.warning("run.error.ambiguousCommand", command=file.name)
             ctx.exit(1)
         if not content.strip():
             if not file:
-                typer.secho(
-                    f"⚠️  提示: 未提供输入，且当前目录下未找到默认文件 '{DEFAULT_ENTRY_FILE.name}'。",
-                    fg=typer.colors.YELLOW,
-                    err=True,
-                )
-                typer.echo("\n用法示例:", err=True)
-                typer.echo("  quipu run my_plan.md", err=True)
-                typer.echo("  echo '...' | quipu run", err=True)
+                bus.warning("run.warning.noInput", filename=DEFAULT_ENTRY_FILE.name)
+                bus.info("run.info.usageHint")
                 ctx.exit(0)
 
         logger.info(f"已加载指令源: {source_desc}")
         logger.info(f"工作区根目录: {work_dir}")
         if yolo:
-            logger.warning("⚠️  YOLO 模式已开启：将自动确认所有修改。")
+            bus.warning("run.warning.yoloEnabled")
         result = run_quipu(content=content, work_dir=work_dir, parser_name=parser_name, yolo=yolo)
+
         if result.message:
-            color = typer.colors.GREEN if result.success else typer.colors.RED
-            typer.secho(f"\n{result.message}", fg=color, err=True)
+            kwargs = result.msg_kwargs or {}
+            if result.exit_code == 2:  # OperationCancelledError
+                bus.warning(result.message, **kwargs)
+            elif not result.success:
+                bus.error(result.message, **kwargs)
+            else:
+                bus.success(result.message, **kwargs)
+
         if result.data:
-            typer.echo(result.data)
+            bus.data(result.data)
         ctx.exit(result.exit_code)

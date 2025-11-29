@@ -100,6 +100,15 @@ class MessageBus:
     def error(self, msg_id: str, **kwargs: Any) -> None:
         self._render("error", msg_id, **kwargs)
 
+    def get(self, msg_id: str, **kwargs: Any) -> str:
+        """Retrieves and formats a message string without rendering it."""
+        template = self._store.get(msg_id)
+        try:
+            return template.format(**kwargs)
+        except KeyError as e:
+            logger.warning(f"Formatting error for '{msg_id}': missing key {e}")
+            return template
+
     def data(self, data_string: str) -> None:
         self._renderer.data(data_string)
 

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional, Any
+from dataclasses import dataclass, field
+from typing import Optional, Any, Dict
 
 
 @dataclass
@@ -11,6 +11,7 @@ class QuipuResult:
 
     success: bool
     exit_code: int
-    message: str = ""
+    message: str = ""  # Will hold the message ID for the bus
     data: Any = None
     error: Optional[Exception] = None
+    msg_kwargs: Dict[str, Any] = field(default_factory=dict)

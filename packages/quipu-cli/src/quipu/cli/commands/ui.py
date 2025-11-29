@@ -8,6 +8,7 @@ from .helpers import engine_context, _execute_visit
 from ..config import DEFAULT_WORK_DIR, LOG_LEVEL
 from ..factory import create_engine
 from ..logger_config import configure_file_logging, setup_logging
+from quipu.common.messaging import bus
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,8 @@ def register(app: typer.Typer):
         try:
             from ..tui import QuipuUiApp
         except ImportError:
-            typer.secho("❌ TUI 依赖 'textual' 未安装。", fg=typer.colors.RED, err=True)
-            typer.secho("💡 请运行: pip install 'textual>=0.58.0'", err=True)
+            bus.error("ui.error.depMissing")
+            bus.info("ui.info.depHint")
             ctx.exit(1)
 
         if LOG_LEVEL == "DEBUG":
@@ -46,7 +47,7 @@ def register(app: typer.Typer):
         try:
             count = temp_engine.reader.get_node_count()
             if count == 0:
-                typer.secho("📜 历史记录为空，无需启动 UI。", fg=typer.colors.YELLOW, err=True)
+                bus.info("ui.info.emptyHistory")
                 ctx.exit(0)
         finally:
             temp_engine.close()
@@ -59,8 +60,8 @@ def register(app: typer.Typer):
             if action == "checkout":
                 target_hash = data
                 with engine_context(work_dir) as action_engine:
-                    typer.secho(f"\n> TUI 请求检出到: {target_hash[:7]}", err=True)
-                    _execute_visit(ctx, action_engine, target_hash, f"正在导航到 TUI 选定节点: {target_hash[:7]}")
+                    bus.info("ui.info.checkoutRequest", short_hash=target_hash[:7])
+                    _execute_visit(ctx, action_engine, target_hash, "navigation.info.navigating", short_hash=target_hash[:7])
 
             elif action == "dump":
                 print(data)

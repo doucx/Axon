@@ -9,6 +9,7 @@ from quipu.engine.state_machine import Engine
 
 from ..factory import create_engine
 from ..logger_config import setup_logging
+from quipu.common.messaging import bus
 
 
 @contextmanager
@@ -32,18 +33,18 @@ def _find_current_node(engine: Engine, graph: Dict[str, QuipuNode]) -> Optional[
         if node.output_tree == current_hash:
             return node
 
-    typer.secho("⚠️  当前工作区状态未在历史中找到，或存在未保存的变更。", fg=typer.colors.YELLOW, err=True)
-    typer.secho("💡  请先运行 'quipu save' 创建一个快照，再进行导航。", fg=typer.colors.YELLOW, err=True)
+    bus.warning("navigation.warning.workspaceDirty")
+    bus.info("navigation.info.saveHint")
     return None
 
 
-def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, description: str):
+def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, msg_id: str, **kwargs):
     """辅助函数：执行 engine.visit 并处理结果"""
-    typer.secho(f"🚀 {description}", err=True)
+    bus.info(msg_id, **kwargs)
     try:
         engine.visit(target_hash)
-        typer.secho(f"✅ 已成功切换到状态 {target_hash[:7]}。", fg=typer.colors.GREEN, err=True)
+        bus.success("navigation.success.visit", short_hash=target_hash[:7])
     except Exception as e:
         logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
-        typer.secho(f"❌ 导航操作失败: {e}", fg=typer.colors.RED, err=True)
+        bus.error("navigation.error.generic", error=str(e))
         ctx.exit(1)

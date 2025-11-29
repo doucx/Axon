@@ -11,6 +11,7 @@ from quipu.engine.git_db import GitDB
 from ..config import DEFAULT_WORK_DIR
 from ..logger_config import setup_logging
 from ..utils import find_git_repository_root
+from quipu.common.messaging import bus
 
 
 class SyncMode(str, Enum):
@@ -54,7 +55,7 @@ def register(app: typer.Typer):
 
         final_user_id = config.get("sync.user_id")
         if not final_user_id:
-            typer.secho("🤝 首次使用 sync 功能，正在自动配置用户身份...", fg=typer.colors.BLUE, err=True)
+            bus.info("sync.setup.firstUse")
             try:
                 result = subprocess.run(
                     ["git", "config", "user.email"], cwd=sync_dir, capture_output=True, text=True, check=True
@@ -66,16 +67,11 @@ def register(app: typer.Typer):
                 final_user_id = get_user_id_from_email(email)
                 config.set("sync.user_id", final_user_id)
                 config.save()
-                typer.secho(
-                    f"✅ 已根据你的 Git 邮箱 '{email}' 生成并保存用户 ID: {final_user_id}",
-                    fg=typer.colors.GREEN,
-                    err=True,
-                )
+                bus.success("sync.setup.success", email=email, user_id=final_user_id)
 
             except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
-                typer.secho("❌ 错误：无法获取你的 Git 用户邮箱。", fg=typer.colors.RED, err=True)
-                typer.secho("💡 请先运行以下命令进行设置:", fg=typer.colors.YELLOW, err=True)
-                typer.echo('  git config --global user.email "you@example.com"')
+                bus.error("sync.setup.error.noEmail")
+                bus.warning("sync.setup.info.emailHint")
                 ctx.exit(1)
 
         try:
@@ -84,52 +80,50 @@ def register(app: typer.Typer):
             target_ids_to_fetch = set(subscriptions)
             target_ids_to_fetch.add(final_user_id)
 
-            typer.secho(f"⚙️  模式: {mode.value}", fg=typer.colors.YELLOW, err=True)
+            bus.info("sync.run.info.mode", mode=mode.value)
 
             # --- Operation Dispatch based on Mode ---
             match mode:
                 case SyncMode.BIDIRECTIONAL:
-                    typer.secho("⬇️  正在拉取...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.pulling")
                     for target_id in sorted(list(target_ids_to_fetch)):
                         git_db.fetch_quipu_refs(remote, target_id)
-                    typer.secho("🤝 正在调和...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.reconciling")
                     git_db.reconcile_local_with_remote(remote, final_user_id)
-                    typer.secho("⬆️  正在推送...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.pushing")
                     git_db.push_quipu_refs(remote, final_user_id)
-                    typer.secho("\n✅ Quipu 双向同步完成。", fg=typer.colors.GREEN, err=True)
+                    bus.success("sync.run.success.bidirectional")
 
                 case SyncMode.PULL_ONLY:
-                    typer.secho("⬇️  正在拉取...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.pulling")
                     for target_id in sorted(list(target_ids_to_fetch)):
                         git_db.fetch_quipu_refs(remote, target_id)
-                    typer.secho("🤝 正在调和...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.reconciling")
                     git_db.reconcile_local_with_remote(remote, final_user_id)
-                    typer.secho("\n✅ Quipu 拉取同步完成。", fg=typer.colors.GREEN, err=True)
+                    bus.success("sync.run.success.pullOnly")
 
                 case SyncMode.PULL_PRUNE:
-                    typer.secho("⬇️  正在拉取 (带修剪)...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.pullingPrune")
                     for target_id in sorted(list(target_ids_to_fetch)):
                         git_db.fetch_quipu_refs(remote, target_id)
-                    typer.secho("🤝 正在调和...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.reconciling")
                     git_db.reconcile_local_with_remote(remote, final_user_id)
-                    typer.secho("🗑️  正在修剪本地...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.pruning")
                     git_db.prune_local_from_remote(remote, final_user_id)
-                    typer.secho("\n✅ Quipu 拉取同步 (带修剪) 完成。", fg=typer.colors.GREEN, err=True)
+                    bus.success("sync.run.success.pullPrune")
 
                 case SyncMode.PUSH_ONLY:
-                    typer.secho("⬆️  正在推送...", fg=typer.colors.BLUE, err=True)
+                    bus.info("sync.run.info.pushing")
                     git_db.push_quipu_refs(remote, final_user_id, force=False)
-                    typer.secho("\n✅ Quipu 推送同步完成。", fg=typer.colors.GREEN, err=True)
+                    bus.success("sync.run.success.pushOnly")
 
                 case SyncMode.PUSH_FORCE:
-                    typer.secho("⬆️  正在强制推送...", fg=typer.colors.RED, bold=True, err=True)
+                    bus.info("sync.run.info.pushingForce")
                     git_db.push_quipu_refs(remote, final_user_id, force=True)
-                    typer.secho("\n✅ Quipu 强制推送完成。", fg=typer.colors.GREEN, err=True)
+                    bus.success("sync.run.success.pushForce")
 
-            typer.secho(
-                "\n💡 提示: 运行 `quipu cache sync` 来更新本地数据库和 UI 视图。", fg=typer.colors.YELLOW, err=True
-            )
+            bus.info("sync.run.info.cacheHint")
 
         except RuntimeError as e:
-            typer.secho(f"\n❌ 同步操作失败: {e}", fg=typer.colors.RED, err=True)
+            bus.error("sync.run.error.generic", error=str(e))
             ctx.exit(1)

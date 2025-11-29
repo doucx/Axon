@@ -93,9 +93,16 @@ def register(app: typer.Typer):
                 else:
                     # Default view: show summary and all files prettified
                     ts = target_node.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    color = "cyan" if target_node.node_type == "plan" else "magenta"
                     tag = f"[{target_node.node_type.upper()}]"
-                    typer.secho(f"[{color}]{ts} {tag:<9} {target_node.short_hash}[/{color}] - {target_node.summary}\n")
+                    bus.data(
+                        bus.get(
+                            "show.ui.header",
+                            ts=ts,
+                            tag=f"{tag:<9}",
+                            short_hash=target_node.short_hash,
+                            summary=target_node.summary,
+                        )
+                    )
 
                     for filename, content in output_data.items():
                         console.rule(f"[bold]{filename}[/bold]", style="blue")
