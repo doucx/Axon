@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix: 将内存测试辅助类合并到 tests/helpers.py", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764398123.6899767, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix: 为 InMemoryHistoryManager 实现所有必需的抽象方法", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764398172.283235, "duration_ms": 0}}
