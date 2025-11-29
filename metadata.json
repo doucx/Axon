@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(tests): 重构 `create_node` 以确定性地获取新节点哈希", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764408645.4287746, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(tests): 增强 `create_node` 以处理 Capture 和 Plan 双节点场景", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764408747.4207525, "duration_ms": 0}}
