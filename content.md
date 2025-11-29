@@ -1,87 +1,69 @@
-你发现的问题非常准确。
+好的，既然测试已通过，我将生成一个 `[COMMIT]` 计划来将我们刚才完成的所有日志和错误处理改进持久化到版本历史中。
 
-`tui.debug.log` 之所以默认开启，是因为 `ui` 命令的设计初衷是为了方便调试，因此它绕过了全局的日志级别配置，直接调用了一个专门用于文件日志的函数 `configure_file_logging`，该函数内部**硬编码了 `logging.DEBUG` 级别**。
+这个计划将汇总我们之前的所有修改：重命名环境变量、在所有通用异常捕获中添加堆栈跟踪日志，以及修复 TUI 日志记录行为。
 
-这导致无论 `QUIPU_LOG_LEVEL` 设置成什么，只要运行 `quipu ui`，就会强制以 `DEBUG` 级别向文件写入日志。这显然是不理想的默认行为。
-
-我将修改这个逻辑，使其遵循全局配置：只有当 `QUIPU_LOG_LEVEL` 明确设置为 `DEBUG` 时，`quipu ui` 才会启用文件日志记录。在其他情况下（如默认的 `INFO`），它将和其他命令一样，将日志输出到 `stderr`。
-
-## [WIP] fix: TUI 日志应遵循全局日志级别配置
-
-### 错误分析
-`quipu ui` 命令在其实现文件 (`commands/ui.py`) 中，无条件地调用了 `configure_file_logging` 函数。这个函数在 `logger_config.py` 中被定义为强制设置日志级别为 `DEBUG` 并将输出重定向到 `tui.debug.log` 文件。
-
-这种实现方式覆盖了由 `QUIPU_LOG_LEVEL` 环境变量控制的全局日志级别设置，导致即使用户配置了 `INFO` 级别，TUI 依然会创建并写入大量的调试日志，造成了不必要的磁盘 I/O 和混乱。
+## [COMMIT] chore(cli): 增强日志记录与错误处理
 
 ### 用户需求
-修改 `quipu ui` 命令的行为，使其：
-1.  仅在 `QUIPU_LOG_LEVEL` 环境变量被设置为 `DEBUG` 时，才激活文件日志记录 (`tui.debug.log`)。
-2.  在所有其他日志级别下 (例如 `INFO`, `WARNING`, `ERROR`)，其日志行为应与其他 CLI 命令保持一致，即将日志输出到标准错误流 (`stderr`)。
+1.  将控制日志级别的环境变量从 `LOG_LEVEL` 更改为项目专有的 `QUIPU_LOG_LEVEL`。
+2.  在捕获通用 `Exception` 的代码块中，记录完整的错误堆栈跟踪信息以方便调试。
+3.  修复 `quipu ui` 命令无条件生成 `tui.debug.log` 文件的问题，使其行为遵循 `QUIPU_LOG_LEVEL` 的全局配置。
 
 ### 评论
-这是一个重要的可用性修复。让所有命令的日志行为保持一致并尊重用户的全局配置，是良好 CLI 设计的基础。此修改将使 TUI 的行为更加可预测，并避免了在常规使用中产生不必要的日志文件。
+这是一次关键的工程实践改进。通过标准化日志行为、提供详细的错误上下文和使用专有配置，我们显著提升了 Quipu CLI 的健壮性、可维护性和开发者体验。这些改动使得追踪和调试问题变得更加高效。
 
 ### 目标
-1.  在 `commands/ui.py` 中导入 `LOG_LEVEL` 配置变量和标准的 `setup_logging` 函数。
-2.  在 `ui` 命令的入口处添加条件逻辑：检查 `LOG_LEVEL` 的值。
-3.  如果 `LOG_LEVEL` 是 `DEBUG`，则调用 `configure_file_logging`。
-4.  否则，调用 `setup_logging`，以启用标准的 `stderr` 日志记录。
+1.  已将日志级别环境变量更新为 `QUIPU_LOG_LEVEL`。
+2.  已在 `axon`, `cache`, `navigation`, `workspace` 等命令的通用异常处理器中通过 `exc_info=True` 添加了堆栈跟踪日志。
+3.  已修改 `quipu ui` 命令，使其仅在 `QUIPU_LOG_LEVEL=DEBUG` 时才创建文件日志，否则使用标准的 `stderr` 输出。
+4.  已在引擎工厂等关键路径添加了额外的调试日志。
 
 ### 基本原理
-我们将决策逻辑从 `logger_config.py` 上移到命令的调用方 `ui.py`。`configure_file_logging` 函数将继续作为专门的调试日志设置工具，但调用它的权力现在取决于全局配置。通过在 `ui` 命令中根据 `LOG_LEVEL` 变量的值选择调用 `configure_file_logging` 还是 `setup_logging`，我们确保了 TUI 的日志行为与整个应用的其他部分保持一致，同时保留了在需要时轻松开启详细文件调试的能力。
+我们通过将日志配置逻辑集中化，并在命令层级根据全局配置进行决策，实现了行为的一致性。利用 Python `logging` 模块的 `exc_info=True` 参数，可以在不中断现有错误处理流程的情况下，极大地丰富错误日志的上下文信息。此系列修改遵循了命令行工具设计的最佳实践。
 
 ### 标签
-#intent/fix #flow/ready #priority/medium #comp/cli #concept/ui #scope/dx #ai/instruct #task/domain/cli #task/object/logging-error-handling #task/action/refactor #task/state/continue
+#intent/refine #intent/fix #flow/ready #priority/medium #comp/cli #concept/ui #scope/dx #ai/instruct #task/domain/cli #task/object/logging-error-handling #task/action/refactor #task/state/end #task/status/completed
 
 ---
 
 ### Script
 
-#### Acts 1: 更新 `ui.py` 的逻辑
+#### Acts 1: 提交所有相关的代码变更
 
-我们将修改 `ui.py`，引入条件判断来决定使用哪种日志配置。
+现在，我们将所有修改过的文件添加到 Git 暂存区，并创建一个内容详尽的提交来完成这次重构任务。
 
 ~~~~~act
-patch_file
+git_add
+~~~~~
+~~~~~text
+packages/quipu-cli/src/quipu/cli/config.py
+packages/quipu-cli/src/quipu/cli/factory.py
+packages/quipu-cli/src/quipu/cli/commands/axon.py
+packages/quipu-cli/src/quipu/cli/commands/cache.py
+packages/quipu-cli/src/quipu/cli/commands/helpers.py
+packages/quipu-cli/src/quipu/cli/commands/navigation.py
+packages/quipu-cli/src/quipu/cli/commands/workspace.py
 packages/quipu-cli/src/quipu/cli/commands/ui.py
-~~~~~
-~~~~~python
-from .helpers import engine_context, _execute_visit
-from ..config import DEFAULT_WORK_DIR
-from ..factory import create_engine
-from ..logger_config import configure_file_logging
-~~~~~
-~~~~~python
-from .helpers import engine_context, _execute_visit
-from ..config import DEFAULT_WORK_DIR, LOG_LEVEL
-from ..factory import create_engine
-from ..logger_config import configure_file_logging, setup_logging
 ~~~~~
 
 ~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/ui.py
+git_commit
 ~~~~~
-~~~~~python
-        log_file = work_dir / ".quipu" / "tui.debug.log"
-        configure_file_logging(log_file)
-        logging.info("Starting Quipu UI command...")
-~~~~~
-~~~~~python
-        if LOG_LEVEL == "DEBUG":
-            log_file = work_dir / ".quipu" / "tui.debug.log"
-            configure_file_logging(log_file)
-        else:
-            setup_logging()  # Use standard stderr logging for INFO level and above
+~~~~~text
+chore(cli): enhance logging and error handling
 
-        logging.info("Starting Quipu UI command...")
+This commit introduces several improvements to the logging and error handling mechanisms within the Quipu CLI to enhance robustness and debuggability.
+
+Key changes include:
+
+1.  **Environment Variable Renaming**: The log level environment variable has been renamed from `LOG_LEVEL` to the project-specific `QUIPU_LOG_LEVEL` to prevent conflicts with other tools.
+
+2.  **Detailed Error Logging**: All broad `except Exception` blocks now log the full exception traceback using `logger.error(..., exc_info=True)`. This provides crucial context for debugging unexpected errors.
+
+3.  **Conditional TUI Logging**: The `quipu ui` command no longer unconditionally creates a `tui.debug.log` file. It now respects the global `QUIPU_LOG_LEVEL` configuration, only enabling file-based DEBUG logging when explicitly requested. In all other cases, it logs to stderr, consistent with other commands.
+
+4.  **Added Debug Information**: Supplementary DEBUG-level logs have been added to key pathways, such as the engine factory, to provide better visibility into the application's internal state during debugging sessions.
 ~~~~~
 
 ### 下一步建议
-我们已经修正了 TUI 的日志记录逻辑。为了验证修复效果，请按照以下步骤操作：
-
-1.  **清理环境**: 首先，删除现有的日志文件：`rm .quipu/tui.debug.log`。
-2.  **测试默认行为**: 直接运行 `quipu ui`。预期结果是程序正常启动，但 **不会** 在 `.quipu/` 目录下创建 `tui.debug.log` 文件。
-3.  **测试调试行为**: 使用 `QUIPU_LOG_LEVEL=DEBUG quipu ui` 命令启动。预期结果是程序启动，并且 **会** 创建并写入 `tui.debug.log` 文件。
-
-如果上述测试均符合预期，我们就可以将这些日志相关的改进作为一个完整的单元进行提交。
+我们已经成功地将日志和错误处理的改进合并到了代码库中。接下来，我们可以继续处理下一个开发任务。如果你有新的想法或需要修复其他问题，请告诉我。
