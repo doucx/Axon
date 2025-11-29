@@ -1,600 +1,732 @@
-好的，我们继续执行重构计划。现在进入第五阶段，处理核心的 `navigation` 命令。这是一个涉及多个命令和复杂用户反馈的模块，是展示 `MessageBus` 优势的关键步骤。
+好的，我们继续执行重构计划。现在进入第六阶段，处理核心的执行命令 `run` 和 `axon`。这两个命令是 `Quipu` 的主要入口，统一它们的输出行为对于提供一致的用户体验至关重要。
 
-## [WIP] refactor: 将 `navigation` 命令的输出迁移到 MessageBus
+为了实现彻底的解耦，我将对 `QuipuResult` 接口进行一次小的、内部兼容的扩展，使其能够携带结构化的消息数据，而不仅仅是预格式化的字符串。
+
+## [WIP] refactor: 将 `run` 和 `axon` 命令的输出迁移到 MessageBus
 
 ### 用户需求
-根据 `MessageBus` 重构计划，需要将 `quipu` 的所有导航相关命令 (`checkout`, `undo`, `redo`, `prev`, `next`, `back`, `forward`) 及其辅助函数中的用户界面输出，从硬编码的 `typer.secho` 调用迁移到标准化的 `MessageBus` 服务。同时，更新相关的测试用例以验证语义消息调用，而非具体的输出字符串。
+根据 `MessageBus` 重构计划，需要将 `quipu run` 和 `quipu axon` 命令的所有用户界面输出从硬编码的 `typer.secho/echo` 调用迁移到标准化的 `MessageBus` 服务。这包括命令执行过程中的错误、警告、成功信息以及 `--list-acts` 的输出。同时，需要更新相关的测试用例，使其验证语义消息调用，而不是具体的输出字符串。
 
 ### 评论
-导航是 `Quipu` 交互的核心，其输出信息的清晰度和一致性至关重要。将这部分逻辑迁移到 `MessageBus`，不仅能统一用户体验，还能极大地简化代码，将复杂的 `typer.secho` 调用链替换为清晰的、自解释的 `bus` 方法调用。重构测试用例将确保这一核心功能的稳定性和正确性。
+这次重构触及了 `Quipu` 的核心工作流。通过将 `run` 和 `axon` 命令的输出逻辑迁移到 `MessageBus`，我们不仅统一了 UI，还改进了 `controller` 和 `cli` 之间的通信契约，使其更加清晰和健壮。更新交互式测试用例将是确保此次重构成功的关键，特别是对于用户取消操作等不友好路径的验证。
 
 ### 目标
-1.  在 `locales/zh/cli.json` 中添加 `navigation` 命令所需的所有消息模板。
-2.  修改 `packages/quipu-cli/src/quipu/cli/commands/helpers.py`，用 `bus` 调用替换所有 `typer.secho`。
-3.  修改 `packages/quipu-cli/src/quipu/cli/commands/navigation.py`，用 `bus` 调用替换所有 `typer.secho`。
-4.  重写 `tests/cli/test_navigation_commands.py`，使用 `unittest.mock` 注入 `mock_bus` 并断言其方法调用。
+1.  在 `locales/zh/cli.json` 中添加 `run` 和 `axon` 命令所需的所有消息模板。
+2.  扩展 `quipu.interfaces.result.QuipuResult` 数据类，增加一个 `msg_kwargs` 字段以传递结构化数据。
+3.  重构 `quipu.cli.controller.run_quipu` 函数，使其返回的 `QuipuResult` 中包含消息 ID (`message`) 和消息参数 (`msg_kwargs`)。
+4.  重构 `quipu.cli.commands.run.py` 和 `axon.py`，用 `bus` 调用替换所有 `typer` 输出。
+5.  重构 `tests/cli/test_cli_interaction.py` 和 `tests/cli/test_unfriendly_paths.py`，使用 `mock` 来验证 `bus` 的调用。
 
 ### 基本原理
-我们将首先在 `locales` 层定义好所有导航相关的消息文案，为重构提供“弹药”。接着，自底向上地修改代码：先是所有导航命令都依赖的 `helpers.py`，然后是 `navigation.py` 本身。通过这种方式，我们可以确保所有依赖路径都被覆盖。最后，重写测试用例，将它们从对 UI 输出的脆弱依赖中解放出来，转而验证更稳定、更具业务意义的 `MessageBus` 事件。
+我们将首先扩展核心接口 `QuipuResult`，使其能够携带除消息 ID 之外的动态参数。然后，我们修改 `controller` 层的 `run_quipu` 函数，让它利用这个新接口返回结构化的结果。接着，在 `cli` 层的 `run.py` 和 `axon.py` 中，我们将所有硬编码的 `typer` 调用替换为对 `MessageBus` 的语义调用。最后，我们重写受影响的测试用例，用对 `mock_bus` 的断言替换掉对 `stderr` 字符串的脆弱断言，从而完成整个重构闭环。
 
 ### 标签
-#intent/refine #flow/ready #priority/high #comp/cli #comp/tests #concept/navigation #scope/core #ai/instruct #task/domain/cli #task/object/message-bus #task/action/refactor #task/state/continue #task/status/active
+#intent/refine #flow/ready #priority/high #comp/cli #comp/runtime #comp/interfaces #comp/tests #concept/executor #scope/core #ai/instruct #task/domain/cli #task/object/message-bus #task/action/refactor #task/state/continue #task/status/active
 
 ---
 
 ### Script
 
-#### Acts 1: 定义消息模板
+#### Acts 1: 扩展核心接口 `QuipuResult`
 
-我们在 `locales/zh/cli.json` 中为 `navigation` 组件添加所有需要的消息。
+我们在 `quipu-interfaces` 包中为 `QuipuResult` 添加一个新字段，用于传递消息模板的参数。
+
+```````act
+patch_file
+packages/quipu-interfaces/src/quipu/interfaces/result.py
+```````
+```````python
+from dataclasses import dataclass
+from typing import Optional, Any
+
+
+@dataclass
+class QuipuResult:
+    """
+    Quipu 业务逻辑执行结果的标准容器。
+    用于在 Controller 和 Shell 之间传递状态，避免直接抛出 SystemExit。
+    """
+
+    success: bool
+    exit_code: int
+    message: str = ""
+    data: Any = None
+    error: Optional[Exception] = None
+```````
+```````python
+from dataclasses import dataclass, field
+from typing import Optional, Any, Dict
+
+
+@dataclass
+class QuipuResult:
+    """
+    Quipu 业务逻辑执行结果的标准容器。
+    用于在 Controller 和 Shell 之间传递状态，避免直接抛出 SystemExit。
+    """
+
+    success: bool
+    exit_code: int
+    message: str = ""  # Will hold the message ID for the bus
+    data: Any = None
+    error: Optional[Exception] = None
+    msg_kwargs: Dict[str, Any] = field(default_factory=dict)
+```````
+
+#### Acts 2: 定义 `run` 和 `axon` 的消息模板
+
+我们在 `locales/zh/cli.json` 中添加所有需要的消息。
 
 ```````act
 patch_file
 locales/zh/cli.json
 ```````
 ```````json
-  "cache.rebuild.info.deleting": "🗑️  旧数据库已删除。",
-  "cache.rebuild.error.deleteFailed": "❌ 删除旧数据库失败: {error}",
-  "workspace.save.success": "📸 快照已保存: {short_hash}{msg_suffix}",
-  "workspace.save.noChanges": "✅ 工作区状态未发生变化，无需创建快照。",
-  "workspace.save.error": "❌ 创建快照失败: {error}",
-```````
-```````json
-  "cache.rebuild.info.deleting": "🗑️  旧数据库已删除。",
-  "cache.rebuild.error.deleteFailed": "❌ 删除旧数据库失败: {error}",
-  "navigation.info.navigating": "🚀 正在导航到节点: {short_hash}",
-  "navigation.success.visit": "✅ 已成功切换到状态 {short_hash}。",
-  "navigation.error.generic": "❌ 导航操作失败: {error}",
-  "navigation.warning.workspaceDirty": "⚠️  当前工作区状态未在历史中找到，或存在未保存的变更。",
-  "navigation.info.saveHint": "💡  请先运行 'quipu save' 创建一个快照，再进行导航。",
-  "navigation.checkout.error.notFound": "❌ 错误: 未找到 output_tree 哈希前缀为 '{hash_prefix}' 的历史节点。",
-  "navigation.checkout.error.notUnique": "❌ 错误: 哈希前缀 '{hash_prefix}' 不唯一，匹配到 {count} 个节点。",
-  "navigation.checkout.info.noAction": "✅ 工作区已处于目标状态 ({short_hash})，无需操作。",
-  "navigation.checkout.info.capturingDrift": "⚠️  检测到当前工作区存在未记录的变更，将自动创建捕获节点...",
-  "navigation.checkout.success.driftCaptured": "✅ 变更已捕获。",
-  "navigation.checkout.ui.diffHeader": "\n以下是将要发生的变更:",
-  "navigation.undo.atRoot": "✅ 已在历史根节点。",
-  "navigation.undo.reachedRoot": "✅ 已到达历史根节点 (移动了 {steps} 步)。",
-  "navigation.redo.atEnd": "✅ 已在分支末端。",
-  "navigation.redo.reachedEnd": "✅ 已到达分支末端 (移动了 {steps} 步)。",
-  "navigation.redo.info.multiBranch": "💡 当前节点有多个分支，已自动选择最新分支 -> {short_hash}",
-  "navigation.prev.noSiblings": "✅ 当前节点没有兄弟分支。",
-  "navigation.prev.atOldest": "✅ 已在最旧的兄弟分支。",
-  "navigation.next.noSiblings": "✅ 当前节点没有兄弟分支。",
-  "navigation.next.atNewest": "✅ 已在最新的兄弟分支。",
-  "navigation.back.success": "✅ 已后退到状态: {short_hash}",
-  "navigation.back.atStart": "⚠️  已到达访问历史的起点。",
-  "navigation.back.error": "❌ 后退操作失败: {error}",
-  "navigation.forward.success": "✅ 已前进到状态: {short_hash}",
   "navigation.forward.atEnd": "⚠️  已到达访问历史的终点。",
   "navigation.forward.error": "❌ 前进操作失败: {error}",
   "workspace.save.success": "📸 快照已保存: {short_hash}{msg_suffix}",
   "workspace.save.noChanges": "✅ 工作区状态未发生变化，无需创建快照。",
   "workspace.save.error": "❌ 创建快照失败: {error}",
 ```````
+```````json
+  "navigation.forward.atEnd": "⚠️  已到达访问历史的终点。",
+  "navigation.forward.error": "❌ 前进操作失败: {error}",
+  "run.success": "✨ 执行成功",
+  "run.error.cancelled": "🚫 操作已取消: {error}",
+  "run.error.execution": "❌ 操作失败: {error}",
+  "run.error.system": "系统错误: {error}",
+  "run.warning.noInput": "⚠️  提示: 未提供输入，且当前目录下未找到默认文件 '{filename}'。",
+  "run.info.usageHint": "\n用法示例:\n  quipu run my_plan.md\n  echo '...' | quipu run",
+  "run.error.ambiguousCommand": "💡 提示: 你是不是想执行 'quipu {command}' 命令？",
+  "run.listActs.ui.header": "\n📋 可用的 Quipu 指令列表:\n",
+  "run.listActs.ui.actItem": "🔹 {name}",
+  "run.result.message": "\n{message}",
+  "axon.success": "\n✨ Axon 执行完成。",
+  "axon.info.starting": "Axon 启动 | 源: {source} | 工作区: {work_dir}",
+  "axon.warning.noInput": "⚠️  提示: 未提供输入 (文件或管道)，且未找到默认文件。",
+  "axon.warning.noStatements": "⚠️  未解析到任何有效指令 (Parser: {parser})。",
+  "axon.error.executionFailed": "\n❌ 执行失败: {error}",
+  "axon.listActs.ui.header": "\n📋 可用的 Axon 指令列表:\n",
+  "axon.listActs.ui.actItem": "🔹 {name}",
+  "workspace.save.success": "📸 快照已保存: {short_hash}{msg_suffix}",
+  "workspace.save.noChanges": "✅ 工作区状态未发生变化，无需创建快照。",
+  "workspace.save.error": "❌ 创建快照失败: {error}",
+```````
 
-#### Acts 2: 重构 `helpers.py`
+#### Acts 3: 重构 `controller.py`
 
-我们首先重构被 `navigation.py` 广泛使用的辅助函数。
+现在，我们更新 `run_quipu` 函数，使其返回结构化的 `QuipuResult`。
 
 ```````act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/helpers.py
+packages/quipu-cli/src/quipu/cli/controller.py
+```````
+```````python
+        if not statements:
+            return QuipuResult(
+                success=False,
+                exit_code=0,
+                message=f"⚠️  使用 '{final_parser_name}' 解析器未找到任何有效的 'act' 操作块。",
+            )
+
+        # 3.2 Executor Setup
+        executor = self._setup_executor()
+```````
+```````python
+        if not statements:
+            return QuipuResult(
+                success=True,  # No failure, just nothing to do
+                exit_code=0,
+                message="axon.warning.noStatements",
+                msg_kwargs={"parser": final_parser_name},
+            )
+
+        # 3.2 Executor Setup
+        executor = self._setup_executor()
+```````
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/controller.py
+```````
+```````python
+            summary_override=final_summary,
+        )
+
+        return QuipuResult(success=True, exit_code=0, message="✨ 执行成功")
+```````
+```````python
+            summary_override=final_summary,
+        )
+
+        return QuipuResult(success=True, exit_code=0, message="run.success")
+```````
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/controller.py
+```````
+```````python
+    except OperationCancelledError as e:
+        logger.info(f"🚫 操作已取消: {e}")
+        return QuipuResult(success=False, exit_code=2, message=f"🚫 操作已取消: {e}", error=e)
+
+    except CoreExecutionError as e:
+        logger.error(f"❌ 操作失败: {e}")
+        return QuipuResult(success=False, exit_code=1, message=str(e), error=e)
+
+    except Exception as e:
+        logger.error(f"运行时错误: {e}", exc_info=True)
+        return QuipuResult(success=False, exit_code=1, message=f"系统错误: {e}", error=e)
+    finally:
+```````
+```````python
+    except OperationCancelledError as e:
+        logger.info(f"🚫 操作已取消: {e}")
+        return QuipuResult(success=False, exit_code=2, message="run.error.cancelled", msg_kwargs={"error": str(e)}, error=e)
+
+    except CoreExecutionError as e:
+        logger.error(f"❌ 操作失败: {e}")
+        return QuipuResult(success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e)
+
+    except Exception as e:
+        logger.error(f"运行时错误: {e}", exc_info=True)
+        return QuipuResult(success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e)
+    finally:
+```````
+
+#### Acts 4: 重构 `axon.py`
+
+这是一个直接的替换过程。
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/axon.py
 ```````
 ```````python
 import typer
-from quipu.interfaces.models import QuipuNode
-from quipu.engine.state_machine import Engine
+from quipu.acts import register_core_acts
+from quipu.interfaces.exceptions import ExecutionError
+from quipu.runtime.executor import Executor
+from quipu.runtime.parser import detect_best_parser, get_parser
 
-from ..factory import create_engine
+from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from ..controller import confirmation_handler_for_executor
+from ..logger_config import setup_logging
+from ..plugin_manager import PluginManager
+```````
+```````python
+import typer
+from quipu.acts import register_core_acts
+from quipu.interfaces.exceptions import ExecutionError
+from quipu.runtime.executor import Executor
+from quipu.runtime.parser import detect_best_parser, get_parser
+
+from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from ..controller import confirmation_handler_for_executor
+from ..logger_config import setup_logging
+from ..plugin_manager import PluginManager
+from quipu.common.messaging import bus
+```````
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/axon.py
+```````
+```````python
+        # 4. 处理 --list-acts
+        if list_acts:
+            typer.secho("\n📋 可用的 Axon 指令列表:\n", fg=typer.colors.GREEN, bold=True, err=True)
+            acts = executor.get_registered_acts()
+            for name in sorted(acts.keys()):
+                doc = acts[name]
+                clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
+                indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
+                typer.secho(f"🔹 {name}", fg=typer.colors.CYAN, bold=True)
+                typer.echo(f"{indented_doc}\n")
+            ctx.exit(0)
+```````
+```````python
+        # 4. 处理 --list-acts
+        if list_acts:
+            bus.info("axon.listActs.ui.header")
+            acts = executor.get_registered_acts()
+            for name in sorted(acts.keys()):
+                doc = acts[name]
+                clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
+                indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
+                bus.info("axon.listActs.ui.actItem", name=name)
+                bus.data(f"{indented_doc}\n")
+            ctx.exit(0)
+```````
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/axon.py
+```````
+```````python
+        source_desc = ""
+        if file:
+            if not file.exists():
+                typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
+                ctx.exit(1)
+            content = file.read_text(encoding="utf-8")
+            source_desc = f"文件 ({file.name})"
+```````
+```````python
+        source_desc = ""
+        if file:
+            if not file.exists():
+                bus.error("common.error.fileNotFound", path=file)
+                ctx.exit(1)
+            content = file.read_text(encoding="utf-8")
+            source_desc = f"文件 ({file.name})"
+```````
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/axon.py
+```````
+```````python
+        if not content.strip():
+            typer.secho("⚠️  提示: 未提供输入 (文件或管道)，且未找到默认文件。", fg=typer.colors.YELLOW, err=True)
+            ctx.exit(0)
+
+        logger.info(f"Axon 启动 | 源: {source_desc} | 工作区: {work_dir}")
+```````
+```````python
+        if not content.strip():
+            bus.warning("axon.warning.noInput")
+            ctx.exit(0)
+
+        logger.info(f"Axon 启动 | 源: {source_desc} | 工作区: {work_dir}")
+```````
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/axon.py
+```````
+```````python
+            statements = parser.parse(content)
+
+            if not statements:
+                typer.secho(
+                    f"⚠️  未解析到任何有效指令 (Parser: {final_parser_name})。", fg=typer.colors.YELLOW, err=True
+                )
+                ctx.exit(0)
+
+            # 7. 执行
+            executor.execute(statements)
+            typer.secho("\n✨ Axon 执行完成。", fg=typer.colors.GREEN, err=True)
+
+        except ExecutionError as e:
+            typer.secho(f"\n❌ 执行失败: {e}", fg=typer.colors.RED, err=True)
+            ctx.exit(1)
+        except ValueError as e:
+            logger.error(f"无效的参数或配置: {e}", exc_info=True)
+            typer.secho(f"\n❌ 无效的参数或配置: {e}", fg=typer.colors.RED, err=True)
+            ctx.exit(1)
+        except Exception as e:
+            logger.error(f"未预期的系统错误: {e}", exc_info=True)
+            typer.secho(f"\n❌ 系统错误: {e}", fg=typer.colors.RED, err=True)
+            ctx.exit(1)
+```````
+```````python
+            statements = parser.parse(content)
+
+            if not statements:
+                bus.warning("axon.warning.noStatements", parser=final_parser_name)
+                ctx.exit(0)
+
+            # 7. 执行
+            executor.execute(statements)
+            bus.success("axon.success")
+
+        except ExecutionError as e:
+            bus.error("axon.error.executionFailed", error=str(e))
+            ctx.exit(1)
+        except ValueError as e:
+            logger.error(f"无效的参数或配置: {e}", exc_info=True)
+            bus.error("common.error.invalidConfig", error=str(e))
+            ctx.exit(1)
+        except Exception as e:
+            logger.error(f"未预期的系统错误: {e}", exc_info=True)
+            bus.error("common.error.generic", error=str(e))
+            ctx.exit(1)
+```````
+
+#### Acts 5: 重构 `run.py`
+
+同样地，我们对 `run.py` 进行替换。
+
+```````act
+patch_file
+packages/quipu-cli/src/quipu/cli/commands/run.py
+```````
+```````python
+import typer
+from quipu.runtime.executor import Executor
+
+from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from ..controller import run_quipu
 from ..logger_config import setup_logging
 ```````
 ```````python
 import typer
-from quipu.interfaces.models import QuipuNode
-from quipu.engine.state_machine import Engine
+from quipu.runtime.executor import Executor
 
-from ..factory import create_engine
+from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from ..controller import run_quipu
 from ..logger_config import setup_logging
 from quipu.common.messaging import bus
 ```````
 
 ```````act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/helpers.py
+packages/quipu-cli/src/quipu/cli/commands/run.py
 ```````
 ```````python
-    for node in graph.values():
-        if node.output_tree == current_hash:
-            return node
+        if list_acts:
+            executor = Executor(root_dir=Path("."), yolo=True)
+            from quipu.acts import register_core_acts
 
-    typer.secho("⚠️  当前工作区状态未在历史中找到，或存在未保存的变更。", fg=typer.colors.YELLOW, err=True)
-    typer.secho("💡  请先运行 'quipu save' 创建一个快照，再进行导航。", fg=typer.colors.YELLOW, err=True)
-    return None
+            register_core_acts(executor)
+            typer.secho("\n📋 可用的 Quipu 指令列表:\n", fg=typer.colors.GREEN, bold=True, err=True)
+            acts = executor.get_registered_acts()
+            for name in sorted(acts.keys()):
+                doc = acts[name]
+                clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
+                indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
+                typer.secho(f"🔹 {name}", fg=typer.colors.CYAN, bold=True)
+                typer.echo(f"{indented_doc}\n")
+            ctx.exit(0)
 ```````
 ```````python
-    for node in graph.values():
-        if node.output_tree == current_hash:
-            return node
+        if list_acts:
+            executor = Executor(root_dir=Path("."), yolo=True)
+            from quipu.acts import register_core_acts
 
-    bus.warning("navigation.warning.workspaceDirty")
-    bus.info("navigation.info.saveHint")
-    return None
+            register_core_acts(executor)
+            bus.info("run.listActs.ui.header")
+            acts = executor.get_registered_acts()
+            for name in sorted(acts.keys()):
+                doc = acts[name]
+                clean_doc = inspect.cleandoc(doc) if doc else "暂无说明"
+                indented_doc = "\n".join(f"   {line}" for line in clean_doc.splitlines())
+                bus.info("run.listActs.ui.actItem", name=name)
+                bus.data(f"{indented_doc}\n")
+            ctx.exit(0)
 ```````
 
 ```````act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/helpers.py
+packages/quipu-cli/src/quipu/cli/commands/run.py
 ```````
 ```````python
-def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, description: str):
-    """辅助函数：执行 engine.visit 并处理结果"""
-    typer.secho(f"🚀 {description}", err=True)
-    try:
-        engine.visit(target_hash)
-        typer.secho(f"✅ 已成功切换到状态 {target_hash[:7]}。", fg=typer.colors.GREEN, err=True)
-    except Exception as e:
-        logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
-        typer.secho(f"❌ 导航操作失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
+        content = ""
+        source_desc = ""
+        if file:
+            if not file.exists():
+                typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
+                ctx.exit(1)
+            if not file.is_file():
+                typer.secho(f"❌ 错误: 路径不是文件: {file}", fg=typer.colors.RED, err=True)
+                ctx.exit(1)
+            content = file.read_text(encoding="utf-8")
+            source_desc = f"文件 ({file.name})"
 ```````
 ```````python
-def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, msg_id: str, **kwargs):
-    """辅助函数：执行 engine.visit 并处理结果"""
-    bus.info(msg_id, **kwargs)
-    try:
-        engine.visit(target_hash)
-        bus.success("navigation.success.visit", short_hash=target_hash[:7])
-    except Exception as e:
-        logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
-        bus.error("navigation.error.generic", error=str(e))
-        ctx.exit(1)
-```````
-
-#### Acts 3: 重构 `navigation.py`
-
-现在，我们对 `navigation.py` 文件进行全面的 `MessageBus` 迁移。
-
-```````act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-```````
-```````python
-import typer
-
-from .helpers import engine_context, _find_current_node, _execute_visit
-from ..config import DEFAULT_WORK_DIR
-from ..ui_utils import prompt_for_confirmation
-```````
-```````python
-import typer
-
-from .helpers import engine_context, _find_current_node, _execute_visit
-from ..config import DEFAULT_WORK_DIR
-from ..ui_utils import prompt_for_confirmation
-from quipu.common.messaging import bus
+        content = ""
+        source_desc = ""
+        if file:
+            if not file.exists():
+                bus.error("common.error.fileNotFound", path=file)
+                ctx.exit(1)
+            if not file.is_file():
+                bus.error("common.error.pathNotFile", path=file)
+                ctx.exit(1)
+            content = file.read_text(encoding="utf-8")
+            source_desc = f"文件 ({file.name})"
 ```````
 
 ```````act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
+packages/quipu-cli/src/quipu/cli/commands/run.py
 ```````
 ```````python
-            matches = [node for node in graph.values() if node.output_tree.startswith(hash_prefix)]
-            if not matches:
+        if file and not file.exists() and file.name in ["log", "checkout", "sync", "init", "ui", "find"]:
+            typer.secho(f"❌ 错误: 找不到指令文件: {file}", fg=typer.colors.RED, err=True)
+            typer.secho(f"💡 提示: 你是不是想执行 'quipu {file.name}' 命令？", fg=typer.colors.YELLOW, err=True)
+            ctx.exit(1)
+        if not content.strip():
+            if not file:
                 typer.secho(
-                    f"❌ 错误: 未找到 output_tree 哈希前缀为 '{hash_prefix}' 的历史节点。",
-                    fg=typer.colors.RED,
+                    f"⚠️  提示: 未提供输入，且当前目录下未找到默认文件 '{DEFAULT_ENTRY_FILE.name}'。",
+                    fg=typer.colors.YELLOW,
                     err=True,
                 )
-                ctx.exit(1)
-            if len(matches) > 1:
-                typer.secho(
-                    f"❌ 错误: 哈希前缀 '{hash_prefix}' 不唯一，匹配到 {len(matches)} 个节点。",
-                    fg=typer.colors.RED,
-                    err=True,
-                )
-                ctx.exit(1)
-            target_node = matches[0]
-            target_output_tree_hash = target_node.output_tree
-
-            current_hash = engine.git_db.get_tree_hash()
-            if current_hash == target_output_tree_hash:
-                typer.secho(
-                    f"✅ 工作区已处于目标状态 ({target_node.short_hash})，无需操作。", fg=typer.colors.GREEN, err=True
-                )
+                typer.echo("\n用法示例:", err=True)
+                typer.echo("  quipu run my_plan.md", err=True)
+                typer.echo("  echo '...' | quipu run", err=True)
                 ctx.exit(0)
 
-            is_dirty = engine.current_node is None or engine.current_node.output_tree != current_hash
-            if is_dirty:
-                typer.secho(
-                    "⚠️  检测到当前工作区存在未记录的变更，将自动创建捕获节点...", fg=typer.colors.YELLOW, err=True
-                )
-                engine.capture_drift(current_hash)
-                typer.secho("✅ 变更已捕获。", fg=typer.colors.GREEN, err=True)
-                current_hash = engine.git_db.get_tree_hash()
-
-            diff_stat = engine.git_db.get_diff_stat(current_hash, target_output_tree_hash)
-            if diff_stat:
-                typer.secho("\n以下是将要发生的变更:", fg=typer.colors.YELLOW, err=True)
-                typer.secho("-" * 20, err=True)
-                typer.echo(diff_stat, err=True)
-                typer.secho("-" * 20, err=True)
-
-            if not force:
-                prompt = f"🚨 即将重置工作区到状态 {target_node.short_hash} ({target_node.timestamp})。\n此操作会覆盖未提交的更改。是否继续？"
-                if not prompt_for_confirmation(prompt, default=False):
-                    typer.secho("\n🚫 操作已取消。", fg=typer.colors.YELLOW, err=True)
-                    raise typer.Abort()
-
-            _execute_visit(ctx, engine, target_output_tree_hash, f"正在导航到节点: {target_node.short_hash}")
+        logger.info(f"已加载指令源: {source_desc}")
+        logger.info(f"工作区根目录: {work_dir}")
+        if yolo:
+            logger.warning("⚠️  YOLO 模式已开启：将自动确认所有修改。")
+        result = run_quipu(content=content, work_dir=work_dir, parser_name=parser_name, yolo=yolo)
+        if result.message:
+            color = typer.colors.GREEN if result.success else typer.colors.RED
+            typer.secho(f"\n{result.message}", fg=color, err=True)
+        if result.data:
+            typer.echo(result.data)
+        ctx.exit(result.exit_code)
 ```````
 ```````python
-            matches = [node for node in graph.values() if node.output_tree.startswith(hash_prefix)]
-            if not matches:
-                bus.error("navigation.checkout.error.notFound", hash_prefix=hash_prefix)
-                ctx.exit(1)
-            if len(matches) > 1:
-                bus.error("navigation.checkout.error.notUnique", hash_prefix=hash_prefix, count=len(matches))
-                ctx.exit(1)
-            target_node = matches[0]
-            target_output_tree_hash = target_node.output_tree
-
-            current_hash = engine.git_db.get_tree_hash()
-            if current_hash == target_output_tree_hash:
-                bus.success("navigation.checkout.info.noAction", short_hash=target_node.short_hash)
+        if file and not file.exists() and file.name in ["log", "checkout", "sync", "init", "ui", "find"]:
+            bus.error("common.error.fileNotFound", path=file)
+            bus.warning("run.error.ambiguousCommand", command=file.name)
+            ctx.exit(1)
+        if not content.strip():
+            if not file:
+                bus.warning("run.warning.noInput", filename=DEFAULT_ENTRY_FILE.name)
+                bus.info("run.info.usageHint")
                 ctx.exit(0)
 
-            is_dirty = engine.current_node is None or engine.current_node.output_tree != current_hash
-            if is_dirty:
-                bus.warning("navigation.checkout.info.capturingDrift")
-                engine.capture_drift(current_hash)
-                bus.success("navigation.checkout.success.driftCaptured")
-                current_hash = engine.git_db.get_tree_hash()
+        logger.info(f"已加载指令源: {source_desc}")
+        logger.info(f"工作区根目录: {work_dir}")
+        if yolo:
+            bus.warning("run.warning.yoloEnabled")
+        result = run_quipu(content=content, work_dir=work_dir, parser_name=parser_name, yolo=yolo)
 
-            diff_stat = engine.git_db.get_diff_stat(current_hash, target_output_tree_hash)
-            if diff_stat:
-                bus.info("navigation.checkout.ui.diffHeader")
-                typer.secho("-" * 20, err=True)
-                typer.echo(diff_stat, err=True)
-                typer.secho("-" * 20, err=True)
+        if result.message:
+            kwargs = result.msg_kwargs or {}
+            if result.exit_code == 2:  # OperationCancelledError
+                bus.warning(result.message, **kwargs)
+            elif not result.success:
+                bus.error(result.message, **kwargs)
+            else:
+                bus.success(result.message, **kwargs)
 
-            if not force:
-                prompt = f"🚨 即将重置工作区到状态 {target_node.short_hash} ({target_node.timestamp})。\n此操作会覆盖未提交的更改。是否继续？"
-                if not prompt_for_confirmation(prompt, default=False):
-                    bus.warning("common.prompt.cancel")
-                    raise typer.Abort()
+        if result.data:
+            bus.data(result.data)
+        ctx.exit(result.exit_code)
+```````
 
-            _execute_visit(
-                ctx,
-                engine,
-                target_output_tree_hash,
-                "navigation.info.navigating",
-                short_hash=target_node.short_hash,
-            )
+#### Acts 6: 重构测试用例
+
+最后，我们重写 `test_unfriendly_paths.py` 中的 `run` 命令相关测试。
+
+```````act
+patch_file
+tests/cli/test_unfriendly_paths.py
+```````
+```````python
+def test_run_command_user_cancellation(runner: CliRunner, quipu_workspace, monkeypatch):
+    """
+    不友好路径测试: 验证当用户输入 'n' 时，`run` 操作会被正确取消。
+    """
+    work_dir, _, _ = quipu_workspace
+    output_file = work_dir / "output.txt"
+    assert not output_file.exists()
+
+    plan_content = f"""
+```act
+run_command
+```
+```text
+echo "Should not run" > {output_file.name}
+```
+"""
+
+    def mock_getchar_n(echo):
+        click.echo("n", err=True)
+        return "n"
+
+    monkeypatch.setattr(click, "getchar", mock_getchar_n)
+
+    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content)
+
+    assert result.exit_code == 2, f"CLI command should have been cancelled. Stderr:\n{result.stderr}"
+    assert "操作已取消" in result.stderr
+    assert not output_file.exists()
+```````
+```````python
+def test_run_command_user_cancellation(runner: CliRunner, quipu_workspace, monkeypatch):
+    """
+    不友好路径测试: 验证当用户输入 'n' 时，`run` 操作会被正确取消。
+    """
+    work_dir, _, _ = quipu_workspace
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.run.bus", mock_bus)
+    output_file = work_dir / "output.txt"
+    assert not output_file.exists()
+
+    plan_content = f"""
+```act
+run_command
+```
+```text
+echo "Should not run" > {output_file.name}
+```
+"""
+
+    def mock_getchar_n(echo):
+        click.echo("n", err=True)
+        return "n"
+
+    monkeypatch.setattr(click, "getchar", mock_getchar_n)
+
+    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content)
+
+    assert result.exit_code == 2
+    mock_bus.warning.assert_called_once_with("run.error.cancelled", error=mock.ANY)
+    assert not output_file.exists()
 ```````
 
 ```````act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
+tests/cli/test_unfriendly_paths.py
 ```````
 ```````python
-            target_node = current_node
-            for i in range(count):
-                if not target_node.parent:
-                    msg = f"已到达历史根节点 (移动了 {i} 步)。" if i > 0 else "已在历史根节点。"
-                    typer.secho(f"✅ {msg}", fg=typer.colors.GREEN, err=True)
-                    if target_node == current_node:
-                        ctx.exit(0)
-                    break
-                target_node = target_node.parent
+def test_run_command_in_non_interactive_env(runner: CliRunner, quipu_workspace, monkeypatch):
+    """
+    不友好路径测试: 验证在非交互式环境 (无法 getchar) 中，`run` 操作会自动中止。
+    """
+    work_dir, _, _ = quipu_workspace
+    output_file = work_dir / "output.txt"
+    assert not output_file.exists()
 
-            _execute_visit(ctx, engine, target_node.output_tree, f"正在撤销到父节点: {target_node.short_hash}")
+    plan_content = f"""
+```act
+run_command
+```
+```text
+echo "Should not run" > {output_file.name}
+```
+"""
+
+    def mock_getchar_fail(echo):
+        raise EOFError("Simulating non-interactive environment")
+
+    monkeypatch.setattr(click, "getchar", mock_getchar_fail)
+    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content)
+
+    assert result.exit_code == 2
+    assert "操作已取消" in result.stderr
+    assert "(non-interactive)" in result.stderr
+    assert not output_file.exists()
 ```````
 ```````python
-            target_node = current_node
-            for i in range(count):
-                if not target_node.parent:
-                    if i > 0:
-                        bus.success("navigation.undo.reachedRoot", steps=i)
-                    else:
-                        bus.success("navigation.undo.atRoot")
-                    if target_node == current_node:
-                        ctx.exit(0)
-                    break
-                target_node = target_node.parent
+from unittest import mock
 
-            _execute_visit(
-                ctx,
-                engine,
-                target_node.output_tree,
-                "navigation.info.navigating",
-                short_hash=target_node.short_hash,
-            )
-```````
+def test_run_command_in_non_interactive_env(runner: CliRunner, quipu_workspace, monkeypatch):
+    """
+    不友好路径测试: 验证在非交互式环境 (无法 getchar) 中，`run` 操作会自动中止。
+    """
+    work_dir, _, _ = quipu_workspace
+    mock_bus = MagicMock()
+    monkeypatch.setattr("quipu.cli.commands.run.bus", mock_bus)
+    output_file = work_dir / "output.txt"
+    assert not output_file.exists()
 
-```````act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-```````
-```````python
-            target_node = current_node
-            for i in range(count):
-                if not target_node.children:
-                    msg = f"已到达分支末端 (移动了 {i} 步)。" if i > 0 else "已在分支末端。"
-                    typer.secho(f"✅ {msg}", fg=typer.colors.GREEN, err=True)
-                    if target_node == current_node:
-                        ctx.exit(0)
-                    break
-                target_node = target_node.children[-1]
-                if len(current_node.children) > 1:
-                    typer.secho(
-                        f"💡 当前节点有多个分支，已自动选择最新分支 -> {target_node.short_hash}",
-                        fg=typer.colors.YELLOW,
-                        err=True,
-                    )
+    plan_content = f"""
+```act
+run_command
+```
+```text
+echo "Should not run" > {output_file.name}
+```
+"""
 
-            _execute_visit(ctx, engine, target_node.output_tree, f"正在重做到子节点: {target_node.short_hash}")
-```````
-```````python
-            target_node = current_node
-            for i in range(count):
-                if not target_node.children:
-                    if i > 0:
-                        bus.success("navigation.redo.reachedEnd", steps=i)
-                    else:
-                        bus.success("navigation.redo.atEnd")
-                    if target_node == current_node:
-                        ctx.exit(0)
-                    break
-                target_node = target_node.children[-1]
-                if len(current_node.children) > 1:
-                    bus.info("navigation.redo.info.multiBranch", short_hash=target_node.short_hash)
+    def mock_getchar_fail(echo):
+        raise EOFError("Simulating non-interactive environment")
 
-            _execute_visit(
-                ctx,
-                engine,
-                target_node.output_tree,
-                "navigation.info.navigating",
-                short_hash=target_node.short_hash,
-            )
+    monkeypatch.setattr(click, "getchar", mock_getchar_fail)
+    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content)
+
+    assert result.exit_code == 2
+    mock_bus.warning.assert_called_once_with("run.error.cancelled", error=mock.ANY)
+    assert not output_file.exists()
 ```````
 
 ```````act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-```````
-```````python
-            siblings = current_node.siblings
-            if len(siblings) <= 1:
-                typer.secho("✅ 当前节点没有兄弟分支。", fg=typer.colors.GREEN, err=True)
-                ctx.exit(0)
-            try:
-                idx = siblings.index(current_node)
-                if idx == 0:
-                    typer.secho("✅ 已在最旧的兄弟分支。", fg=typer.colors.GREEN, err=True)
-                    ctx.exit(0)
-                target_node = siblings[idx - 1]
-                _execute_visit(
-                    ctx, engine, target_node.output_tree, f"正在切换到上一个兄弟节点: {target_node.short_hash}"
-                )
-```````
-```````python
-            siblings = current_node.siblings
-            if len(siblings) <= 1:
-                bus.success("navigation.prev.noSiblings")
-                ctx.exit(0)
-            try:
-                idx = siblings.index(current_node)
-                if idx == 0:
-                    bus.success("navigation.prev.atOldest")
-                    ctx.exit(0)
-                target_node = siblings[idx - 1]
-                _execute_visit(
-                    ctx,
-                    engine,
-                    target_node.output_tree,
-                    "navigation.info.navigating",
-                    short_hash=target_node.short_hash,
-                )
-```````
-
-```````act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-```````
-```````python
-            siblings = current_node.siblings
-            if len(siblings) <= 1:
-                typer.secho("✅ 当前节点没有兄弟分支。", fg=typer.colors.GREEN, err=True)
-                ctx.exit(0)
-            try:
-                idx = siblings.index(current_node)
-                if idx == len(siblings) - 1:
-                    typer.secho("✅ 已在最新的兄弟分支。", fg=typer.colors.GREEN, err=True)
-                    ctx.exit(0)
-                target_node = siblings[idx + 1]
-                _execute_visit(
-                    ctx, engine, target_node.output_tree, f"正在切换到下一个兄弟节点: {target_node.short_hash}"
-                )
-```````
-```````python
-            siblings = current_node.siblings
-            if len(siblings) <= 1:
-                bus.success("navigation.next.noSiblings")
-                ctx.exit(0)
-            try:
-                idx = siblings.index(current_node)
-                if idx == len(siblings) - 1:
-                    bus.success("navigation.next.atNewest")
-                    ctx.exit(0)
-                target_node = siblings[idx + 1]
-                _execute_visit(
-                    ctx,
-                    engine,
-                    target_node.output_tree,
-                    "navigation.info.navigating",
-                    short_hash=target_node.short_hash,
-                )
-```````
-
-```````act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-```````
-```````python
-        with engine_context(work_dir) as engine:
-            try:
-                result_hash = engine.back()
-                if result_hash:
-                    typer.secho(f"✅ 已后退到状态: {result_hash[:7]}", fg=typer.colors.GREEN, err=True)
-                else:
-                    typer.secho("⚠️  已到达访问历史的起点。", fg=typer.colors.YELLOW, err=True)
-            except Exception as e:
-                logger.error("后退操作失败", exc_info=True)
-                typer.secho(f"❌ 后退操作失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-```````
-```````python
-        with engine_context(work_dir) as engine:
-            try:
-                result_hash = engine.back()
-                if result_hash:
-                    bus.success("navigation.back.success", short_hash=result_hash[:7])
-                else:
-                    bus.warning("navigation.back.atStart")
-            except Exception as e:
-                logger.error("后退操作失败", exc_info=True)
-                bus.error("navigation.back.error", error=str(e))
-                ctx.exit(1)
-```````
-
-```````act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-```````
-```````python
-        with engine_context(work_dir) as engine:
-            try:
-                result_hash = engine.forward()
-                if result_hash:
-                    typer.secho(f"✅ 已前进到状态: {result_hash[:7]}", fg=typer.colors.GREEN, err=True)
-                else:
-                    typer.secho("⚠️  已到达访问历史的终点。", fg=typer.colors.YELLOW, err=True)
-            except Exception as e:
-                logger.error("前进操作失败", exc_info=True)
-                typer.secho(f"❌ 前进操作失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-```````
-```````python
-        with engine_context(work_dir) as engine:
-            try:
-                result_hash = engine.forward()
-                if result_hash:
-                    bus.success("navigation.forward.success", short_hash=result_hash[:7])
-                else:
-                    bus.warning("navigation.forward.atEnd")
-            except Exception as e:
-                logger.error("前进操作失败", exc_info=True)
-                bus.error("navigation.forward.error", error=str(e))
-                ctx.exit(1)
-```````
-
-#### Acts 4: 重构测试用例
-
-最后，我们重写 `test_navigation_commands.py`，以适应新的 `MessageBus` 架构。
-
-```````act
-write_file
-tests/cli/test_navigation_commands.py
+tests/cli/test_cli_interaction.py
 ```````
 ```````python
 import pytest
-from unittest.mock import MagicMock, ANY
+from typer.testing import CliRunner
 from quipu.cli.main import app
 
 
-@pytest.fixture
-def populated_workspace(quipu_workspace):
-    ws, _, engine = quipu_workspace
+def test_run_command_with_piped_input_and_confirmation(runner: CliRunner, quipu_workspace):
+    """
+    测试核心场景: 通过管道输入 plan，并对需要确认的 act (run_command) 进行交互。
+    """
+    work_dir, _, _ = quipu_workspace
+    output_file = work_dir / "output.txt"
 
-    (ws / "a.txt").write_text("A")
-    hash_a = engine.git_db.get_tree_hash()
-    engine.create_plan_node(
-        input_tree="_" * 40, output_tree=hash_a, plan_content="Plan A", summary_override="State A"
-    )
+    # Plan 内容: 执行一个 shell 命令
+    plan_content = f"""
+```act
+run_command
+```
+```text
+echo "Success" > {output_file.name}
+```
+"""
 
-    (ws / "b.txt").write_text("B")
-    (ws / "a.txt").unlink()
-    hash_b = engine.git_db.get_tree_hash()
-    engine.create_plan_node(
-        input_tree=hash_a, output_tree=hash_b, plan_content="Plan B", summary_override="State B"
-    )
+    # 模拟用户输入 'y' 并按回车
+    user_input = "y\n"
 
-    return ws, hash_a, hash_b
+    # 使用 runner.invoke 的 input 参数来模拟 `echo "{plan_content}" | quipu run`
+    # 注意：CliRunner 的 input 模拟的是 stdin，这正是我们需要的
+    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content + user_input)
 
-
-def test_cli_back_forward_flow(runner, populated_workspace, monkeypatch):
-    workspace, hash_a, hash_b = populated_workspace
-    mock_bus_nav = MagicMock()
-    mock_bus_helper = MagicMock()
-    monkeypatch.setattr("quipu.cli.commands.navigation.bus", mock_bus_nav)
-    monkeypatch.setattr("quipu.cli.commands.helpers.bus", mock_bus_helper)
-
-    # Initial state is B. Let's checkout to A.
-    runner.invoke(app, ["checkout", hash_a[:7], "-w", str(workspace), "-f"])
-    assert (workspace / "a.txt").exists()
-    assert not (workspace / "b.txt").exists()
-
-    # Now we are at A. Let's go back. It should go to the previous state (B).
-    result_back = runner.invoke(app, ["back", "-w", str(workspace)])
-    assert result_back.exit_code == 0
-    mock_bus_nav.success.assert_called_with("navigation.back.success", short_hash=ANY)
-    assert (workspace / "b.txt").exists()
-    assert not (workspace / "a.txt").exists()
-
-    # Now we are back at B. Let's go forward to A again.
-    result_fwd = runner.invoke(app, ["forward", "-w", str(workspace)])
-    assert result_fwd.exit_code == 0
-    mock_bus_nav.success.assert_called_with("navigation.forward.success", short_hash=ANY)
-    assert (workspace / "a.txt").exists()
-    assert not (workspace / "b.txt").exists()
+    assert result.exit_code == 0, f"CLI command failed with stderr:\n{result.stderr}"
+    assert "✨ 执行成功" in result.stderr
+    assert output_file.exists(), "The command did not create the output file."
+    assert output_file.read_text().strip() == "Success"
+```````
+```````python
+import pytest
+from typer.testing import CliRunner
+from unittest.mock import MagicMock
+from quipu.cli.main import app
 
 
-def test_cli_boundary_messages(runner, populated_workspace, monkeypatch):
-    workspace, hash_a, hash_b = populated_workspace
+def test_run_command_with_piped_input_and_confirmation(runner: CliRunner, quipu_workspace, monkeypatch):
+    """
+    测试核心场景: 通过管道输入 plan，并对需要确认的 act (run_command) 进行交互。
+    """
+    work_dir, _, _ = quipu_workspace
     mock_bus = MagicMock()
-    monkeypatch.setattr("quipu.cli.commands.navigation.bus", mock_bus)
+    monkeypatch.setattr("quipu.cli.commands.run.bus", mock_bus)
+    output_file = work_dir / "output.txt"
 
-    # Go to a known state
-    runner.invoke(app, ["checkout", hash_a[:7], "-w", str(workspace), "-f"])
+    # Plan 内容: 执行一个 shell 命令
+    plan_content = f"""
+```act
+run_command
+```
+```text
+echo "Success" > {output_file.name}
+```
+"""
 
-    # Back until the beginning
-    runner.invoke(app, ["back", "-w", str(workspace)])  # to B
-    runner.invoke(app, ["back", "-w", str(workspace)])
-    result2 = runner.invoke(app, ["back", "-w", str(workspace)])  # one more should hit boundary
-    assert result2.exit_code == 0
-    mock_bus.warning.assert_called_with("navigation.back.atStart")
+    # 模拟用户输入 'y' 并按回车
+    user_input = "y\n"
 
-    # Forward until the end
-    runner.invoke(app, ["forward", "-w", str(workspace)])  # to B
-    runner.invoke(app, ["forward", "-w", str(workspace)])  # to A
-    result3 = runner.invoke(app, ["forward", "-w", str(workspace)])
-    assert result3.exit_code == 0
-    mock_bus.warning.assert_called_with("navigation.forward.atEnd")
+    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content + user_input)
 
-
-def test_checkout_not_found(runner, populated_workspace, monkeypatch):
-    workspace, _, _ = populated_workspace
-    mock_bus = MagicMock()
-    monkeypatch.setattr("quipu.cli.commands.navigation.bus", mock_bus)
-
-    result = runner.invoke(app, ["checkout", "nonexistent", "-w", str(workspace)])
-    assert result.exit_code == 1
-    mock_bus.error.assert_called_once_with("navigation.checkout.error.notFound", hash_prefix="nonexistent")
+    assert result.exit_code == 0
+    mock_bus.success.assert_called_once_with("run.success")
+    assert output_file.exists(), "The command did not create the output file."
+    assert output_file.read_text().strip() == "Success"
 ```````
 
 ### 下一步建议
-我们已经成功完成了对核心导航命令的 `MessageBus` 迁移，这是整个重构计划中最复杂的部分之一。代码的可读性和可测试性得到了显著提升。
+我们已经成功地将核心的 `run` 和 `axon` 命令迁移到了 `MessageBus` 架构，并改进了 `QuipuResult` 接口，使得整个执行流程的内外通信更加清晰。
 
-下一个合乎逻辑的步骤是处理**核心执行命令 (`run`, `axon`)**。这两个命令是 `Quipu` 系统的主要入口点，重构它们将使整个 CLI 的用户输出体验趋于一致。之后，我们将只剩下一些独立的、外围的命令需要处理。
+重构任务已接近尾声。下一步是处理最后一批独立的、功能性的命令：**`remote`、`export` 和 `ui`**。完成这些命令的迁移后，整个 `quipu-cli` 的用户输出层将实现完全的统一和解耦。
