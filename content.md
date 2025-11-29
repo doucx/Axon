@@ -1,248 +1,87 @@
-好的。遵照你的指示，我将对 Quipu 的日志记录和错误处理进行增强。日志级别现在将可以通过 `QUIPU_LOG_LEVEL` 环境变量进行配置，并且我会在关键路径和错误处理块中添加更详细的日志记录，包括在捕获到未预期异常时记录完整的堆栈跟踪。
+你发现的问题非常准确。
 
-## [WIP] chore: 增强日志与错误处理
+`tui.debug.log` 之所以默认开启，是因为 `ui` 命令的设计初衷是为了方便调试，因此它绕过了全局的日志级别配置，直接调用了一个专门用于文件日志的函数 `configure_file_logging`，该函数内部**硬编码了 `logging.DEBUG` 级别**。
+
+这导致无论 `QUIPU_LOG_LEVEL` 设置成什么，只要运行 `quipu ui`，就会强制以 `DEBUG` 级别向文件写入日志。这显然是不理想的默认行为。
+
+我将修改这个逻辑，使其遵循全局配置：只有当 `QUIPU_LOG_LEVEL` 明确设置为 `DEBUG` 时，`quipu ui` 才会启用文件日志记录。在其他情况下（如默认的 `INFO`），它将和其他命令一样，将日志输出到 `stderr`。
+
+## [WIP] fix: TUI 日志应遵循全局日志级别配置
 
 ### 错误分析
-当前 Quipu 的 CLI 实现中存在几个可以改进的点：
-1.  **日志级别环境变量通用**: 日志级别配置虽然从环境变量读取，但变量名 `LOG_LEVEL` 过于通用，容易与其他工具冲突。
-2.  **错误处理信息不足**: 多个命令中使用了 `except Exception` 来捕获所有错误，虽然能防止程序崩溃，但没有记录下完整的错误堆栈信息 (`traceback`)，这使得调试问题变得困难。
-3.  **关键路径日志缺失**: 在一些关键执行路径（如选择存储后端、命令调用入口）缺少日志，使得追踪程序行为不够直观。
+`quipu ui` 命令在其实现文件 (`commands/ui.py`) 中，无条件地调用了 `configure_file_logging` 函数。这个函数在 `logger_config.py` 中被定义为强制设置日志级别为 `DEBUG` 并将输出重定向到 `tui.debug.log` 文件。
+
+这种实现方式覆盖了由 `QUIPU_LOG_LEVEL` 环境变量控制的全局日志级别设置，导致即使用户配置了 `INFO` 级别，TUI 依然会创建并写入大量的调试日志，造成了不必要的磁盘 I/O 和混乱。
 
 ### 用户需求
-1.  使日志记录级别可以通过一个项目专有的环境变量进行调整。
-2.  在现有的 `except Exception` 块中增加详细的日志记录（包含堆栈跟踪），并在可能的情况下使用更具体的异常捕获。
+修改 `quipu ui` 命令的行为，使其：
+1.  仅在 `QUIPU_LOG_LEVEL` 环境变量被设置为 `DEBUG` 时，才激活文件日志记录 (`tui.debug.log`)。
+2.  在所有其他日志级别下 (例如 `INFO`, `WARNING`, `ERROR`)，其日志行为应与其他 CLI 命令保持一致，即将日志输出到标准错误流 (`stderr`)。
 
 ### 评论
-这是一个非常基础且重要的工程实践改进。增强日志和错误处理能力是提升系统健壮性、可维护性和可观测性的基石。特别是对于一个命令行工具，清晰的错误信息和可配置的日志级别对于用户排查问题至关重要。
+这是一个重要的可用性修复。让所有命令的日志行为保持一致并尊重用户的全局配置，是良好 CLI 设计的基础。此修改将使 TUI 的行为更加可预测，并避免了在常规使用中产生不必要的日志文件。
 
 ### 目标
-1.  将日志级别的环境变量重命名为 `QUIPU_LOG_LEVEL` 以避免冲突。
-2.  在所有捕获通用 `Exception` 的地方，使用 `logger.error(..., exc_info=True)` 来记录完整的堆栈跟踪。
-3.  在几个关键命令的入口处增加 `DEBUG` 级别的日志，记录调用参数。
-4.  在引擎工厂函数中增加日志，明确指出当前使用的存储后端。
-5.  在部分可以预测错误类型的地方，使用更具体的异常类进行捕获。
+1.  在 `commands/ui.py` 中导入 `LOG_LEVEL` 配置变量和标准的 `setup_logging` 函数。
+2.  在 `ui` 命令的入口处添加条件逻辑：检查 `LOG_LEVEL` 的值。
+3.  如果 `LOG_LEVEL` 是 `DEBUG`，则调用 `configure_file_logging`。
+4.  否则，调用 `setup_logging`，以启用标准的 `stderr` 日志记录。
 
 ### 基本原理
-通过遵循这些目标，我们可以系统性地提升应用的可靠性。使用 `exc_info=True` 是 Python `logging` 模块的标准实践，它能在不改变异常处理流程的同时，将宝贵的调试信息记录到日志中。将环境变量专有化可以避免与其他 Python 应用或库产生意外的相互作用。在命令入口添加参数日志，则使得通过 `DEBUG` 日志复现用户报告的问题变得简单直接。
+我们将决策逻辑从 `logger_config.py` 上移到命令的调用方 `ui.py`。`configure_file_logging` 函数将继续作为专门的调试日志设置工具，但调用它的权力现在取决于全局配置。通过在 `ui` 命令中根据 `LOG_LEVEL` 变量的值选择调用 `configure_file_logging` 还是 `setup_logging`，我们确保了 TUI 的日志行为与整个应用的其他部分保持一致，同时保留了在需要时轻松开启详细文件调试的能力。
 
 ### 标签
-#intent/refine #flow/ready #priority/medium #comp/cli #concept/state #scope/dx #ai/instruct #task/domain/cli #task/object/logging-error-handling #task/action/refactor #task/state/begin
+#intent/fix #flow/ready #priority/medium #comp/cli #concept/ui #scope/dx #ai/instruct #task/domain/cli #task/object/logging-error-handling #task/action/refactor #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 更新日志配置与引擎工厂
+#### Acts 1: 更新 `ui.py` 的逻辑
 
-我们将首先更新配置，使日志级别可通过 `QUIPU_LOG_LEVEL` 控制，并在引擎工厂中添加日志记录。
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/config.py
-~~~~~
-~~~~~python
-# 日志级别
-LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-~~~~~
-~~~~~python
-# 日志级别
-# 使用项目特定的环境变量 QUIPU_LOG_LEVEL，并确保其值为大写
-LOG_LEVEL: str = os.getenv("QUIPU_LOG_LEVEL", "INFO").upper()
-~~~~~
+我们将修改 `ui.py`，引入条件判断来决定使用哪种日志配置。
 
 ~~~~~act
 patch_file
-packages/quipu-cli/src/quipu/cli/factory.py
+packages/quipu-cli/src/quipu/cli/commands/ui.py
 ~~~~~
 ~~~~~python
-    storage_type = config.get("storage.type", "git_object")
-    git_db = GitDB(project_root)
+from .helpers import engine_context, _execute_visit
+from ..config import DEFAULT_WORK_DIR
+from ..factory import create_engine
+from ..logger_config import configure_file_logging
 ~~~~~
 ~~~~~python
-    storage_type = config.get("storage.type", "git_object")
-    logger.debug(f"Engine factory configured with storage type: '{storage_type}'")
-    git_db = GitDB(project_root)
-~~~~~
-
-#### Acts 2: 增强 Axon 命令的日志与错误处理
-
-为 `axon` 命令添加入口日志，并细化其异常捕获。
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/axon.py
-~~~~~
-~~~~~python
-        """
-        Axon: 无状态的 Markdown 任务执行器 (不记录历史)。
-        """
-        setup_logging()
-
-        # 1. 配置执行器的 UI 确认回调
-~~~~~
-~~~~~python
-        """
-        Axon: 无状态的 Markdown 任务执行器 (不记录历史)。
-        """
-        setup_logging()
-        logger.debug(f"axon started with file={file}, work_dir={work_dir}, parser={parser_name}, yolo={yolo}")
-
-        # 1. 配置执行器的 UI 确认回调
+from .helpers import engine_context, _execute_visit
+from ..config import DEFAULT_WORK_DIR, LOG_LEVEL
+from ..factory import create_engine
+from ..logger_config import configure_file_logging, setup_logging
 ~~~~~
 
 ~~~~~act
 patch_file
-packages/quipu-cli/src/quipu/cli/commands/axon.py
+packages/quipu-cli/src/quipu/cli/commands/ui.py
 ~~~~~
 ~~~~~python
-        except ExecutionError as e:
-            typer.secho(f"\n❌ 执行失败: {e}", fg=typer.colors.RED, err=True)
-            ctx.exit(1)
-        except Exception as e:
-            logger.error(f"系统错误: {e}", exc_info=True)
-            typer.secho(f"\n❌ 系统错误: {e}", fg=typer.colors.RED, err=True)
-            ctx.exit(1)
+        log_file = work_dir / ".quipu" / "tui.debug.log"
+        configure_file_logging(log_file)
+        logging.info("Starting Quipu UI command...")
 ~~~~~
 ~~~~~python
-        except ExecutionError as e:
-            typer.secho(f"\n❌ 执行失败: {e}", fg=typer.colors.RED, err=True)
-            ctx.exit(1)
-        except ValueError as e:
-            logger.error(f"无效的参数或配置: {e}", exc_info=True)
-            typer.secho(f"\n❌ 无效的参数或配置: {e}", fg=typer.colors.RED, err=True)
-            ctx.exit(1)
-        except Exception as e:
-            logger.error(f"未预期的系统错误: {e}", exc_info=True)
-            typer.secho(f"\n❌ 系统错误: {e}", fg=typer.colors.RED, err=True)
-            ctx.exit(1)
-~~~~~
+        if LOG_LEVEL == "DEBUG":
+            log_file = work_dir / ".quipu" / "tui.debug.log"
+            configure_file_logging(log_file)
+        else:
+            setup_logging()  # Use standard stderr logging for INFO level and above
 
-#### Acts 3: 增强缓存、导航和工作区命令的错误日志
-
-为 `cache`, `helpers`, `navigation`, `workspace` 中的通用异常处理器添加带有完整堆栈跟踪的错误日志。
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/cache.py
-~~~~~
-~~~~~python
-    except Exception as e:
-        typer.secho(f"❌ 数据同步失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-~~~~~
-~~~~~python
-    except Exception as e:
-        logger.error("数据同步失败", exc_info=True)
-        typer.secho(f"❌ 数据同步失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/cache.py
-~~~~~
-~~~~~python
-    try:
-        db_path.unlink()
-        typer.secho("🗑️  旧数据库已删除。", err=True)
-    except Exception as e:
-        typer.secho(f"❌ 删除旧数据库失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-~~~~~
-~~~~~python
-    try:
-        db_path.unlink()
-        typer.secho("🗑️  旧数据库已删除。", err=True)
-    except (OSError, PermissionError) as e:
-        logger.error(f"删除旧数据库文件 '{db_path}' 失败", exc_info=True)
-        typer.secho(f"❌ 删除旧数据库失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/helpers.py
-~~~~~
-~~~~~python
-    except Exception as e:
-        typer.secho(f"❌ 导航操作失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-~~~~~
-~~~~~python
-    except Exception as e:
-        logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
-        typer.secho(f"❌ 导航操作失败: {e}", fg=typer.colors.RED, err=True)
-        ctx.exit(1)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-~~~~~
-~~~~~python
-            except Exception as e:
-                typer.secho(f"❌ 后退操作失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-~~~~~python
-            except Exception as e:
-                logger.error("后退操作失败", exc_info=True)
-                typer.secho(f"❌ 后退操作失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/navigation.py
-~~~~~
-~~~~~python
-            except Exception as e:
-                typer.secho(f"❌ 前进操作失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-~~~~~python
-            except Exception as e:
-                logger.error("前进操作失败", exc_info=True)
-                typer.secho(f"❌ 前进操作失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/workspace.py
-~~~~~
-~~~~~python
-            except Exception as e:
-                typer.secho(f"❌ 创建快照失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-~~~~~python
-            except Exception as e:
-                logger.error("创建快照失败", exc_info=True)
-                typer.secho(f"❌ 创建快照失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/workspace.py
-~~~~~
-~~~~~python
-            except Exception as e:
-                typer.secho(f"❌ 恢复状态失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
-~~~~~
-~~~~~python
-            except Exception as e:
-                logger.error(f"恢复工作区状态失败", exc_info=True)
-                typer.secho(f"❌ 恢复状态失败: {e}", fg=typer.colors.RED, err=True)
-                ctx.exit(1)
+        logging.info("Starting Quipu UI command...")
 ~~~~~
 
 ### 下一步建议
-我们已经完成了对日志和错误处理的初步增强。现在你可以通过设置 `export QUIPU_LOG_LEVEL=DEBUG` 来查看更详细的程序执行流程。
+我们已经修正了 TUI 的日志记录逻辑。为了验证修复效果，请按照以下步骤操作：
 
-下一步，我建议：
-1.  **运行测试**: 全面运行 `pytest`，确保我们的改动没有破坏任何现有功能。
-2.  **手动验证**: 手动执行一些命令，并设置不同的 `QUIPU_LOG_LEVEL` (如 `DEBUG`, `WARNING`)，观察日志输出是否符合预期。可以特意制造一些错误（如操作一个无权限的文件），来验证错误日志是否包含了完整的堆栈跟踪。
-3.  **提交变更**: 在测试通过后，生成一个 `[COMMIT]` 计划来将这些改进持久化。
+1.  **清理环境**: 首先，删除现有的日志文件：`rm .quipu/tui.debug.log`。
+2.  **测试默认行为**: 直接运行 `quipu ui`。预期结果是程序正常启动，但 **不会** 在 `.quipu/` 目录下创建 `tui.debug.log` 文件。
+3.  **测试调试行为**: 使用 `QUIPU_LOG_LEVEL=DEBUG quipu ui` 命令启动。预期结果是程序启动，并且 **会** 创建并写入 `tui.debug.log` 文件。
+
+如果上述测试均符合预期，我们就可以将这些日志相关的改进作为一个完整的单元进行提交。
