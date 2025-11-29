@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[COMMIT] style: 使用 ruff 格式化全库代码", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764419832.728648, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[COMMIT] docs: 为 MessageBus 集成制定新的测试规范", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764419896.0642111, "duration_ms": 0}}
