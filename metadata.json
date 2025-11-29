@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[COMMIT] feat(build): 添加一键式用户安装脚本", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764425428.2920873, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(common): 正确打包国际化语言文件以供安装后使用", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764425548.6530871, "duration_ms": 0}}
