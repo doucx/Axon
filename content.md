@@ -1,25 +1,47 @@
-分析正确。测试失败是因为 `quipu run` 在执行包含文件写入的操作时，通常会产生两个节点：一个是捕获工作区变更（新创建的 Plan 文件）的 **Capture Node**，另一个是记录执行过程的 **Plan Node**。
+分析正确。测试仍然失败，这表明我们通过检查提交信息来识别 Plan 节点的逻辑存在偏差。
 
-由于 `GitDB` 的实现为每个节点都创建了一个独立的 `refs/quipu/local/heads/` 引用，所以 `heads_after - heads_before` 会包含两个哈希值。
+错误分析
 
-为了修复这个问题，我们需要在 `create_node` 中添加逻辑，从这组新哈希中识别出我们真正关心的那个 **Plan Node**。我们可以通过检查提交信息（Commit Message）来实现这一点，因为 Plan Node 的摘要通常包含我们传入的指令内容（例如 "echo 'content'"）。
+**问题定位**:
+在 `create_node` 中，我们试图通过查找 `echo '{content}'` 字符串来识别 Plan 节点。然而，`quipu-engine` 生成的默认摘要逻辑可能并没有将 `act` 块中的具体参数（如 `echo` 的内容）直接作为 Plan 节点的 `Summary`。
 
-## [WIP] fix(tests): 增强 `create_node` 以处理 Capture 和 Plan 双节点场景
+Plan 节点的摘要生成逻辑主要依赖：
+1.  Markdown 文件中的标题（`# Title`）。
+2.  如果没有标题，则取第一行。
+3.  如果第一行是 Act 指令，则可能只是简略显示。
+
+在测试用例中，我们生成的 Plan 文件内容是：
+```markdown
+~~~~~act
+echo 'content'
+~~~~~
+```
+这个 Plan 没有标题，也没有描述性的第一行。因此，它的 Summary 很可能只是 "Plan executed" 或者 "echo..."，而不包含完整的 `'content'` 字符串。
+
+相反，**Capture 节点** 是用来记录工作区变更的。由于我们在运行 `quipu run` 之前创建了 `plan_file`，所以 Capture 节点会记录这个新文件的添加。其摘要类似于 `Capture: A b_node_to_keep.md`。
+
+**解决方案**:
+我们可以利用这两个节点在语义上的区别来识别它们：
+1.  **Capture 节点**：其摘要通常包含 "Capture:" 字样。
+2.  **Plan 节点**：它是我们真正想要执行的操作记录。
+
+我们可以简单地通过**排除法**来识别 Plan 节点：如果一个节点不是 Capture 节点，那它就是 Plan 节点。或者更稳健地，我们可以给测试用的 Plan 文件加上一个显式的标题，这样我们就能 100% 确定 Plan 节点的摘要内容了。
+
+## [WIP] fix(tests): 为测试用的 Plan 文件添加标题以稳定摘要匹配
 
 ### 用户需求
-修复 `tests/integration/test_sync_modes.py` 中的断言错误 `AssertionError: Expected 1 new head, but found 2`。
+修复 `tests/integration/test_sync_modes.py` 中的断言错误。
 
 ### 评论
-这是一个测试辅助函数的逻辑完善。它承认了 Quipu 引擎“捕获漂移”这一核心行为的副作用（即产生额外的 Capture 节点），并通过智能筛选（检查提交信息）来锁定测试真正关注的 Plan 节点。这使得测试既符合系统实际行为，又保持了验证逻辑的准确性。
+与其猜测 Quipu 的默认摘要生成逻辑，不如显式地控制它。通过在生成的测试 Plan 文件中添加一个 Markdown 标题，我们可以强制 Quipu 使用这个标题作为节点的摘要。这使得在测试中识别 Plan 节点变得微不足道且极其可靠。
 
 ### 目标
 1.  修改 `create_node` 函数。
-2.  允许 `new_heads` 的数量为 1 或 2。
-3.  如果数量为 2，遍历这些哈希，检查其 `git log` 提交信息。
-4.  返回提交信息中包含所执行指令内容（`echo '{content}'`）的那个哈希。
+2.  在生成的 Plan 文件内容中，添加一个 `# Plan: {content}` 标题。
+3.  更新节点识别逻辑：查找提交信息中包含 `Plan: {content}` 的节点。
 
 ### 基本原理
-Capture 节点的提交信息通常是自动生成的差异摘要（如 `Capture: A node_from_b.md`），而 Plan 节点的提交信息则来源于 Plan 内容本身（如 `echo 'node_from_b'`）。通过匹配内容字符串，我们可以明确区分两者，并返回 Plan 节点的哈希用于后续断言。
+Quipu 的 `GitObjectHistoryWriter` 优先使用 Markdown 内容中的第一个标题作为节点摘要。利用这一特性，我们可以精确控制生成的 Plan 节点的元数据，从而在测试中轻松定位它。
 
 ### 标签
 #intent/fix #intent/tooling #flow/ready #priority/high #comp/tests #concept/sync #scope/core #ai/instruct #task/domain/sync #task/object/test-helpers #task/action/refactor #task/state/continue
@@ -28,27 +50,11 @@ Capture 节点的提交信息通常是自动生成的差异摘要（如 `Capture
 
 ### Script
 
-#### Acts 1: 增强 `create_node` 辅助函数
+#### Acts 1: 增强 `create_node`，添加显式标题
 
 ~~~~~act
 patch_file
 tests/integration/test_sync_modes.py
-~~~~~
-~~~~~python
-def create_node(work_dir: Path, content: str) -> str:
-    """Helper to create a node and return its commit hash."""
-    heads_before = get_local_quipu_heads(work_dir)
-
-    plan_file = work_dir / f"{content}.md"
-    plan_file.write_text(f"~~~~~act\necho '{content}'\n~~~~~")
-    result = runner.invoke(app, ["run", str(plan_file), "--work-dir", str(work_dir), "-y"])
-    assert result.exit_code == 0
-
-    heads_after = get_local_quipu_heads(work_dir)
-
-    new_heads = heads_after - heads_before
-    assert len(new_heads) == 1, f"Expected 1 new head, but found {len(new_heads)}"
-    return new_heads.pop()
 ~~~~~
 ~~~~~python
 def create_node(work_dir: Path, content: str) -> str:
@@ -81,6 +87,40 @@ def create_node(work_dir: Path, content: str) -> str:
         f"Could not identify Plan node among {len(new_heads)} new heads: {new_heads}"
     )
 ~~~~~
+~~~~~python
+def create_node(work_dir: Path, content: str) -> str:
+    """Helper to create a node and return its commit hash."""
+    heads_before = get_local_quipu_heads(work_dir)
+
+    # [FIX] Add an explicit title to the plan to ensure predictable node summary.
+    plan_title = f"Plan for {content}"
+    plan_file = work_dir / f"{content}.md"
+    plan_file.write_text(f"# {plan_title}\n\n~~~~~act\necho '{content}'\n~~~~~")
+    
+    result = runner.invoke(app, ["run", str(plan_file), "--work-dir", str(work_dir), "-y"])
+    assert result.exit_code == 0
+
+    heads_after = get_local_quipu_heads(work_dir)
+    new_heads = heads_after - heads_before
+
+    if not new_heads:
+        raise AssertionError("No new Quipu nodes created.")
+
+    # If only 1 node created, return it.
+    if len(new_heads) == 1:
+        return new_heads.pop()
+
+    # If 2 nodes created (Capture + Plan), identify the Plan node by checking if
+    # the explicit title is present in the commit message.
+    for head in new_heads:
+        msg = run_git_command(work_dir, ["log", "-1", "--format=%B", head])
+        if plan_title in msg:
+            return head
+
+    raise AssertionError(
+        f"Could not identify Plan node among {len(new_heads)} new heads: {new_heads}"
+    )
+~~~~~
 
 ### 下一步建议
-现在 `create_node` 能够正确处理 Quipu 的“双节点”创建行为了。请再次运行测试。一旦所有测试通过，我们将进行最终的提交。
+这种方法消除了所有的猜测。现在测试应该非常稳健了。请再次运行测试。一旦确认通过，我们将合并这些改动。
