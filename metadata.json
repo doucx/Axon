@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix: 改善管道交互性并禁止在操作取消时记录节点", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764394361.4350145, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix: Add robust exception handling for interactive prompts in piped environments", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764394497.450594, "duration_ms": 0}}

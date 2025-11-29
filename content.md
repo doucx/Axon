@@ -1,248 +1,143 @@
-分析完全正确。
+Excellent catch. Your test has uncovered a critical edge case that my previous fix did not account for.
 
-这两个问题都指向了同一个核心缺陷：系统对“交互”和“成功”的定义过于简单，未能处理真实世界中的复杂场景，例如管道输入和用户取消操作。你的建议精准地指出了需要修正的地方。
+The crash occurs because `typer.confirm` (and `click.getchar`) can fail with an unhandled exception when they try to access the terminal for interactive input (`/dev/tty`) while `stdin` is being piped, especially if there's any issue with the terminal session itself.
 
-1.  **交互性问题**：在管道 (`|`) 场景下，`stdin` 被重定向，因此 `sys.stdin.isatty()` 总是返回 `False`。然而，进程仍然可以访问 TTY (通常是 `/dev/tty`) 来进行用户交互。正确的做法是移除这个错误的预检查，让 `typer` 和 `click` 这些库自行处理交互环境的判断，它们内部的实现更为健壮。
-2.  **原子性问题**：一个 `plan` 应该被视为一个事务。如果其中任何一个 `act` 因为用户取消或执行失败而没有完成，那么整个 `plan` 就不应被记录为历史。记录一个未完全执行的 `plan` 会污染历史，使其变得不可复现。
+The generic `except Exception` block in the `executor` caught this low-level I/O exception, which doesn't have a user-friendly string representation, leading to the empty error message you observed.
 
-我将生成一个计划来修复这两个问题。我们将采用基于异常的控制流来处理用户取消操作，这比返回布尔值更清晰和可靠。
+The correct solution is to make the confirmation handlers themselves more robust. They should anticipate that interaction might fail and handle it gracefully by treating any such failure as a "No" answer, which then correctly triggers our `OperationCancelledError` flow.
 
-## [WIP] fix: 改善管道交互性并禁止在操作取消时记录节点
+I will now generate a plan to fix this by adding specific exception handling around the interactive calls.
+
+## [WIP] fix: Add robust exception handling for interactive prompts in piped environments
 
 ### 错误分析
-当前系统存在两个核心问题：
-1.  **错误的交互环境检测**：在 `controller.py`、`axon.py` 和 `helpers.py` 的确认函数中，通过 `if not sys.stdin.isatty()` 来判断是否为非交互式环境。这个判断在接收管道输入时会产生误判，将本可以进行交互的会话错误地标记为非交互式，从而自动拒绝所有需要确认的操作。
-2.  **非原子性的历史记录**：当一个 `plan` 中的某个 `act` 被用户取消时（如本例中的 `git_commit`），执行流程会继续。`QuipuApplication` 并不知晓这次取消，因此仍然会创建一个新的历史节点。这破坏了历史记录的准确性和可复现性，因为记录的 `plan` 与实际产生的（或未产生的）文件系统变更不匹配。
+在 `controller.py`, `axon.py`, 和 `helpers.py` 中，我们移除了 `isatty()` 检查，并依赖 `typer.confirm` 和 `click.getchar` 来处理交互。然而，我们没有预料到这些函数在某些管道或 TTY 异常情况下会直接抛出 I/O 相关的底层异常，而不是返回一个布尔值或 `None`。
+
+这个未被处理的异常被 `Executor` 的通用异常捕获器捕获，但由于该异常没有提供有意义的 `__str__` 实现，导致日志中出现了空的错误信息，并且程序非正常崩溃，而不是像预期的那样优雅地中止。
 
 ### 用户需求
-1.  修复交互性检测，使得在通过管道提供输入时，系统仍然能够弹出确认提示并接收用户输入。
-2.  修改执行逻辑，确保当一个 `plan` 中的任何 `act` 被用户拒绝执行时，整个 `plan` 的执行被中止，并且**不创建**任何新的历史节点。
+修改所有直接与用户进行交互式输入的函数（即确认处理器），使其能够捕获在交互过程中可能发生的任何异常，并将这些异常情况安全地处理为“用户拒绝”操作。
 
 ### 评论
-这是一个关键的健壮性修复。它不仅提升了 Quipu 在标准 Unix Shell 环境下的可用性，还通过引入更严格的事务性保证，增强了历史记录的可靠性。这是迈向生产级稳定性的重要一步。
+这是一个至关重要的健壮性改进。它确保了即使用户在一个复杂的、非标准的环境中运行 Quipu（例如通过 `ssh`, `tmux`, 或在 CI 脚本中），交互式提示的失败也不会导致整个程序崩溃，而是会安全地回退到“取消操作”这一预设的失败路径。
 
 ### 目标
-1.  在 `quipu.interfaces.exceptions` 中新增一个 `OperationCancelledError` 异常。
-2.  修改 `Executor.request_confirmation` 的实现，在用户拒绝确认时，不再返回 `False`，而是抛出 `OperationCancelledError`。
-3.  修改 `QuipuApplication.run` 方法，增加对 `OperationCancelledError` 的捕获。在捕获到该异常时，立即停止执行并返回一个表示“已取消”的 `QuipuResult`，跳过所有后续的节点记录步骤。
-4.  移除 `controller.py`、`axon.py` 和 `helpers.py` 中所有画蛇添足的 `sys.stdin.isatty()` 检查，将环境判断完全委托给 `typer` 和 `click` 库。
+1.  在 `controller.py` 和 `axon.py` 的 `typer_confirmation_handler` 中，用 `try...except` 块包裹 `typer.confirm()` 调用。
+2.  在 `helpers.py` 的 `_prompt_for_confirmation` 中，确认 `try...except` 块能够正确处理 `click.getchar()` 的失败。
+3.  在所有 `except` 块中，记录一条警告信息并返回 `False`，这将触发 `OperationCancelledError`，从而实现优雅地中止执行流程。
 
 ### 基本原理
-我们将从返回布尔值的控制流切换到更清晰的异常驱动控制流。当用户取消操作时，一个明确的 `OperationCancelledError` 异常会被抛出，并一直上传到 `QuipuApplication` 的主执行循环中。这个循环会捕获该特定异常，并将其理解为一个明确的信号：执行已中止，不应记录任何内容。
-
-对于交互性问题，我们将移除有缺陷的手动检查，信任底层 UI 库（`typer`/`click`）的能力，它们能更准确地判断是否可以与用户进行交互。
+我们将把异常处理的边界从 `Executor` 向下推到离用户交互最近的地方。通过在调用 `typer.confirm` 和 `click.getchar` 的地方直接处理异常，我们可以将所有不可预见的 I/O 错误（`EOFError`, `OSError` 等）都转换为一个业务逻辑上的确定性结果：`False` (用户未确认)。这个结果随后会触发我们已经建立好的 `OperationCancelledError` 机制，确保了无论交互失败的原因是什么，系统的行为都是一致且安全的。
 
 ### 标签
-#intent/fix #flow/ready #priority/critical #comp/cli #comp/runtime #concept/executor #scope/ux #scope/dx #ai/instruct #task/domain/cli #task/object/interactivity #task/action/bug-fix #task/state/begin
+#intent/fix #flow/ready #priority/critical #comp/cli #concept/executor #scope/ux #scope/dx #ai/instruct #task/domain/cli #task/object/interactivity #task/action/bug-fix #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 定义新的 `OperationCancelledError` 异常
+#### Acts 1: 增强 `controller.py` 的确认处理器
 
-首先，我们在 `interfaces` 包中定义一个新的异常类型，用于清晰地表示用户取消操作的事件。
-
-~~~~~act
-patch_file
-packages/quipu-interfaces/src/quipu/interfaces/exceptions.py
-~~~~~
-~~~~~python
-class ExecutionError(AIFSOpsError):
-    """操作执行错误"""
-
-    pass
-~~~~~
-~~~~~python
-class ExecutionError(AIFSOpsError):
-    """操作执行错误"""
-
-    pass
-
-
-class OperationCancelledError(ExecutionError):
-    """用户取消操作"""
-
-    pass
-~~~~~
-
-#### Acts 2: 修改 `Executor` 以抛出异常
-
-现在，我们更新 `Executor` 中的 `request_confirmation` 方法，使其在用户拒绝时抛出我们新创建的异常。
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/quipu/runtime/executor.py
-~~~~~
-~~~~~python
-from quipu.interfaces.types import Statement, ActFunction, ActContext
-from quipu.interfaces.exceptions import ExecutionError
-
-logger = logging.getLogger(__name__)
-~~~~~
-~~~~~python
-from quipu.interfaces.types import Statement, ActFunction, ActContext
-from quipu.interfaces.exceptions import ExecutionError, OperationCancelledError
-
-logger = logging.getLogger(__name__)
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/quipu/runtime/executor.py
-~~~~~
-~~~~~python
-        if not self.confirmation_handler:
-            logger.warning("无确认处理器，已跳过需要用户确认的操作。")
-            return False
-
-        prompt = f"❓ 是否对 {file_path.name} 执行上述修改?"
-        return self.confirmation_handler(diff, prompt)
-~~~~~
-~~~~~python
-        if not self.confirmation_handler:
-            logger.warning("无确认处理器，已跳过需要用户确认的操作。")
-            return False
-
-        prompt = f"❓ 是否对 {file_path.name} 执行上述修改?"
-        confirmed = self.confirmation_handler(diff, prompt)
-        if not confirmed:
-            raise OperationCancelledError(f"用户取消了对 {file_path.name} 的修改。")
-        return True
-~~~~~
-
-#### Acts 3: 更新 `QuipuApplication` 以处理取消事件
-
-这是核心修复。我们将在主执行流程中捕获 `OperationCancelledError`，并在此情况下阻止历史节点的创建。
+我们将为 `typer.confirm` 添加异常捕获，处理交互失败的情况。
 
 ~~~~~act
 patch_file
 packages/quipu-cli/src/quipu/cli/controller.py
 ~~~~~
 ~~~~~python
-import logging
-import re
-import sys
-from pathlib import Path
-from typing import List
-import typer
-
-from quipu.interfaces.exceptions import ExecutionError as CoreExecutionError
-from quipu.runtime.executor import Executor
-from quipu.runtime.parser import detect_best_parser, get_parser
-~~~~~
-~~~~~python
-import logging
-import re
-import sys
-from pathlib import Path
-from typing import List
-import typer
-
-from quipu.interfaces.exceptions import ExecutionError as CoreExecutionError, OperationCancelledError
-from quipu.runtime.executor import Executor
-from quipu.runtime.parser import detect_best_parser, get_parser
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/controller.py
-~~~~~
-~~~~~python
-        # 3.3 Execute
-        executor.execute(statements)
-
-        # --- Phase 4: Recording (Plan Crystallization) ---
-        final_summary = None
-~~~~~
-~~~~~python
-        # 3.3 Execute
-        try:
-            executor.execute(statements)
-        except OperationCancelledError as e:
-            logger.warning(f"🚫 操作已被用户取消: {e}")
-            return QuipuResult(success=False, exit_code=1, message=f"🚫 操作已取消。")
-
-        # --- Phase 4: Recording (Plan Crystallization) ---
-        final_summary = None
-~~~~~
-
-#### Acts 4: 移除所有错误的 `isatty()` 检查
-
-最后，我们清理掉所有模块中有问题的交互性检查。
-
-**`controller.py`**
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/controller.py
-~~~~~
-~~~~~python
-            typer.echo("")
-
-            # 处理非交互式环境
-            if not sys.stdin.isatty():
-                logger.warning("非交互式环境，自动跳过确认。使用 --yolo 参数可自动批准。")
-                return False
-
-            return typer.confirm(prompt, default=True)
-~~~~~
-~~~~~python
+        def typer_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+            """一个封装了 Typer UI 逻辑的确认处理器。"""
+            typer.echo("\n🔍 变更预览:")
+            for line in diff_lines:
+                if line.startswith("+"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
+                elif line.startswith("-"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.RED)
+                elif line.startswith("^"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
+                else:
+                    typer.echo(line.strip("\n"))
             typer.echo("")
 
             # 直接让 typer 处理交互性判断
             return typer.confirm(prompt, default=True)
 ~~~~~
+~~~~~python
+        def typer_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+            """一个封装了 Typer UI 逻辑的确认处理器。"""
+            typer.echo("\n🔍 变更预览:")
+            for line in diff_lines:
+                if line.startswith("+"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
+                elif line.startswith("-"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.RED)
+                elif line.startswith("^"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
+                else:
+                    typer.echo(line.strip("\n"))
+            typer.echo("")
 
-**`axon.py`**
+            try:
+                # 直接让 typer 处理交互性判断
+                return typer.confirm(prompt, default=True)
+            except Exception as e:
+                # 在管道或非交互式环境中，typer.confirm 可能会失败
+                logger.warning(f"无法获取用户确认，操作已自动取消 (原因: {e})")
+                return False
+~~~~~
+
+#### Acts 2: 增强 `axon.py` 的确认处理器
+
+为 `axon` 命令应用相同的健壮性修复。
+
 ~~~~~act
 patch_file
 packages/quipu-cli/src/quipu/cli/commands/axon.py
 ~~~~~
 ~~~~~python
-            typer.echo("")
-
-            if not sys.stdin.isatty():
-                logger.warning("非交互式环境，自动跳过确认。使用 --yolo 参数可自动批准。")
-                return False
-
-            return typer.confirm(prompt, default=True)
-~~~~~
-~~~~~python
+        def typer_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+            typer.echo("\n🔍 变更预览:")
+            for line in diff_lines:
+                if line.startswith("+"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
+                elif line.startswith("-"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.RED)
+                elif line.startswith("^"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
+                else:
+                    typer.echo(line.strip("\n"))
             typer.echo("")
 
             # 直接让 typer 处理交互性判断
             return typer.confirm(prompt, default=True)
 ~~~~~
-
-**`helpers.py`**
-~~~~~act
-patch_file
-packages/quipu-cli/src/quipu/cli/commands/helpers.py
-~~~~~
 ~~~~~python
-    prompt_suffix = " [Y/n]: " if default else " [y/N]: "
-    typer.secho(message + prompt_suffix, nl=False, err=True)
+        def typer_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+            typer.echo("\n🔍 变更预览:")
+            for line in diff_lines:
+                if line.startswith("+"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.GREEN)
+                elif line.startswith("-"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.RED)
+                elif line.startswith("^"):
+                    typer.secho(line.strip("\n"), fg=typer.colors.BLUE)
+                else:
+                    typer.echo(line.strip("\n"))
+            typer.echo("")
 
-    if not sys.stdin.isatty():
-        typer.echo(" (non-interactive)", err=True)
-        return False
-
-    char = click.getchar()
+            try:
+                # 直接让 typer 处理交互性判断
+                return typer.confirm(prompt, default=True)
+            except Exception as e:
+                # 在管道或非交互式环境中，typer.confirm 可能会失败
+                logger.warning(f"无法获取用户确认，操作已自动取消 (原因: {e})")
+                return False
 ~~~~~
-~~~~~python
-    prompt_suffix = " [Y/n]: " if default else " [y/N]: "
-    typer.secho(message + prompt_suffix, nl=False, err=True)
 
-    # 让 click 自行处理非交互式环境
-    try:
-        char = click.getchar()
-    except Exception:
-        # 在非交互式环境中 getchar 可能会失败
-        typer.echo(" (non-interactive)", err=True)
-        return False
-~~~~~
+#### Acts 3: 确认 `helpers.py` 的修复是正确的
+
+我们之前的修改已经为 `click.getchar()` 添加了异常处理，这是正确的模式。我们将保留它，因为它已经符合了我们现在的健壮性要求。此步骤无需代码变更，仅作为确认。
 
 ### 下一步建议
-- **手动验证**: 请重新执行你的测试命令 (`wl-paste | qs run`)。现在系统应该会正确地弹出确认提示。
-- **取消测试**: 在提示出现时，选择“否”(n)。然后运行 `qs log`，确认没有新的历史节点被创建。
-- **YOLO 模式测试**: 运行 `wl-paste | qs run -y`，确认在 YOLO 模式下操作可以被自动批准并成功执行。
+- **再次验证**: 请重新运行完全相同的命令 `cat o.md | qd run`。这一次，程序不应崩溃。它应该记录一条警告信息，指出无法获取用户确认，然后优雅地中止，并显示“操作已取消”的消息。
+- **检查历史**: 运行 `qd log`，确认在这次中止的操作之后，没有创建新的历史节点。
