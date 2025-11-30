@@ -1,69 +1,40 @@
-好的，我们来分析并实现 `性能优化：tree写入.md` 中描述的高性能 `checkout` 方案。
+这个错误堆栈确认了我们刚才的分析：**单纯的 `read-tree -m` 策略在索引不“干净”时极其脆弱。**
 
-你的分析文档完全正确。当前 `checkout` 的实现方式虽然有效，但在处理大型仓库时性能较低，因为它执行的是“tree-vs-working-directory”的完全同步。我们可以通过实现文档中建议的“方式二：使用底层命令”，利用 `git read-tree -m` 将其升级为高效的“tree-vs-tree”比较，从而只更新发生变更的文件。
+错误信息 `Entry '.github/workflows/ci.yml' not uptodate. Cannot merge.` 清楚地表明，Git 发现当前索引中的 `ci.yml` 文件与我们告诉它的起始状态 (`bef963f...`) 不一致，因此为了保护潜在的未提交变更，拒绝执行合并。
 
-这将是一次对核心性能至关重要的重构。
+这在实际开发中非常常见（例如，构建过程修改了文件，或者你刚才手动修改了什么）。
 
-## [WIP] perf: 优化 checkout 性能，实现 tree-vs-tree 高效切换
+为了彻底解决这个问题，我们必须在执行差异计算前，**强制**将索引重置为已知的起始状态。这将使操作变为原子性的覆盖操作，符合 Quipu "Time Travel" 的语义。
+
+这是修复计划，请执行它以修补 `git_db.py`。
+
+## [WIP] fix: 修复 checkout 优化在高索引压力下的合并冲突问题
 
 ### 用户需求
-根据 `性能优化：tree写入.md` 文件的分析，需要重构 `quipu-engine` 的 `checkout` 逻辑。目标是利用 Git 的 `tree-vs-tree` 差异比较能力，替换当前“将工作目录强制重置为目标 Tree”的低效实现，从而在切换历史状态时，只对发生变更的文件进行 I/O 操作，大幅提升性能。
-
-### 评论
-这是一个关键的性能优化。对于拥有大量文件（如大型代码库、数据集）的工作区而言，每次 `checkout` 都全量写入是不可接受的。实现 tree-vs-tree 的高效切换，将使得 Quipu 在真实世界的复杂项目中的可用性提升一个数量级，是实现“将 Linux 内核仓库作为 Quipu 工作区”这类场景的必要前提。
+用户在手动测试 Quipu 的新 `checkout` 逻辑时，遇到了 `git read-tree -m` 失败的问题。错误日志显示这是由于索引中的文件（如 `.github/workflows/ci.yml`）与指定的 `old_tree` 不一致导致的。我们需要修复 `checkout_tree` 方法，使其在执行差异合并前，先强制重置索引，确立一个干净的基准。
 
 ### 目标
-1.  修改 `pyquipu.engine.git_db.GitDB.checkout_tree` 方法，使其能接受一个可选的 `old_tree_hash` 参数。
-2.  当 `old_tree_hash` 被提供时，使用 `git read-tree -m <old_tree> <new_tree>` 命令来高效地更新 Git 索引。
-3.  当 `old_tree_hash` 未提供时，平滑回退到现有的 `git read-tree <new_tree>` 逻辑，确保向后兼容。
-4.  更新上层调用者 `pyquipu.engine.state_machine.Engine.checkout`，在执行切换时，传入当前状态的 `tree_hash` 作为 `old_tree_hash`。
-
-### 基本原理
-优化的核心在于改变与 Git 交互的方式。我们不再简单地命令 Git：“让工作目录变成 `new_tree` 的样子”，而是更精确地告诉它：“计算出从 `old_tree` 变为 `new_tree` 所需的最小变更集，并只应用这些变更”。
-
-`git read-tree -m old_tree new_tree` 指令正是为此设计的。它在 Git 内部（内存和索引文件）高效地完成了 Tree 的 diff 操作，并生成了一个更新后的索引。随后的 `git checkout-index -a -f` 则只需根据这个已经包含“最小变更集”的索引来更新工作目录，从而避免了对未变更文件的不必要I/O操作。通过 `Engine` 中维护的 `.quipu/HEAD` 文件，我们可以轻易获取 `old_tree_hash`，将这个优化无缝集成到现有的工作流中。
+修改 `packages/quipu-engine/src/pyquipu/engine/git_db.py` 中的 `checkout_tree` 方法：
+1.  在进入优化路径 (`if old_tree_hash:`) 后，首先执行 `git read-tree <old_tree_hash>`。这一步会无条件地将索引重置为旧状态，清除任何“脏”记录。
+2.  然后再执行 `git read-tree -m <old_tree_hash> <new_tree_hash>`。此时索引已干净，操作将必定成功。
+3.  添加 `old_tree_hash != new_tree_hash` 检查以避免原地切换时的冗余操作。
 
 ### 标签
-#intent/refine #flow/ready #priority/high
-#comp/engine #concept/state #concept/navigation #scope/core
-#ai/instruct
-#task/domain/storage #task/object/checkout-performance #task/action/optimization #task/state/begin
+#intent/fix #flow/ready #priority/critical #comp/engine #concept/state #scope/core #ai/instruct #task/domain/storage #task/object/checkout-performance #task/action/optimization #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 增强 `GitDB.checkout_tree` 以支持 tree-vs-tree 模式
+#### Acts 1: 注入索引重置逻辑
 
-我们将首先修改底层的 `git_db.py`。新的 `checkout_tree` 方法将接受一个可选的 `old_tree_hash`，并根据其是否存在来决定是走快速路径还是慢速路径。
+我们将使用 `patch_file` 替换现有的脆弱逻辑。
 
 ~~~~~act
 patch_file
 packages/quipu-engine/src/pyquipu/engine/git_db.py
 ~~~~~
 ~~~~~python
-    def checkout_tree(self, tree_hash: str):
-        """
-        将工作区强制重置为目标 Tree 的状态。
-        这是一个底层方法，上层应确保工作区的未提交更改已被处理。
-        """
-        bus.info("engine.git.info.checkoutStarted", short_hash=tree_hash[:7])
-
-        # 1. 使用 read-tree 更新索引，这是一个安全的操作
-        self._run(["read-tree", tree_hash])
-
-        # 2. 从更新后的索引检出文件，-a (all) -f (force)
-        self._run(["checkout-index", "-a", "-f"])
-~~~~~
-~~~~~python
-    def checkout_tree(self, new_tree_hash: str, old_tree_hash: Optional[str] = None):
-        """
-        将工作区强制重置为目标 Tree 的状态。
-        如果提供了 old_tree_hash，将执行 tree-vs-tree 高效 diff，只更新变更文件。
-        否则，回退到全量更新。
-        """
-        bus.info("engine.git.info.checkoutStarted", short_hash=new_tree_hash[:7])
-
         # 1. 更新索引。根据是否存在 old_tree_hash 选择不同策略。
         if old_tree_hash:
             # 快速路径: tree-vs-tree diff, 只更新索引中的差异项
@@ -75,54 +46,21 @@ packages/quipu-engine/src/pyquipu/engine/git_db.py
             # 慢速路径: 将整个新 tree 读入索引
             logger.debug(f"执行全量检出: {new_tree_hash[:7]}")
             self._run(["read-tree", new_tree_hash])
-
-        # 2. 从更新后的索引检出文件，-a (all) -f (force)
-        # 此时 checkout-index 只会操作在 read-tree 步骤中被标记为已更改的文件
-        self._run(["checkout-index", "-a", "-f"])
-~~~~~
-
-#### Acts 2: 更新 `Engine.checkout` 以利用性能优化
-
-现在，我们需要修改 `state_machine.py` 中的上层逻辑，使其在调用 `checkout_tree` 时传入当前工作区的 `tree_hash`。我们可以通过 `_read_head()` 方法方便地获取这个值。
-
-~~~~~act
-patch_file
-packages/quipu-engine/src/pyquipu/engine/state_machine.py
 ~~~~~
 ~~~~~python
-    def checkout(self, target_hash: str):
-        self.git_db.checkout_tree(target_hash)
-        self._write_head(target_hash)
-        self.current_node = None
-        for node in self.history_graph.values():
-            if node.output_tree == target_hash:
-                self.current_node = node
-                break
-        logger.info(f"🔄 状态已切换至: {target_hash[:7]}")
+        # 1. 更新索引。根据是否存在 old_tree_hash 选择不同策略。
+        if old_tree_hash and old_tree_hash != new_tree_hash:
+            # 快速路径: tree-vs-tree diff, 只更新索引中的差异项
+            logger.debug(f"执行 tree-vs-tree 高效检出: {old_tree_hash[:7]} -> {new_tree_hash[:7]}")
+            
+            # 阶段 1.1: 强制将索引重置到 old_tree 的状态。
+            # 这解决了 "Entry not uptodate" 问题，确保合并基础是绝对干净和已知的。
+            self._run(["read-tree", old_tree_hash])
+            
+            # 阶段 1.2: 在干净的索引上执行 diff-merge，将其更新到 new_tree 的状态。
+            self._run(["read-tree", "-m", old_tree_hash, new_tree_hash])
+        else:
+            # 慢速路径 或 原地切换: 将整个新 tree 读入索引
+            logger.debug(f"执行全量检出: {new_tree_hash[:7]}")
+            self._run(["read-tree", new_tree_hash])
 ~~~~~
-~~~~~python
-    def checkout(self, target_hash: str):
-        # 获取切换前的 tree hash 作为 "old_tree"
-        current_head_hash = self._read_head()
-
-        # 调用已优化的 checkout_tree 方法
-        self.git_db.checkout_tree(new_tree_hash=target_hash, old_tree_hash=current_head_hash)
-
-        self._write_head(target_hash)
-        self.current_node = None
-        for node in self.history_graph.values():
-            if node.output_tree == target_hash:
-                self.current_node = node
-                break
-        logger.info(f"🔄 状态已切换至: {target_hash[:7]}")
-~~~~~
-
-### 下一步建议
-我们已经完成了核心逻辑的重构。现在最关键的步骤是验证其正确性和性能提升。
-
-1.  **功能测试**: 需要编写一个新的集成测试，模拟一个包含不变文件和变更文件的仓库。在执行 `checkout` 后，断言：
-    *   变更文件内容已更新。
-    *   不变文件的 `mtime` (修改时间) **没有** 发生变化。这可以通过 `os.path.getmtime` 来验证，是优化是否生效的决定性证据。
-2.  **性能基准测试 (可选但推荐)**: 在一个大型仓库上（例如，克隆一个 linux kernel 仓库），对优化前后的 `checkout` 操作进行计时，量化性能提升。
-
-如果你同意，我将为你生成实现上述功能测试的计划。
