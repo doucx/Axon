@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[COMMIT] style: 使用 ruff 格式化并检查全库代码", "type": "plan", "generator": {"id": "manual", "tool": "pyquipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764481632.0935018, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "计划步骤", "type": "plan", "generator": {"id": "manual", "tool": "pyquipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764487762.5849378, "duration_ms": 0}}
