@@ -1,126 +1,201 @@
-好的，我用最通俗的自然语言来复盘一下刚才发生了什么，以及为什么“看似正确”的修复依然失败。
+好的，我们首先修复因接口变更导致的 `InMemoryDB` 测试失败，然后创建一个专门的测试文件来验证新的 `checkout` 逻辑：既要验证它在“脏”工作区下的健壮性（不会崩溃），也要验证它在“净”工作区下的性能优化（mtime 保持不变）。
 
-### 现场还原：为什么会失败？
-
-想象 **Git 索引 (Index)** 是一个“发货清单”，而 **工作区 (Workspace)** 是实际的“仓库货架”。
-
-1.  **初始状态**:
-    *   **货架 (工作区)** 上有一件商品 `ci.yml`，但它被弄脏了（你有未提交的修改，或者它被脚本修改了）。
-    *   **清单 (索引)** 此时可能也是乱的。
-
-2.  **第一步 (你的修复 - `read-tree <old>`)**:
-    *   你强行把 **清单** 撕掉，换成了一张旧的、标准的清单 A (`old_tree`)。
-    *   **关键点**: 这一步只换了**清单**。**货架**上的 `ci.yml` 还是脏的！
-    *   现在的局面是：清单上写着 `ci.yml (标准版)`，但货架上放着 `ci.yml (脏版)`。
-
-3.  **第二步 (报错点 - `read-tree -m <old> <new>`)**:
-    *   这个命令试图计算从 A 到 B 的差异。
-    *   Git 非常谨慎。它在计算差异前，会先看一眼货架。
-    *   它发现：**“不对啊！清单上说这里是标准版，怎么货架上是脏版？如果我执行合并，这个脏版可能会丢失！”**
-    *   于是 Git 抛出错误 `Entry ... not uptodate`，拒绝执行。即使我们的目的是“强制覆盖”，但 `-m` 模式（合并模式）本质上是用来保护数据的，它不接受这种不一致。
-
-### 真正的解决方案：殊途同归
-
-我们在追求“性能优化”时，陷入了过度使用底层命令 (`read-tree -m` + `checkout-index`) 的陷阱。
-
-其实，Git 提供了一个命令，它专门用来做**“带优化的强制切换”**，即：
-**`git read-tree --reset -u <new_tree>`**
-
-*   **`--reset`**: 告诉 Git，“闭嘴，我不关心货架上有什么脏东西，也不关心清单对不对，全部以新清单为准。”（解决了报错问题）
-*   **`-u` (Update)**: 告诉 Git，“不仅要换清单，还要同步更新货架。”
-*   **核心优化**: 这个命令非常智能。它会对比**当前清单**和**新清单**。如果某件商品在两个清单里的哈希值一样，它就**完全不碰**货架上的那件商品（保留其修改时间，不执行 I/O）。**这正是我们梦寐以求的性能优化。**
-
-所以，我们不需要 `old_tree`，也不需要复杂的两步走。我们只需要这一个命令。
-
-## [WIP] fix: 使用 read-tree --reset -u 替代脆弱的差异合并逻辑
+## [WIP] fix: 修复 InMemoryDB 接口并添加 checkout 行为验证测试
 
 ### 用户需求
-修复 `checkout` 操作在工作区不干净时崩溃的问题。之前的修复尝试（分步重置索引）未能解决 `read-tree -m` 对工作区状态的严格检查导致的 `not uptodate` 错误。
+1.  修复 `tests/helpers.py` 中的 `InMemoryDB` 类，使其 `checkout_tree` 方法的签名与 `GitDB` 保持一致，解决 `TypeError`。
+2.  创建一个新的测试文件，专门验证 `git read-tree --reset -u` 策略的两个核心特性：
+    *   **健壮性**: 在索引或工作区包含未提交变更（脏状态）时，能够强制重置并成功切换。
+    *   **性能**: 对于未发生变更的文件，切换过程中不更新其修改时间 (mtime)，证明 I/O 被跳过。
 
 ### 目标
-1.  彻底抛弃 `read-tree -m <old> <new>` 这种脆弱的合并逻辑。
-2.  使用 `git read-tree --reset -u <new_tree>` 作为核心实现。
-3.  这个命令同时实现了：
-    *   **强制性**: `--reset` 忽略并覆盖本地变更，解决崩溃问题。
-    *   **高性能**: `-u` 自动比对索引，跳过未变更文件的 I/O 操作。
-4.  保留 `git clean` 以清理未追踪的文件。
-
-### 基本原理
-`git read-tree --reset -u` 是 Git 提供的“官方”快速检出路径。它利用当前索引作为缓存，只更新那些在当前索引和目标 Tree 之间确实发生变化的文件。由于它带有 `--reset` 语义，它不会因为工作区的“脏”状态而中止，完全符合 Quipu 时间旅行“强制切换”的定义。
+1.  修改 `tests/helpers.py`，更新 `InMemoryDB.checkout_tree` 的参数列表。
+2.  新建 `tests/engine/test_checkout_behavior.py`，包含 `test_checkout_resets_dirty_index` 和 `test_checkout_optimization_mtime` 两个测试用例。
 
 ### 标签
-#intent/fix #flow/ready #priority/critical #comp/engine #concept/state #scope/core #ai/instruct #task/domain/storage #task/object/checkout-performance #task/action/optimization #task/state/end #task/status/completed
+#intent/fix #flow/ready #priority/high #comp/tests #scope/core #ai/instruct #task/domain/storage #task/object/checkout-performance #task/action/test #task/state/begin
 
 ---
 
 ### Script
 
-#### Acts 1: 重写 `checkout_tree`
+#### Acts 1: 修复 `InMemoryDB` 接口兼容性
 
-我们不仅修复了 bug，还删除了复杂的 `old_tree_hash` 逻辑，使代码更简洁、更健壮。
+我们将 `InMemoryDB` 的 `checkout_tree` 方法签名更新为接受 `new_tree_hash` 和 `old_tree_hash`，以匹配 `Engine` 的调用方式。
 
 ~~~~~act
 patch_file
-packages/quipu-engine/src/pyquipu/engine/git_db.py
+tests/helpers.py
 ~~~~~
 ~~~~~python
-    def checkout_tree(self, new_tree_hash: str, old_tree_hash: Optional[str] = None):
-        """
-        将工作区强制重置为目标 Tree 的状态。
-        如果提供了 old_tree_hash，将执行 tree-vs-tree 高效 diff，只更新变更文件。
-        否则，回退到全量更新。
-        """
-        bus.info("engine.git.info.checkoutStarted", short_hash=new_tree_hash[:7])
+    def get_tree_hash(self) -> str:
+        """对当前 VFS 内容进行确定性哈希。"""
+        if not self.vfs.files:
+            return EMPTY_TREE_HASH
 
-        # 1. 更新索引。根据是否存在 old_tree_hash 选择不同策略。
-        if old_tree_hash and old_tree_hash != new_tree_hash:
-            # 快速路径: tree-vs-tree diff, 只更新索引中的差异项
-            logger.debug(f"执行 tree-vs-tree 高效检出: {old_tree_hash[:7]} -> {new_tree_hash[:7]}")
-            
-            # 阶段 1.1: 强制将索引重置到 old_tree 的状态。
-            # 这解决了 "Entry not uptodate" 问题，确保合并基础是绝对干净和已知的。
-            self._run(["read-tree", old_tree_hash])
-            
-            # 阶段 1.2: 在干净的索引上执行 diff-merge，将其更新到 new_tree 的状态。
-            self._run(["read-tree", "-m", old_tree_hash, new_tree_hash])
-        else:
-            # 慢速路径 或 原地切换: 将整个新 tree 读入索引
-            logger.debug(f"执行全量检出: {new_tree_hash[:7]}")
-            self._run(["read-tree", new_tree_hash])
+        sorted_files = sorted(self.vfs.files.items())
+        hasher = hashlib.sha1()
+        for path, content in sorted_files:
+            hasher.update(path.encode("utf-8"))
+            hasher.update(content.encode("utf-8"))
 
-        # 2. 从更新后的索引检出文件，-a (all) -f (force)
-        # 此时 checkout-index 只会操作在 read-tree 步骤中被标记为已更改的文件
-        self._run(["checkout-index", "-a", "-f"])
+        tree_hash = hasher.hexdigest()
+        if tree_hash not in self.snapshots:
+            self.snapshots[tree_hash] = self.vfs.copy()
+        return tree_hash
 
-        # 3. 清理工作区中多余的文件和目录
-        # -d: 目录, -f: 强制
-        # 移除了 -x 参数，以尊重 .gitignore 规则
-        # -e .quipu: 排除 .quipu 目录，防止自毁
-        self._run(["clean", "-df", "-e", ".quipu"])
+    def checkout_tree(self, tree_hash: str):
+        if tree_hash not in self.snapshots:
+            raise FileNotFoundError(f"In-memory snapshot not found for hash: {tree_hash}")
+        self.vfs = self.snapshots[tree_hash].copy()
 
-        bus.success("engine.git.success.checkoutComplete")
+    def get_diff_name_status(self, old_tree: str, new_tree: str) -> List[Tuple[str, str]]:
 ~~~~~
 ~~~~~python
+    def get_tree_hash(self) -> str:
+        """对当前 VFS 内容进行确定性哈希。"""
+        if not self.vfs.files:
+            return EMPTY_TREE_HASH
+
+        sorted_files = sorted(self.vfs.files.items())
+        hasher = hashlib.sha1()
+        for path, content in sorted_files:
+            hasher.update(path.encode("utf-8"))
+            hasher.update(content.encode("utf-8"))
+
+        tree_hash = hasher.hexdigest()
+        if tree_hash not in self.snapshots:
+            self.snapshots[tree_hash] = self.vfs.copy()
+        return tree_hash
+
     def checkout_tree(self, new_tree_hash: str, old_tree_hash: Optional[str] = None):
-        """
-        将工作区强制重置为目标 Tree 的状态。
-        使用 read-tree --reset -u 实现高性能的增量更新。
-        """
-        bus.info("engine.git.info.checkoutStarted", short_hash=new_tree_hash[:7])
+        # InMemoryDB 总是执行“瞬间切换”，不需要模拟 diff 优化逻辑
+        tree_hash = new_tree_hash
+        if tree_hash not in self.snapshots:
+            raise FileNotFoundError(f"In-memory snapshot not found for hash: {tree_hash}")
+        self.vfs = self.snapshots[tree_hash].copy()
 
-        # 1. 高性能检出核心
-        # --reset: 类似于 git reset --hard，强制覆盖本地未提交的变更，解决 "not uptodate" 冲突。
-        # -u: 更新工作区文件。Git 会自动对比当前索引，只对发生变更的文件执行 I/O (更新 mtime)。
-        # 这就是我们要的 "tree-vs-tree" 优化，不需要手动传入 old_tree_hash，因为当前索引就是 old_tree。
-        logger.debug(f"执行优化的强制检出: -> {new_tree_hash[:7]}")
-        self._run(["read-tree", "--reset", "-u", new_tree_hash])
-
-        # 2. 清理工作区中多余的文件和目录
-        # read-tree -u 会删除旧树中有但新树中没有的文件。
-        # 但它不会删除 "未追踪 (Untracked)" 的新文件。我们需要用 clean 来处理它们。
-        # -d: 目录, -f: 强制
-        # -e .quipu: 排除 .quipu 目录，防止自毁
-        self._run(["clean", "-df", "-e", ".quipu"])
-
-        bus.success("engine.git.success.checkoutComplete")
+    def get_diff_name_status(self, old_tree: str, new_tree: str) -> List[Tuple[str, str]]:
 ~~~~~
+
+#### Acts 2: 创建 checkout 行为验证测试
+
+这个新测试文件将使用真实的 `GitDB` 环境来验证底层的 `checkout_tree` 逻辑。
+
+~~~~~act
+write_file
+tests/engine/test_checkout_behavior.py
+~~~~~
+~~~~~python
+import os
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
+from pyquipu.engine.git_db import GitDB
+
+
+@pytest.fixture
+def git_env(tmp_path: Path):
+    """Setup a real Git environment for testing plumbing commands."""
+    repo = tmp_path / "checkout_repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    # Config git user
+    subprocess.run(["git", "config", "user.email", "test@quipu.dev"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Quipu Test"], cwd=repo, check=True)
+    return repo, GitDB(repo)
+
+
+class TestCheckoutBehavior:
+    def test_checkout_resets_dirty_index(self, git_env):
+        """
+        验证：当索引/工作区不干净（有未提交的 add）时，checkout_tree 能强制重置并成功。
+        这是为了修复之前遇到的 'Entry not uptodate' 崩溃问题。
+        """
+        repo, db = git_env
+
+        # 1. 创建状态 A
+        (repo / "f.txt").write_text("v1")
+        hash_a = db.get_tree_hash()
+        
+        # 此时需要将 A 的状态提交到 Git 对象库，否则后续 checkout 找不到 tree
+        # 我们可以借用 commit_tree 来固化它，虽然这里不依赖 commit，但得有 tree 对象
+        # get_tree_hash 内部其实已经 write-tree 了，所以 tree 对象存在。
+        
+        # 为了让 checkout 有意义，我们先手动让工作区处于状态 A
+        # (其实 get_tree_hash 并没有修改工作区，所以现在工作区就是 v1)
+
+        # 2. 创建状态 B
+        (repo / "f.txt").write_text("v2")
+        hash_b = db.get_tree_hash()
+
+        # 3. 回到状态 A，准备制造麻烦
+        db.checkout_tree(hash_a)
+        assert (repo / "f.txt").read_text() == "v1"
+
+        # 4. 制造脏索引：修改文件并添加到暂存区
+        (repo / "f.txt").write_text("dirty_v3")
+        subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
+
+        # 此时索引中的 f.txt 是 "dirty_v3"，与 hash_a 的 "v1" 不一致。
+        # 旧的 read-tree -m 会在这里崩溃。
+
+        # 5. 尝试强制切换到状态 B
+        # 这里的 old_tree_hash 参数对于新的实现其实是可选的，但为了模拟 Engine 的调用我们传进去
+        db.checkout_tree(new_tree_hash=hash_b, old_tree_hash=hash_a)
+
+        # 6. 验证
+        # 操作应该成功（不抛异常），且文件内容应为 v2
+        assert (repo / "f.txt").read_text() == "v2"
+        
+        # 验证索引也干净了（除了可能被 checkout 更新过）
+        status = subprocess.check_output(["git", "status", "--porcelain"], cwd=repo).decode()
+        # 应该是干净的，或者有 untracked 文件（如果有的话），但这里 f.txt 是被追踪的
+        assert "f.txt" not in status
+
+    def test_checkout_optimization_mtime(self, git_env):
+        """
+        验证：对于未发生变更的文件，checkout_tree 不会更新其 mtime。
+        这证明了 read-tree -u 的 diff 优化生效了。
+        """
+        repo, db = git_env
+
+        # 1. 创建状态 A: 包含一个不变文件和一个变动文件
+        common_file = repo / "common.txt"
+        common_file.write_text("I am constant")
+        
+        changing_file = repo / "change.txt"
+        changing_file.write_text("v1")
+
+        hash_a = db.get_tree_hash()
+
+        # 2. 创建状态 B: common 不变，change 变
+        changing_file.write_text("v2")
+        hash_b = db.get_tree_hash()
+
+        # 3. 切换回 A
+        db.checkout_tree(hash_a)
+        
+        # 记录 common.txt 的 mtime
+        # 为了防止文件系统时间分辨率问题（有些是秒级），我们强制 sleep 一下
+        time.sleep(1.1) 
+        mtime_before = common_file.stat().st_mtime
+
+        # 4. 切换到 B
+        # 理论上 common.txt 的 blob hash 没变，git 应该跳过它
+        db.checkout_tree(new_tree_hash=hash_b, old_tree_hash=hash_a)
+
+        # 5. 验证
+        mtime_after = common_file.stat().st_mtime
+        
+        assert mtime_after == mtime_before, \
+            "Unchanged file was touched! Optimization failed."
+        
+        assert changing_file.read_text() == "v2", "Changed file was not updated."
+
+~~~~~
+
+### 下一步建议
+运行测试，确保修复有效且未引入回归。如果一切顺利，我们就可以确信这次性能优化是安全着陆了。
