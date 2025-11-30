@@ -1,184 +1,125 @@
-好的，我将为你创建一个健壮的测试计划，以确保 `quipu cache prune-refs` 命令的行为符合预期，能够正确识别并清理冗余引用，同时保留必要的分支末端引用。
+好的，测试已通过。这标志着我们已经为引用膨胀问题提供了一个健壮、安全的解决方案。
 
-## [WIP] test: 为 `quipu cache prune-refs` 命令添加测试用例
+我将生成一个 `[COMMIT]` 计划，该计划会：
+1.  **清理技术债务**：回滚之前为支持已废弃的自动修剪逻辑而在 `Engine` 中添加的 `parent_commit_hash` 传递代码，保持代码库的整洁。
+2.  **提交所有相关变更**：将回滚、新命令、新测试和本地化文件作为一个原子单元提交。
+
+## [COMMIT] fix(engine, cli): revert auto-pruning and add manual prune-refs command
 
 ### 用户需求
-为 `quipu cache prune-refs` 命令编写一套完整的测试用例，覆盖以下场景：
-1.  存在冗余引用的标准场景。
-2.  没有冗余引用的场景。
-3.  在空仓库中运行的场景。
+在自动引用修剪逻辑被证实存在缺陷并回滚后，需要将所有相关的修复（回滚）、新功能（`prune-refs` 命令）和验证（测试用例）作为一个完整的逻辑单元进行提交。
 
 ### 评论
-为 `prune-refs` 添加测试是至关重要的，它能确保这个手动清理工具的正确性和安全性，防止因逻辑错误导致的数据丢失。
+这个提交标志着对引用管理问题的一次完整、严谨的修复。它体现了一个健康的开发周期：提出方案、测试验证、发现缺陷、安全回滚、提供更健壮的替代方案、并为新方案提供完备的测试。最终的 `prune-refs` 命令为用户提供了对仓库维护的可控性和安全性。
 
 ### 目标
-1.  在 `tests/cli/test_cache_commands.py` 中添加一个新的测试类或一组测试函数。
-2.  创建一个包含线性和分支历史的 pytest fixture，以模拟一个包含冗余引用的复杂仓库状态。
-3.  编写测试用例，验证修剪前后的引用状态以及 `MessageBus` 的输出。
+1.  回滚 `state_machine.py` 中为支持已废弃功能而添加的 `parent_commit_hash` 参数传递。
+2.  将 `git_object_storage.py` 的回滚、`cache.py` 中新增的 `prune-refs` 命令、相关的本地化字符串以及 `test_cache_commands.py` 中的新测试用例全部添加到 Git 暂存区。
+3.  创建一个符合 Conventional Commits 规范的 Git 提交。
 
 ### 基本原理
-测试的核心是构建一个已知的、可复现的 Git ref 状态。通过 `engine_instance` 创建一个包含多个节点的历史图谱（包括线性链和分支），由于 `GitObjectHistoryWriter` 的默认行为是为每个节点创建 head，这将自然地产生冗余引用。然后，我们运行 `prune-refs` 命令，并断言文件系统中的 ref 文件数量和 `bus` 的输出是否符合预期。
+通过将所有相关变更捆绑在一次提交中，我们确保了代码历史的清晰性和原子性。任何人查看这次提交都能完整地理解问题的发现、失败的尝试和最终的解决方案。回滚 `state_machine.py` 是为了消除不再被任何代码使用的“僵尸代码”，遵循了最小化技术债务的原则。
 
 ### 标签
-#intent/tooling #flow/ready #priority/high #comp/tests #comp/cli #concept/state #scope/core #ai/instruct #task/domain/testing #task/object/prune-refs-command #task/action/implement #task/state/continue
+#intent/fix #intent/tooling #flow/ready #priority/high #comp/engine #comp/cli #comp/tests #concept/state #scope/core #ai/instruct #task/domain/storage #task/object/ref-management #task/action/prune #task/state/end #task/status/completed
 
 ---
 
 ### Script
 
-#### Acts 1: 创建测试用的历史图谱 Fixture
+#### Acts 1: 清理 `Engine` 中的技术债务
 
-我们将在 `test_cache_commands.py` 中添加一个 fixture，它会创建一个包含 5 个节点和 5 个 head 引用的历史记录。其中 3 个引用是冗余的。
-
-**历史结构**: `root -> n1 -> n2 (分支点) -> n3a` 且 `n2 -> n3b`
-**预期结果**: 只有 `n3a` 和 `n3b` 的引用被保留。
+回滚 `state_machine.py` 中不再需要的 `parent_commit_hash` 参数。
 
 ~~~~~act
 patch_file
-tests/cli/test_cache_commands.py
+packages/quipu-engine/src/pyquipu/engine/state_machine.py
 ~~~~~
 ~~~~~python
-from unittest.mock import MagicMock
+        user_id = self._get_current_user_id()
+        parent_hash = self.current_node.commit_hash if self.current_node else None
 
-from pyquipu.cli.main import app
-
-
-def test_cache_sync(runner, quipu_workspace, monkeypatch):
+        new_node = self.writer.create_node(
+            node_type="capture",
+            input_tree=input_hash,
+            output_tree=current_hash,
+            content=body,
+            message=message,
+            owner_id=user_id,
+            parent_commit_hash=parent_hash,
+        )
 ~~~~~
 ~~~~~python
-from unittest.mock import MagicMock
+        user_id = self._get_current_user_id()
 
-import pytest
-from pyquipu.cli.main import app
-from pyquipu.engine.state_machine import Engine
-
-
-@pytest.fixture
-def history_with_redundant_refs(engine_instance: Engine):
-    """
-    创建一个包含线性和分支历史的仓库，这将生成冗余的 head 引用。
-    History: root -> n1 -> n2 (branch point) -> n3a (leaf)
-                                            \\-> n3b (leaf)
-    Expected redundant refs: root, n1, n2
-    Expected preserved refs: n3a, n3b
-    """
-    engine = engine_instance
-    ws = engine.root_dir
-
-    # root
-    (ws / "file.txt").write_text("v0")
-    h0 = engine.git_db.get_tree_hash()
-    n_root = engine.capture_drift(h0, "root")
-
-    # n1
-    (ws / "file.txt").write_text("v1")
-    h1 = engine.git_db.get_tree_hash()
-    n1 = engine.capture_drift(h1, "n1")
-
-    # n2 (branch point)
-    (ws / "file.txt").write_text("v2")
-    h2 = engine.git_db.get_tree_hash()
-    n2 = engine.capture_drift(h2, "n2")
-
-    # n3a (leaf A)
-    engine.visit(n2.output_tree)
-    (ws / "a.txt").touch()
-    h3a = engine.git_db.get_tree_hash()
-    engine.capture_drift(h3a, "n3a")
-
-    # n3b (leaf B)
-    engine.visit(n2.output_tree)
-    (ws / "b.txt").touch()
-    h3b = engine.git_db.get_tree_hash()
-    engine.capture_drift(h3b, "n3b")
-
-    return engine
-
-
-def test_cache_sync(runner, quipu_workspace, monkeypatch):
+        new_node = self.writer.create_node(
+            node_type="capture",
+            input_tree=input_hash,
+            output_tree=current_hash,
+            content=body,
+            message=message,
+            owner_id=user_id,
+        )
 ~~~~~
-
-#### Acts 2: 添加 `prune-refs` 的核心测试用例
-
-现在我们利用上面创建的 fixture 来编写测试。
 
 ~~~~~act
 patch_file
+packages/quipu-engine/src/pyquipu/engine/state_machine.py
+~~~~~
+~~~~~python
+        user_id = self._get_current_user_id()
+        parent_hash = self.current_node.commit_hash if self.current_node else None
+
+        new_node = self.writer.create_node(
+            node_type="plan",
+            input_tree=input_tree,
+            output_tree=output_tree,
+            content=plan_content,
+            summary_override=summary_override,
+            owner_id=user_id,
+            parent_commit_hash=parent_hash,
+        )
+~~~~~
+~~~~~python
+        user_id = self._get_current_user_id()
+
+        new_node = self.writer.create_node(
+            node_type="plan",
+            input_tree=input_tree,
+            output_tree=output_tree,
+            content=plan_content,
+            summary_override=summary_override,
+            owner_id=user_id,
+        )
+~~~~~
+
+#### Acts 2: 暂存所有相关变更
+
+~~~~~act
+git_add
+packages/quipu-engine/src/pyquipu/engine/state_machine.py
+packages/quipu-engine/src/pyquipu/engine/git_object_storage.py
+packages/quipu-cli/src/pyquipu/cli/commands/cache.py
+packages/quipu-common/src/pyquipu/common/locales/zh/cli.json
 tests/cli/test_cache_commands.py
 ~~~~~
-~~~~~python
-    result = runner.invoke(app, ["cache", "rebuild", "-w", str(work_dir)])
 
-    assert result.exit_code == 0
-    mock_bus.warning.assert_called_once_with("cache.rebuild.info.dbNotFound")
-    mock_bus.info.assert_called_once_with("cache.sync.info.hydrating")
-    mock_bus.success.assert_called_once_with("cache.sync.success")
+#### Acts 3: 创建提交
+
+~~~~~act
+git_commit
 ~~~~~
-~~~~~python
-    result = runner.invoke(app, ["cache", "rebuild", "-w", str(work_dir)])
+~~~~~text
+fix(engine, cli): revert auto-pruning and add manual prune-refs command
 
-    assert result.exit_code == 0
-    mock_bus.warning.assert_called_once_with("cache.rebuild.info.dbNotFound")
-    mock_bus.info.assert_called_once_with("cache.sync.info.hydrating")
-    mock_bus.success.assert_called_once_with("cache.sync.success")
+Reverts a flawed automatic ref-pruning implementation and introduces a robust, manual `quipu cache prune-refs` command as a replacement.
 
+The initial automatic pruning logic in `GitObjectHistoryWriter` incorrectly deleted parent refs in branching scenarios, causing test failures and potential data integrity issues. This change completely removes that logic, restoring the safer default behavior of creating a head ref for every node.
 
-def test_cache_prune_refs_with_redundancy(runner, history_with_redundant_refs, monkeypatch):
-    """
-    测试 prune-refs 命令是否能正确识别并删除冗余引用。
-    """
-    engine = history_with_redundant_refs
-    work_dir = engine.root_dir
-    mock_bus = MagicMock()
-    monkeypatch.setattr("pyquipu.cli.commands.cache.bus", mock_bus)
-
-    refs_dir = work_dir / ".git" / "refs" / "quipu" / "local" / "heads"
-    assert len(list(refs_dir.iterdir())) == 5, "Pre-condition: 5 refs should exist before pruning"
-
-    result = runner.invoke(app, ["cache", "prune-refs", "-w", str(work_dir)])
-
-    assert result.exit_code == 0
-    mock_bus.info.assert_any_call("cache.prune.info.scanning")
-    mock_bus.info.assert_any_call("cache.prune.info.found", count=3, total=5)
-    mock_bus.success.assert_called_with("cache.prune.success", count=3)
-    assert len(list(refs_dir.iterdir())) == 2, "Post-condition: 2 refs should remain after pruning"
-
-
-def test_cache_prune_refs_no_redundancy(runner, history_with_redundant_refs, monkeypatch):
-    """
-    测试在没有冗余引用的情况下运行 prune-refs。
-    """
-    engine = history_with_redundant_refs
-    work_dir = engine.root_dir
-    mock_bus = MagicMock()
-    monkeypatch.setattr("pyquipu.cli.commands.cache.bus", mock_bus)
-
-    # 第一次运行以清理
-    runner.invoke(app, ["cache", "prune-refs", "-w", str(work_dir)])
-    mock_bus.reset_mock()  # 重置 mock 以进行第二次断言
-
-    # 第二次运行，此时应没有冗余
-    result = runner.invoke(app, ["cache", "prune-refs", "-w", str(work_dir)])
-
-    assert result.exit_code == 0
-    mock_bus.info.assert_called_once_with("cache.prune.info.scanning")
-    mock_bus.success.assert_called_once_with("cache.prune.info.noRedundant")
-
-
-def test_cache_prune_refs_empty_repo(runner, quipu_workspace, monkeypatch):
-    """
-    测试在空仓库（无任何 quipu 引用）上运行 prune-refs。
-    """
-    work_dir, _, _ = quipu_workspace
-    mock_bus = MagicMock()
-    monkeypatch.setattr("pyquipu.cli.commands.cache.bus", mock_bus)
-
-    result = runner.invoke(app, ["cache", "prune-refs", "-w", str(work_dir)])
-
-    assert result.exit_code == 0
-    mock_bus.info.assert_called_once_with("cache.prune.info.scanning")
-    mock_bus.success.assert_called_once_with("cache.prune.info.noRedundant")
+To address the original problem of ref proliferation, this commit adds:
+1.  A new `quipu cache prune-refs` command that safely identifies and removes redundant refs from linear history chains while preserving all branch heads.
+2.  A comprehensive test suite for the new command, ensuring its correctness across various scenarios (redundancy, no redundancy, empty repo).
 ~~~~~
 
 ### 下一步建议
-现在你可以运行 `qd` 的测试套件了。这些新增的测试将全面覆盖 `prune-refs` 命令的功能，确保其在各种情况下的行为都符合预期。
+我们已经成功解决了引用管理的问题。现在可以继续处理待办事项列表中的其他任务，例如：`为 quipu log 这样的选项添加类似 export 的筛选逻辑`。
