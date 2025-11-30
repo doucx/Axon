@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[COMMIT] perf(engine): Optimize checkout with robust read-tree --reset", "type": "plan", "generator": {"id": "manual", "tool": "pyquipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764503081.1617746, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "Capture: M test_checkout_behavior.py", "type": "capture", "generator": {"id": "manual", "tool": "pyquipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1764503134.6432154, "duration_ms": 0}}
