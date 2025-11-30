@@ -1,0 +1,42 @@
+/* Base layout for the main container */
+#main-container {
+    layout: horizontal;
+}
+
+/* The history table should take up all available space by default */
+#history-table {
+    width: 1fr;
+}
+
+/* The content view is hidden by default */
+#content-view {
+    display: none;
+    width: 0;
+    height: 100%;
+    border-left: solid $accent;
+    /* THE FIX PART 1: Enable vertical scrolling when content overflows */
+    overflow-y: scroll;
+}
+
+/* When in split mode, the content view becomes visible */
+#main-container.split-mode > #content-view {
+    display: block;
+    width: 1fr; /* Takes up 50% of the space with the table */
+}
+
+/*
+ * THE FIX PART 2:
+ * This ensures the Static placeholder widget reports its full content height,
+ * which will trigger the overflow on its parent container.
+ */
+#content-placeholder {
+    width: 100%;
+    height: auto;
+}
+
+#content-header {
+    text-align: center;
+    text-style: bold;
+    padding: 0 1;
+    background: $surface-lighten-1;
+}

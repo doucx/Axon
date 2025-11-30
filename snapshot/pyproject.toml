@@ -1,0 +1,35 @@
+[project]
+name = "pyquipu-monorepo"
+version = "0.1.0"
+description = "Quipu Development Monorepo"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+# 将 packages 下的所有包纳入工作区管理
+workspace.members = ["packages/*", "packages/quipu-common"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --cov=pyquipu --cov-report=term-missing"
+pythonpath = [
+  "packages/quipu-interfaces/src",
+  "packages/quipu-engine/src",
+  "packages/quipu-runtime/src",
+  "packages/quipu-cli/src",
+  "packages/quipu-common/src",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"] # Pycodestyle Errors, Pyflakes, isort
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
