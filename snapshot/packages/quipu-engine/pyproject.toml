@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyquipu-engine"
+version = "0.1.0"
+authors = [
+  { name="doucx", email="doucxldh@gmail.com" },
+]
+description = "The state and history engine for Quipu, powered by Git plumbing."
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pyquipu-interfaces",
+    "pyquipu-common",
+    "pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+pyquipu-interfaces = { workspace = true }
+pyquipu-common = { workspace = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
