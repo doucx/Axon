@@ -1,384 +1,68 @@
-抱歉，这是一个不可原谅的低级错误。在引入 `MessageBus` 的重构过程中，我为了简化代码结构，错误地删除了作为 Act 在线帮助文档的 Docstrings。这直接导致了 `quipu run --list-acts` 无法获取指令说明。
+好的，所有测试都已通过。我们现在将这个重构和测试增强任务作为一个完整的逻辑单元进行提交。
 
-我将立即把所有 Act 的文档字符串恢复原位。
+## [COMMIT] refactor(runtime): 使用 MessageBus 并提高 Act 测试覆盖率
 
-## [WIP] fix: 恢复被误删的 Act 文档字符串
+### 用户需求
+1.  将 `quipu-runtime` 中所有 Act 的硬编码错误消息迁移到 `MessageBus` 系统。
+2.  为 `refactor`, `shell`, `memory` 等低覆盖率模块补充单元测试。
+3.  确保所有相关测试都断言语义化的 `msg_id` 而非具体的 UI 文本。
 
-### 错误分析
-集成测试 `test_cli_list_acts` 失败，输出显示为大量的“暂无说明”。
-这是因为 `quipu run --list-acts` 功能通过反射读取 Act 函数的 `__doc__` 属性来生成帮助信息。
-在最近的 MessageBus 重构中，为了代码“整洁”，所有 Act 实现函数（如 `_write_file`）的文档字符串被一并删除。
+### 评论
+这次重构是一次重要的技术债务偿还。它不仅使 Act 模块的代码更清晰、更易于国际化，还通过规范化的测试模式，极大地增强了测试套件的健壮性和可维护性。任何未来的 UI 文案调整都不会再破坏单元测试。
 
 ### 目标
-逐一恢复 `quipu-runtime` 下所有 Act 模块中实现函数的 Docstrings，确保 CLI 能够正确显示帮助文档。
+1.  已将所有 `pyquipu.acts` 子模块中的 `ctx.fail("...")` 硬编码字符串替换为 `bus.get(...)` 调用。
+2.  已创建新的 `acts.json` 资源文件来存放所有 Act 相关的消息。
+3.  已为 `refactor`, `shell`, `memory` 模块创建了新的测试文件，覆盖了核心成功与失败路径。
+4.  已更新所有受影响的现有测试，使其断言 `msg_id`，并修复了在此过程中发现的两个 Bug (shell 异常处理范围、误删的文档字符串)。
+5.  创建一个 Git 提交，固化所有这些改进。
+
+### 基本原理
+通过将 UI 字符串与业务逻辑彻底解耦，我们遵循了软件工程的最佳实践。测试通过 Mock `MessageBus` 来验证业务逻辑的“意图”（即它尝试发送哪个 `msg_id`），而不是它“呈现的样子”（具体的文本）。这使得代码和测试都更加稳固和面向未来。
 
 ### 标签
-#intent/fix #flow/ready #priority/high #comp/runtime #task/domain/testing #task/object/acts #task/action/fix #task/state/continue
+#intent/refine #intent/tooling #flow/ready #priority/high #comp/runtime #comp/tests #scope/dx #task/domain/testing #task/object/acts #task/action/refactor #task/state/end #task/status/completed
 
 ---
 
 ### Script
 
-#### Acts 1: 恢复 Basic Acts 文档
+#### Acts 1: 暂存所有变更
+
+我们将本次重构涉及的所有新文件和修改过的文件添加到 Git 暂存区。
 
 ~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/basic.py
+git_add
+packages/quipu-common/src/pyquipu/common/locales/zh/acts.json
+packages/quipu-runtime/src/pyquipu/acts/
+tests/runtime/conftest.py
+tests/runtime/acts/
+tests/runtime/test_parser_and_basic_acts.py
 ~~~~~
-~~~~~python
-def _end(ctx: ActContext, args: List[str]):
-    pass
 
+#### Acts 2: 提交变更
 
-def _echo(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-~~~~~
-~~~~~python
-def _end(ctx: ActContext, args: List[str]):
-    """
-    Act: end
-    Args: [ignored_contexts...]
-    说明: 这是一个空操作。
-    它的作用是显式结束上一个指令的参数收集。
-    解析器会将后续的 block 视为 end 的参数，而 end 函数会忽略它们。
-    """
-    pass
-
-
-def _echo(ctx: ActContext, args: List[str]):
-    """
-    Act: echo
-    Args: [content]
-    """
-    if len(args) < 1:
-~~~~~
+现在，我们创建一个内容详尽的提交，记录下本次重构的完整上下文和价值。
 
 ~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/basic.py
+git_commit
 ~~~~~
-~~~~~python
-def _write_file(ctx: ActContext, args: List[str]):
-    if len(args) < 2:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="write_file", count=2, signature="[path, content]"))
-~~~~~
-~~~~~python
-def _write_file(ctx: ActContext, args: List[str]):
-    """
-    Act: write_file
-    Args: [path, content]
-    """
-    if len(args) < 2:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="write_file", count=2, signature="[path, content]"))
-~~~~~
+~~~~~text
+refactor(runtime): use MessageBus for acts and increase test coverage
 
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/basic.py
-~~~~~
-~~~~~python
-def _patch_file(ctx: ActContext, args: List[str]):
-    if len(args) < 3:
-        ctx.fail(
-            bus.get("acts.error.missingArgs", act_name="patch_file", count=3, signature="[path, old_string, new_string]")
-        )
-~~~~~
-~~~~~python
-def _patch_file(ctx: ActContext, args: List[str]):
-    """
-    Act: patch_file
-    Args: [path, old_string, new_string]
-    """
-    if len(args) < 3:
-        ctx.fail(
-            bus.get("acts.error.missingArgs", act_name="patch_file", count=3, signature="[path, old_string, new_string]")
-        )
-~~~~~
+This commit refactors the entire `pyquipu.acts` module to eliminate hardcoded error strings and significantly improves test coverage and robustness.
 
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/basic.py
-~~~~~
-~~~~~python
-def _append_file(ctx: ActContext, args: List[str]):
-    if len(args) < 2:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="append_file", count=2, signature="[path, content]"))
-~~~~~
-~~~~~python
-def _append_file(ctx: ActContext, args: List[str]):
-    """
-    Act: append_file
-    Args: [path, content]
-    """
-    if len(args) < 2:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="append_file", count=2, signature="[path, content]"))
-~~~~~
+Key changes include:
 
-#### Acts 2: 恢复 Check Acts 文档
+1.  **MessageBus Integration**: Replaced all hardcoded error strings in `ctx.fail("...")` calls with the `MessageBus` system (`bus.get("msg_id")`). This decouples business logic from UI text, improving maintainability and enabling future i18n.
 
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/check.py
-~~~~~
-~~~~~python
-def _check_files_exist(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="check_files_exist", count=1, signature="[file_list_string]"))
-~~~~~
-~~~~~python
-def _check_files_exist(ctx: ActContext, args: List[str]):
-    """
-    Act: check_files_exist
-    Args: [file_list_string]
-    说明: 检查当前工作区内是否存在指定的文件。文件名通过换行符分隔。
-    """
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="check_files_exist", count=1, signature="[file_list_string]"))
-~~~~~
+2.  **New Locale File**: Created `acts.json` to centralize all user-facing messages from the runtime acts module.
 
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/check.py
-~~~~~
-~~~~~python
-def _check_cwd_match(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-        ctx.fail(
-            bus.get("acts.error.missingArgs", act_name="check_cwd_match", count=1, signature="[expected_absolute_path]")
-        )
-~~~~~
-~~~~~python
-def _check_cwd_match(ctx: ActContext, args: List[str]):
-    """
-    Act: check_cwd_match
-    Args: [expected_absolute_path]
-    说明: 检查当前运行的工作区根目录是否与预期的绝对路径匹配。
-    """
-    if len(args) < 1:
-        ctx.fail(
-            bus.get("acts.error.missingArgs", act_name="check_cwd_match", count=1, signature="[expected_absolute_path]")
-        )
-~~~~~
+3.  **Increased Test Coverage**: Added new test files (`test_refactor.py`, `test_shell.py`, `test_memory.py`) with comprehensive unit tests for previously low-coverage modules.
 
-#### Acts 3: 恢复 Git Acts 文档
+4.  **Robust Test Assertions**: Updated all relevant tests to assert against semantic `msg_id`s instead of fragile, hardcoded UI strings by mocking `bus.get`.
 
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/git.py
+5.  **Bug Fixes**:
+    - Fixed an overly broad exception catch in `acts/shell.py` that was masking the true cause of failures.
+    - Restored all act docstrings that were accidentally removed, fixing the `quipu run --list-acts` command.
 ~~~~~
-~~~~~python
-def _git_init(ctx: ActContext, args: List[str]):
-    if (ctx.root_dir / ".git").exists():
-        bus.warning("acts.git.warning.repoExists")
-~~~~~
-~~~~~python
-def _git_init(ctx: ActContext, args: List[str]):
-    """
-    Act: git_init
-    Args: []
-    """
-    if (ctx.root_dir / ".git").exists():
-        bus.warning("acts.git.warning.repoExists")
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/git.py
-~~~~~
-~~~~~python
-def _git_add(ctx: ActContext, args: List[str]):
-    targets = []
-    if not args:
-~~~~~
-~~~~~python
-def _git_add(ctx: ActContext, args: List[str]):
-    """
-    Act: git_add
-    Args: [files]
-    """
-    targets = []
-    if not args:
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/git.py
-~~~~~
-~~~~~python
-def _git_commit(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="git_commit", count=1, signature="[message]"))
-~~~~~
-~~~~~python
-def _git_commit(ctx: ActContext, args: List[str]):
-    """
-    Act: git_commit
-    Args: [message]
-    """
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="git_commit", count=1, signature="[message]"))
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/git.py
-~~~~~
-~~~~~python
-def _git_status(ctx: ActContext, args: List[str]):
-    status = _run_git_cmd(ctx, ["status"])
-    bus.data(status)
-~~~~~
-~~~~~python
-def _git_status(ctx: ActContext, args: List[str]):
-    """
-    Act: git_status
-    Args: []
-    """
-    status = _run_git_cmd(ctx, ["status"])
-    bus.data(status)
-~~~~~
-
-#### Acts 4: 恢复 Memory Acts 文档
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/memory.py
-~~~~~
-~~~~~python
-def _log_thought(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.memory.error.missingContent"))
-~~~~~
-~~~~~python
-def _log_thought(ctx: ActContext, args: List[str]):
-    """
-    Act: log_thought
-    Args: [content]
-    说明: 将思维过程追加到 .quipu/memory.md 文件中，用于长期记忆。
-    """
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.memory.error.missingContent"))
-~~~~~
-
-#### Acts 5: 恢复 Read Acts 文档
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/read.py
-~~~~~
-~~~~~python
-def _search_files(ctx: ActContext, args: List[str]):
-    parser = SafeArgumentParser(prog="search_files", add_help=False)
-    parser.add_argument("pattern", help="搜索内容的正则表达式")
-~~~~~
-~~~~~python
-def _search_files(ctx: ActContext, args: List[str]):
-    """
-    Act: search_files
-    Args: pattern [--path PATH]
-    """
-    parser = SafeArgumentParser(prog="search_files", add_help=False)
-    parser.add_argument("pattern", help="搜索内容的正则表达式")
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/read.py
-~~~~~
-~~~~~python
-def _read_file(ctx: ActContext, args: List[str]):
-    if not args:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="read_file", count=1, signature="[path]"))
-~~~~~
-~~~~~python
-def _read_file(ctx: ActContext, args: List[str]):
-    """
-    Act: read_file
-    Args: [path]
-    """
-    if not args:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="read_file", count=1, signature="[path]"))
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/read.py
-~~~~~
-~~~~~python
-def _list_files(ctx: ActContext, args: List[str]):
-    parser = SafeArgumentParser(prog="list_files", add_help=False)
-    parser.add_argument("path", nargs="?", default=".", help="目标目录")
-~~~~~
-~~~~~python
-def _list_files(ctx: ActContext, args: List[str]):
-    """
-    Act: list_files
-    Args: [path] [--tree]
-    """
-    parser = SafeArgumentParser(prog="list_files", add_help=False)
-    parser.add_argument("path", nargs="?", default=".", help="目标目录")
-~~~~~
-
-#### Acts 6: 恢复 Refactor Acts 文档
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/refactor.py
-~~~~~
-~~~~~python
-def _move_file(ctx: ActContext, args: List[str]):
-    if len(args) < 2:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="move_file", count=2, signature="[src, dest]"))
-~~~~~
-~~~~~python
-def _move_file(ctx: ActContext, args: List[str]):
-    """
-    Act: move_file
-    Args: [src_path, dest_path]
-    """
-    if len(args) < 2:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="move_file", count=2, signature="[src, dest]"))
-~~~~~
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/refactor.py
-~~~~~
-~~~~~python
-def _delete_file(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="delete_file", count=1, signature="[path]"))
-~~~~~
-~~~~~python
-def _delete_file(ctx: ActContext, args: List[str]):
-    """
-    Act: delete_file
-    Args: [path]
-    """
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="delete_file", count=1, signature="[path]"))
-~~~~~
-
-#### Acts 7: 恢复 Shell Acts 文档
-
-~~~~~act
-patch_file
-packages/quipu-runtime/src/pyquipu/acts/shell.py
-~~~~~
-~~~~~python
-def _run_command(ctx: ActContext, args: List[str]):
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="run_command", count=1, signature="[command_string]"))
-~~~~~
-~~~~~python
-def _run_command(ctx: ActContext, args: List[str]):
-    """
-    Act: run_command
-    Args: [command_string]
-    """
-    if len(args) < 1:
-        ctx.fail(bus.get("acts.error.missingArgs", act_name="run_command", count=1, signature="[command_string]"))
-~~~~~
-
-### 下一步建议
-运行集成测试以确认修复。
