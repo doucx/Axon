@@ -53,7 +53,7 @@ def install_quipu_stable(env_path: Path):
             if not pkg_src_path.exists():
                 print(f"❌ 错误: 找不到源码包目录 {pkg_src_path}")
                 sys.exit(1)
-            
+
             print(f"      - 正在编译 {pkg}...")
             subprocess.run(
                 ["uv", "build", str(pkg_src_path), "--out-dir", str(tmp_path)],
@@ -95,7 +95,7 @@ def print_post_install_instructions(env_path: Path):
 def main():
     """主执行函数"""
     print("--- Quipu 一键安装程序 ---")
-    
+
     check_uv()
     create_venv(INSTALL_DIR)
     install_quipu_stable(INSTALL_DIR)
