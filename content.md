@@ -1,101 +1,78 @@
-分析正确。这是一个典型的回归错误，问题出在 `quipu save` 命令确定其父节点的方式上。
+好的，我将为你添加一个回归测试，以确保这个 Bug 不会再次出现。
 
-错误分析
+这个测试将精确地模拟你描述的场景：连续执行两次 `quipu save`，并验证第二次操作是否正确地将第一次操作的状态作为其父节点。
 
-根本原因在于 `pyquipu/engine/state_machine.py` 中的 `capture_drift` 方法在逻辑上犯了一个“苹果与橘子”的比较错误。
-
-1.  **.quipu/HEAD 文件**: 这个文件存储的是上一次操作完成后的 **Tree Hash** (例如 `b09d442...`)。
-2.  **Engine 的历史图谱**: `engine.history_graph` 是一个字典，它的键 (key) 是 **Commit Hash** (例如 `fbff7e4...`)。
-3.  **错误的逻辑**: 当前的代码在 `capture_drift` 中读取了 `HEAD` 文件里的 **Tree Hash**，然后直接用这个 **Tree Hash** 去检查它是否存在于 `history_graph` 的 **键** 中。
-
-这是出问题的代码行：
-```python
-# pyquipu/engine/state_machine.py
-
-def capture_drift(...):
-    # ...
-    head_hash = self._read_head()  # head_hash 是一个 Tree Hash
-    if head_hash and head_hash in self.history_graph: # 错误：用 Tree Hash 在 Commit Hash 字典里查找
-        input_hash = head_hash
-    elif self.history_graph:
-        # ... 触发了这里的 fallback 逻辑
-        logger.warning(f"⚠️  丢失 HEAD 指针...") 
-```
-这个 `if` 条件永远不会为 `True`，因为 Tree Hash 和 Commit Hash 是两种完全不同的哈希值。因此，程序总会错误地进入 `elif` 分支，报告“丢失 HEAD 指针”，并回退到使用时间戳最新的节点作为父节点，而不是遵循 `HEAD` 指针的指示。
-
-解决方案
-
-正确的做法是，我们应该遍历 `history_graph` 中的所有节点 (values)，找到那个 `output_tree` 属性与 `HEAD` 文件内容（Tree Hash）相匹配的节点。一旦找到这个节点，它就是当前状态正确的父节点。
-
-我将修改 `capture_drift` 方法来执行正确的查找逻辑。同时，我将改进那条警告日志，使其在 `HEAD` 文件中的哈希确实无效时提供更精确的信息。
-
-## [WIP] fix(engine): 修正 HEAD 指针的父节点查找逻辑
-
-### 错误分析
-`quipu save` 命令在连续执行时，第二次执行会错误地报告“丢失 HEAD 指针”。根本原因在于 `state_machine.py` 的 `capture_drift` 方法中，将从 `.quipu/HEAD` 文件读取的 Tree Hash 直接用于在以 Commit Hash 为键的历史图谱字典中进行查找。由于哈希类型不匹配，查找必然失败，导致程序错误地回退到“寻找最新节点”的逻辑，而不是使用 `HEAD` 指向的正确父节点。
+## [WIP] test: 添加针对连续 save 操作的 HEAD 指针回归测试
 
 ### 用户需求
-连续执行 `quipu save` 时，第二次 `save` 操作必须正确地将第一次 `save` 产生的状态作为其父状态，而不应报告“丢失 HEAD 指针”并错误地回退。
+需要为 `tests/engine/test_head_tracking.py` 添加一个新的测试用例，该用例专门验证 `quipu save`（通过 `engine.capture_drift` 模拟）在连续执行时，能够正确地通过 `.quipu/HEAD` 文件追踪父节点，从而保证历史图谱的拓扑结构正确。
 
 ### 评论
-这是一个关键的回归 Bug，影响了 `quipu save` 命令的核心功能和数据一致性。修复此问题对于保证历史图谱的拓扑结构正确性至关重要。
+添加这个回归测试至关重要。它将 `capture_drift` 方法的父节点查找逻辑锁定为正确行为，防止未来任何重构意外地重新引入这个“丢失 HEAD 指针”的 Bug。
 
 ### 目标
-1.  修改 `capture_drift` 方法，使其通过遍历 `history_graph` 的值来查找与 `HEAD` Tree Hash 匹配的节点。
-2.  使用找到的节点作为新创建的 `capture` 节点的父节点。
-3.  改进警告日志，使其在 `HEAD` 指针确实无效时能提供更明确的上下文。
+1.  在 `TestHeadTracking` 类中添加一个名为 `test_consecutive_saves_maintain_parentage` 的新测试方法。
+2.  该测试将模拟两次连续的 `save` 操作。
+3.  断言第二次 `save` 操作创建的节点的 `input_tree` 属性，与第一次 `save` 操作创建的节点的 `output_tree` 属性完全相等。
 
 ### 基本原理
-我们将从 `.quipu/HEAD` 读取 Tree Hash，然后使用 `next()` 和一个生成器表达式在 `engine.history_graph.values()` 中高效地查找 `output_tree` 属性与该 Tree Hash 匹配的 `QuipuNode`。如果找到，就使用它的 `output_tree` 作为 `input_hash`。如果找不到（例如 `HEAD` 文件损坏或指向一个不存在的状态），才执行现有的回退逻辑。
+测试将使用 `engine_with_repo` fixture 来获得一个干净的、初始化的 `Engine` 实例。
+1.  首先，创建文件变更并调用 `engine.capture_drift` 来模拟第一次 `save`，记录下其 `output_tree`。
+2.  然后，再次修改文件并调用 `engine.capture_drift` 来模拟第二次 `save`。
+3.  最后，通过断言第二次操作的 `input_tree` 是否等于第一次的 `output_tree`，来验证修复是否有效。
 
 ### 标签
-#intent/fix #flow/ready #priority/critical #comp/engine #concept/state #concept/history #scope/core #ai/instruct #task/domain/storage #task/object/head-pointer #task/action/bug-fix #task/state/begin
+#intent/tooling #flow/ready #priority/high #comp/tests #comp/engine #concept/state #concept/history #scope/core #ai/instruct #task/domain/storage #task/object/head-pointer #task/action/bug-fix #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 修正 `capture_drift` 中的父节点查找逻辑
+#### Acts 1: 向 `test_head_tracking.py` 添加回归测试
 
-我们将 `patch` `state_machine.py` 文件，替换掉错误的 `in` 检查，改为正确的遍历查找。
+我们将使用 `patch_file` 在 `TestHeadTracking` 类的末尾追加新的测试方法。
 
 ~~~~~act
 patch_file
-packages/quipu-engine/src/pyquipu/engine/state_machine.py
+tests/engine/test_head_tracking.py
 ~~~~~
 ~~~~~python
-        genesis_hash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        input_hash = genesis_hash
-        head_hash = self._read_head()
-        if head_hash and head_hash in self.history_graph:
-            input_hash = head_hash
-        elif self.history_graph:
-            last_node = max(self.history_graph.values(), key=lambda node: node.timestamp)
-            input_hash = last_node.output_tree
-            logger.warning(f"⚠️  丢失 HEAD 指针，自动回退到最新历史节点: {input_hash[:7]}")
+        # 5. Assert Logical State (HEAD)
+        assert engine._read_head() == hash_a
 ~~~~~
 ~~~~~python
-        genesis_hash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        input_hash = genesis_hash
-        head_tree_hash = self._read_head()
-        parent_node = None
+        # 5. Assert Logical State (HEAD)
+        assert engine._read_head() == hash_a
 
-        if head_tree_hash:
-            # 正确的逻辑：遍历节点，用 output_tree 匹配 head 的 tree hash
-            parent_node = next(
-                (node for node in self.history_graph.values() if node.output_tree == head_tree_hash), None
-            )
+    def test_consecutive_saves_maintain_parentage(self, engine_with_repo):
+        """
+        Regression test: Ensures that a second 'save' correctly uses the first
+        'save's state as its parent via the HEAD pointer, fixing a regression.
+        """
+        engine = engine_with_repo
+        engine.align()
 
-        if parent_node:
-            input_hash = parent_node.output_tree
-        elif self.history_graph:
-            # 只有当 HEAD 指针无效或丢失时，才执行回退逻辑
-            last_node = max(self.history_graph.values(), key=lambda node: node.timestamp)
-            input_hash = last_node.output_tree
-            logger.warning(
-                f"⚠️  HEAD 指针 '{head_tree_hash[:7] if head_tree_hash else 'N/A'}' 无效或丢失，自动回退到最新历史节点: {input_hash[:7]}"
-            )
+        # --- First Save ---
+        (engine.root_dir / "data.txt").write_text("first version")
+        hash1 = engine.git_db.get_tree_hash()
+        node1 = engine.capture_drift(hash1, message="First save")
+
+        # Verify state after first save
+        assert engine._read_head() == hash1
+        assert node1.output_tree == hash1
+        engine.align()  # Align should now be clean
+
+        # --- Second Save ---
+        (engine.root_dir / "data.txt").write_text("second version")
+        hash2 = engine.git_db.get_tree_hash()
+        node2 = engine.capture_drift(hash2, message="Second save")
+
+        # --- Assertion ---
+        # Crucial check: the input for the second node MUST be the output from the first.
+        # This confirms the HEAD pointer was correctly read and used.
+        assert node2.input_tree == node1.output_tree
+
+        # Verify state after second save
+        assert node2.output_tree == hash2
+        assert engine._read_head() == hash2
 ~~~~~
-
-### 下一步建议
-- **添加回归测试**：在 `tests/engine/test_head_tracking.py` 中添加一个专门的测试用例，模拟“连续执行两次 `save`”的场景，并断言第二次 `save` 创建的节点的 `input_tree` 哈希值等于第一次 `save` 的 `output_tree` 哈希值。这将防止此问题在未来再次出现。
