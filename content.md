@@ -1,95 +1,91 @@
-好的，针对 `tests/` 目录下的 lint 错误，我将创建一个修复计划。
+好的，我将处理 `packages/quipu-engine/` 目录下的这两个 `E501` (行太长) 错误。
 
-这些错误主要是未使用的导入 (`F401`)、重复定义 (`F811`) 和导入排序 (`I001`) 问题。
-
-## [WIP] fix(tests): 修复集成测试中的 lint 错误
+## [WIP] style: 修正超长代码行以符合 ruff 规范
 
 ### 错误分析
-`ruff` 扫描报告了 `tests/integration/conftest.py` 和 `tests/integration/test_sync_workflow.py` 中的多个代码质量问题：
-1.  **未使用的导入**: `subprocess`, `pathlib.Path`, `pytest` 被导入但未在代码中使用。
-2.  **重复定义**: `CliRunner` 被导入了两次。
-3.  **导入排序**: 导入块未格式化。
+`ruff` 检测到两个超过 120 字符限制的行：
+1.  在 `sqlite_storage.py` 中，一个 SQL `INSERT` 语句的列名列表过长。
+2.  在 `state_machine.py` 中，一个 `logger.warning` 调用中的 f-string 过长。
 
 ### 用户需求
-清理 `tests/` 目录下的代码，移除未使用的导入，修复重复定义，并整理导入顺序，以通过 CI 的 lint 检查。
+修改这两行代码，使其长度符合项目代码风格要求，以通过 lint 检查。
 
 ### 评论
-这是一个常规的代码清理任务 (`chore`/`fix`)，有助于保持测试代码的整洁和可维护性，避免误导开发者。
+这是常规的代码风格调整，通过换行来提高代码的可读性，并确保代码库的一致性。
 
 ### 目标
-1.  清理 `tests/integration/conftest.py` 中的未使用导入。
-2.  清理并重组 `tests/integration/test_sync_workflow.py` 中的导入块。
+1.  将 `sqlite_storage.py` 中的 SQL 查询语句格式化为多行。
+2.  将 `state_machine.py` 中的长 f-string 拆分为多行。
 
 ### 基本原理
-根据 `ruff` 的报告精确删除多余代码。不涉及逻辑变更。
+-   对于 SQL 字符串，在列列表的中间位置进行换行。
+-   对于 f-string，利用 Python 字符串字面量会自动拼接的特性，将其拆分为两个相邻的 f-string。
 
 ### 标签
-#intent/fix #intent/tune #flow/ready #priority/medium #comp/tests #scope/dx #ai/instruct #task/domain/testing #task/object/linter #task/action/fix #task/state/begin
+#intent/tune #flow/ready #priority/low #comp/engine #scope/dx #ai/instruct #task/domain/testing #task/object/linter #task/action/fix #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 清理 `tests/integration/conftest.py`
+#### Acts 1: 格式化 `sqlite_storage.py` 中的 SQL 查询
 
-移除未使用的 `subprocess` 和 `pathlib.Path`。
-
-~~~~~act
-patch_file
-tests/integration/conftest.py
-~~~~~
-~~~~~python
-import subprocess
-from pathlib import Path
-
-import pytest
-
-from .helpers import run_git_command
-~~~~~
-~~~~~python
-import pytest
-
-from .helpers import run_git_command
-~~~~~
-
-#### Acts 2: 清理 `tests/integration/test_sync_workflow.py`
-
-移除未使用的 `sqlite3` (虽然 ruff 没报这个，但根据上下文检查它似乎被用到了 `conn = sqlite3.connect`，所以保留), `subprocess`, `Path`, `pytest`。移除重复的 `CliRunner`。整理导入顺序。
+我们将把 `INSERT` 语句中的列名列表拆分为两行。
 
 ~~~~~act
 patch_file
-tests/integration/test_sync_workflow.py
+packages/quipu-engine/src/pyquipu/engine/sqlite_storage.py
 ~~~~~
 ~~~~~python
-import sqlite3
-import subprocess
-from pathlib import Path
-
-import pytest
-import yaml
-from pyquipu.cli.main import app
-from pyquipu.common.identity import get_user_id_from_email
-from typer.testing import CliRunner
-
-from typer.testing import CliRunner
-
-from .helpers import run_git_command
-
-runner = CliRunner()
+            self.db_manager.execute_write(
+                """
+                INSERT OR REPLACE INTO nodes 
+                (commit_hash, owner_id, output_tree, node_type, timestamp, summary, generator_id, meta_json, plan_md_cache)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    commit_hash,
 ~~~~~
 ~~~~~python
-import sqlite3
+            self.db_manager.execute_write(
+                """
+                INSERT OR REPLACE INTO nodes
+                (commit_hash, owner_id, output_tree, node_type, timestamp, summary,
+                 generator_id, meta_json, plan_md_cache)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    commit_hash,
+~~~~~
 
-import yaml
-from pyquipu.cli.main import app
-from pyquipu.common.identity import get_user_id_from_email
-from typer.testing import CliRunner
+#### Acts 2: 拆分 `state_machine.py` 中的长 f-string
 
-from .helpers import run_git_command
+我们将把过长的 f-string 日志消息拆分为两行。
 
-runner = CliRunner()
+~~~~~act
+patch_file
+packages/quipu-engine/src/pyquipu/engine/state_machine.py
+~~~~~
+~~~~~python
+            last_node = max(self.history_graph.values(), key=lambda node: node.timestamp)
+            input_hash = last_node.output_tree
+            logger.warning(
+                f"⚠️  HEAD 指针 '{head_tree_hash[:7] if head_tree_hash else 'N/A'}' 无效或丢失，自动回退到最新历史节点: {input_hash[:7]}"
+            )
+
+        diff_summary = self.git_db.get_diff_stat(input_hash, current_hash)
+~~~~~
+~~~~~python
+            last_node = max(self.history_graph.values(), key=lambda node: node.timestamp)
+            input_hash = last_node.output_tree
+            logger.warning(
+                f"⚠️  HEAD 指针 '{head_tree_hash[:7] if head_tree_hash else 'N/A'}' 无效或丢失，"
+                f"自动回退到最新历史节点: {input_hash[:7]}"
+            )
+
+        diff_summary = self.git_db.get_diff_stat(input_hash, current_hash)
 ~~~~~
 
 ### 下一步建议
-- 运行 `ruff check tests/` 验证修复结果。
-- 如果涉及逻辑变更或重构，考虑运行相关测试用例确保无回归。
+- 请执行此计划。
+- 执行后，再次运行 `ruff check .` 以确认所有问题均已解决。
