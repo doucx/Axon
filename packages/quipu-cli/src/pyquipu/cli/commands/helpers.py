@@ -1,15 +1,17 @@
-import sys
+import logging
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Generator, Optional
 
 import typer
-from pyquipu.interfaces.models import QuipuNode
+from pyquipu.common.messaging import bus
 from pyquipu.engine.state_machine import Engine
+from pyquipu.interfaces.models import QuipuNode
 
 from ..factory import create_engine
 from ..logger_config import setup_logging
-from pyquipu.common.messaging import bus
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
