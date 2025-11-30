@@ -1,7 +1,9 @@
 import logging
 import re
 import shutil
-from datetime import datetime
+import logging
+import re
+import shutil
 from pathlib import Path
 from typing import Annotated, Dict, List, Optional, Set
 
@@ -13,7 +15,7 @@ from pyquipu.interfaces.models import QuipuNode
 
 from ..config import DEFAULT_WORK_DIR
 from ..ui_utils import prompt_for_confirmation
-from .helpers import engine_context
+from .helpers import engine_context, filter_nodes, filter_reachable_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -48,28 +50,6 @@ def _format_frontmatter(node: QuipuNode) -> str:
         data["owner_id"] = node.owner_id
     yaml_str = yaml.dump(data, Dumper=yaml.SafeDumper, default_flow_style=False, sort_keys=False)
     return f"---\n{yaml_str}---"
-
-
-def _filter_nodes(
-    nodes: List[QuipuNode], limit: Optional[int], since: Optional[str], until: Optional[str]
-) -> List[QuipuNode]:
-    """根据时间戳和数量过滤节点列表。"""
-    filtered = nodes
-    if since:
-        try:
-            since_dt = datetime.fromisoformat(since.replace(" ", "T"))
-            filtered = [n for n in filtered if n.timestamp >= since_dt]
-        except ValueError:
-            raise typer.BadParameter("无效的 'since' 时间戳格式。请使用 'YYYY-MM-DD HH:MM'。")
-    if until:
-        try:
-            until_dt = datetime.fromisoformat(until.replace(" ", "T"))
-            filtered = [n for n in filtered if n.timestamp <= until_dt]
-        except ValueError:
-            raise typer.BadParameter("无效的 'until' 时间戳格式。请使用 'YYYY-MM-DD HH:MM'。")
-    if limit is not None and limit > 0:
-        filtered = filtered[:limit]
-    return list(reversed(filtered))
 
 
 def _generate_navbar(
@@ -177,6 +157,7 @@ def register(app: typer.Typer):
                 "--hide-link-type", help="禁用特定类型的导航链接 (可多次使用: summary, branch, parent, child)"
             ),
         ] = None,
+        reachable_only: Annotated[bool, typer.Option("--reachable-only", help="仅导出与当前工作区状态直接相关的节点。")] = False,
     ):
         """将 Quipu 历史记录导出为一组人类可读的 Markdown 文件。"""
         hidden_types = set(hide_link_type) if hide_link_type else set()
@@ -186,9 +167,16 @@ def register(app: typer.Typer):
                 bus.info("export.info.emptyHistory")
                 ctx.exit(0)
 
-            all_nodes = sorted(engine.history_graph.values(), key=lambda n: n.timestamp, reverse=True)
+            nodes_to_process = sorted(engine.history_graph.values(), key=lambda n: n.timestamp, reverse=True)
+
+            if reachable_only:
+                nodes_to_process = filter_reachable_nodes(engine, nodes_to_process)
+
             try:
-                nodes_to_export = _filter_nodes(all_nodes, limit, since, until)
+                # filter_nodes returns preserving input order (reverse chrono),
+                # but export expects chronological order for file generation/processing
+                filtered = filter_nodes(nodes_to_process, limit, since, until)
+                nodes_to_export = list(reversed(filtered))
             except typer.BadParameter as e:
                 bus.error("export.error.badParam", error=str(e))
                 ctx.exit(1)
