@@ -336,24 +336,58 @@ class SQLiteHistoryReader(HistoryReader):
         summary_regex: Optional[str] = None,
         node_type: Optional[str] = None,
         limit: int = 10,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        reachable_from: Optional[str] = None,
     ) -> List[QuipuNode]:
         """
         直接在 SQLite 数据库中执行高效的节点查找。
         """
-        query = "SELECT * FROM nodes"
-        conditions = []
         params = []
+        conditions = []
+        
+        # Base query structure
+        if reachable_from:
+            # First, resolve the output_tree to a commit_hash
+            conn = self.db_manager._get_conn()
+            cursor = conn.execute("SELECT commit_hash FROM nodes WHERE output_tree = ?", (reachable_from,))
+            row = cursor.fetchone()
+            start_commit_hash = row[0] if row else None
+            
+            if not start_commit_hash:
+                return []
 
+            # Use CTE to define the scope of 'nodes'
+            query = """
+            WITH RECURSIVE reachable(h) AS (
+                SELECT ? 
+                UNION ALL
+                SELECT e.parent_hash FROM edges e, reachable r WHERE e.child_hash = r.h AND e.parent_hash IS NOT NULL
+            )
+            SELECT n.* FROM nodes n
+            JOIN reachable r ON n.commit_hash = r.h
+            """
+            params.append(start_commit_hash)
+        else:
+            query = "SELECT * FROM nodes"
+
+        # Add filters
         if node_type:
             conditions.append("node_type = ?")
             params.append(node_type)
 
-        # 注意: 标准 SQLite 不支持 REGEXP。
-        # 此处使用 LIKE 实现简单的子字符串匹配作为替代。
-        # 完整的正则支持需要加载扩展或在 Python 端进行二次过滤。
         if summary_regex:
+            # SQLite default is LIKE, not REGEXP
             conditions.append("summary LIKE ?")
             params.append(f"%{summary_regex}%")
+
+        if since:
+            conditions.append("timestamp >= ?")
+            params.append(since.timestamp())
+        
+        if until:
+            conditions.append("timestamp <= ?")
+            params.append(until.timestamp())
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

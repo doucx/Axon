@@ -330,6 +330,9 @@ class GitObjectHistoryReader(HistoryReader):
         summary_regex: Optional[str] = None,
         node_type: Optional[str] = None,
         limit: int = 10,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        reachable_from: Optional[str] = None,
     ) -> List[QuipuNode]:
         """
         GitObject 后端的查找实现。
@@ -337,6 +340,11 @@ class GitObjectHistoryReader(HistoryReader):
         """
         # 这是一个高成本操作，因为它需要加载整个图
         candidates = self.load_all_nodes()
+
+        if reachable_from:
+            ancestors = self.get_ancestor_output_trees(reachable_from)
+            ancestors.add(reachable_from)
+            candidates = [n for n in candidates if n.output_tree in ancestors]
 
         if summary_regex:
             try:
@@ -348,6 +356,12 @@ class GitObjectHistoryReader(HistoryReader):
 
         if node_type:
             candidates = [node for node in candidates if node.node_type == node_type]
+        
+        if since:
+            candidates = [node for node in candidates if node.timestamp >= since]
+        
+        if until:
+            candidates = [node for node in candidates if node.timestamp <= until]
 
         # 按时间戳降序排序
         candidates.sort(key=lambda n: n.timestamp, reverse=True)

@@ -66,16 +66,28 @@ def register(app: typer.Typer):
                     bus.info("query.info.emptyHistory")
                 raise typer.Exit(0)
 
-            nodes_to_process = sorted(graph.values(), key=lambda n: n.timestamp, reverse=True)
-
-            if reachable_only:
-                nodes_to_process = filter_reachable_nodes(engine, nodes_to_process)
-
+            # 解析时间参数
+            since_dt = None
+            until_dt = None
             try:
-                nodes = filter_nodes(nodes_to_process, limit, since, until)
-            except typer.BadParameter as e:
-                bus.error("common.error.invalidConfig", error=str(e))
+                if since:
+                    since_dt = datetime.fromisoformat(since.replace(" ", "T"))
+                if until:
+                    until_dt = datetime.fromisoformat(until.replace(" ", "T"))
+            except ValueError:
+                bus.error("common.error.invalidConfig", error="无效的时间戳格式，请使用 'YYYY-MM-DD HH:MM'")
                 ctx.exit(1)
+
+            current_hash = engine.git_db.get_tree_hash()
+            reachable_from = current_hash if reachable_only else None
+
+            # 使用下沉后的 Engine API 进行查询
+            nodes = engine.find_nodes(
+                limit=limit if limit is not None else 100, # 设置一个合理的默认上限
+                since=since_dt,
+                until=until_dt,
+                reachable_from=reachable_from
+            )
 
             if not nodes:
                 if json_output:

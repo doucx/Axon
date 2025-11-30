@@ -270,6 +270,9 @@ class Engine:
         summary_regex: Optional[str] = None,
         node_type: Optional[str] = None,
         limit: int = 10,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        reachable_from: Optional[str] = None,
     ) -> List[QuipuNode]:
         """
         在历史图谱中查找符合条件的节点。
@@ -279,6 +282,9 @@ class Engine:
             summary_regex=summary_regex,
             node_type=node_type,
             limit=limit,
+            since=since,
+            until=until,
+            reachable_from=reachable_from,
         )
 
     def capture_drift(self, current_hash: str, message: Optional[str] = None) -> QuipuNode:

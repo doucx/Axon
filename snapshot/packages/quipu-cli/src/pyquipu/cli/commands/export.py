@@ -167,19 +167,37 @@ def register(app: typer.Typer):
                 bus.info("export.info.emptyHistory")
                 ctx.exit(0)
 
-            nodes_to_process = sorted(engine.history_graph.values(), key=lambda n: n.timestamp, reverse=True)
-
-            if reachable_only:
-                nodes_to_process = filter_reachable_nodes(engine, nodes_to_process)
-
+            # 解析时间参数
+            since_dt = None
+            until_dt = None
             try:
-                # filter_nodes returns preserving input order (reverse chrono),
-                # but export expects chronological order for file generation/processing
-                filtered = filter_nodes(nodes_to_process, limit, since, until)
-                nodes_to_export = list(reversed(filtered))
-            except typer.BadParameter as e:
-                bus.error("export.error.badParam", error=str(e))
+                if since:
+                    since_dt = datetime.fromisoformat(since.replace(" ", "T"))
+                if until:
+                    until_dt = datetime.fromisoformat(until.replace(" ", "T"))
+            except ValueError:
+                bus.error("export.error.badParam", error="无效的时间戳格式")
                 ctx.exit(1)
+
+            current_hash = engine.git_db.get_tree_hash()
+            reachable_from = current_hash if reachable_only else None
+
+            # 使用 Engine API 查询
+            # 注意: export 默认可能需要导出全部，所以 limit 默认值如果不传应为 None 或很大
+            # 这里我们如果 limit 为 None，就不传给 find_nodes (其默认是 10)，或者传一个很大的数
+            # 更好的做法是在 Engine find_nodes 里处理 limit=-1 代表无限
+            # 暂时为了兼容性，如果不传 limit，我们不依赖 find_nodes 的默认 10，而是传 maxsize
+            
+            import sys
+            nodes_found = engine.find_nodes(
+                limit=limit if limit is not None else sys.maxsize,
+                since=since_dt,
+                until=until_dt,
+                reachable_from=reachable_from
+            )
+            
+            # export expects chronological order (oldest first) for processing
+            nodes_to_export = list(reversed(nodes_found))
 
             if not nodes_to_export:
                 bus.info("export.info.noMatchingNodes")

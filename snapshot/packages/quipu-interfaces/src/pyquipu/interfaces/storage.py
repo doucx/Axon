@@ -37,9 +37,20 @@ class HistoryReader(ABC):
         summary_regex: Optional[str] = None,
         node_type: Optional[str] = None,
         limit: int = 10,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        reachable_from: Optional[str] = None,
     ) -> List[QuipuNode]:
         """
         根据条件查找历史节点。
+
+        Args:
+            summary_regex: 用于匹配摘要的正则表达式。
+            node_type: 节点类型过滤。
+            limit: 返回结果的最大数量。
+            since: 起始时间（包含）。
+            until: 结束时间（包含）。
+            reachable_from: 如果提供，仅返回从该 output_tree 哈希可达的节点（祖先）。
         """
         pass
 
