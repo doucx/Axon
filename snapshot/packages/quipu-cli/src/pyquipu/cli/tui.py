@@ -13,7 +13,7 @@ from textual.coordinate import Coordinate
 from textual.timer import Timer
 from textual.widgets import DataTable, Footer, Header, Markdown, Static
 
-from .factory import create_engine
+from pyquipu.application.factory import create_engine
 from .view_model import GraphViewModel
 
 logger = logging.getLogger(__name__)
