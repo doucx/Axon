@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 from pathlib import Path
 from typing import List, Optional
 
@@ -295,10 +296,11 @@ class QuipuUiApp(App[Optional[UiResult]]):
         req_id = self._current_request_id
 
         # 2. 启动独占 Worker
-        # thread=True: 允许执行 I/O 操作
-        # exclusive=True: 自动取消同一组中旧的 Worker
+        # 使用 partial 封装函数和参数，而不是直接调用
+        worker_func = partial(self._load_content_in_background, node, req_id)
+        
         self.run_worker(
-            self._load_content_in_background(node, req_id),
+            worker_func,
             thread=True,
             group="content_loader",
             exclusive=True
