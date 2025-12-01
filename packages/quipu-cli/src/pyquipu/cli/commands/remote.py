@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
+from pyquipu.application.utils import find_git_repository_root
 from pyquipu.common.identity import get_user_id_from_email
 from pyquipu.common.messaging import bus
-from pyquipu.application.utils import find_git_repository_root
 from pyquipu.engine.config import ConfigManager
 from pyquipu.engine.git_db import GitDB
 

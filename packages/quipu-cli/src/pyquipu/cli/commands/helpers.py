@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Dict, Generator, List, Optional
 
 import typer
-from pyquipu.common.messaging import bus
 from pyquipu.application.factory import create_engine
+from pyquipu.common.messaging import bus
 from pyquipu.engine.state_machine import Engine
 from pyquipu.interfaces.models import QuipuNode
 
