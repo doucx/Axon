@@ -1,4 +1,4 @@
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from pyquipu.application.controller import run_quipu
@@ -13,11 +13,7 @@ class TestControllerUnit:
 
     def test_run_quipu_success(self, tmp_path, mock_engine, mock_runtime):
         """测试正常执行流程：应正确初始化组件并按顺序调用。"""
-        # 模拟 Parser 解析结果不为空，以避免 noStatements 警告
-        # 注意：run_quipu 内部会调用 get_parser，这里为了简单，我们让 execute 被调用即可
-        # 如果 run_quipu 内部有 parser 逻辑，我们假设 parser 是纯函数，不需要 mock，
-        # 只要传入有效的 markdown 内容即可。
-
+        
         plan_content = """
 ```act
 echo
@@ -26,17 +22,23 @@ echo
 hello
 ```
 """
-        # Patch 工厂函数以返回我们的 Mock 对象
-        with patch("pyquipu.application.controller.create_engine", return_value=mock_engine) as mk_eng_fac, \
-             patch("pyquipu.application.controller.create_executor", return_value=mock_runtime) as mk_exec_fac:
+        # 配置 Mock Engine 的状态以通过 _prepare_workspace 检查
+        # 模拟当前是干净状态 (clean)
+        mock_engine.git_db.get_tree_hash.return_value = "hash_123"
+        mock_node = MagicMock()
+        mock_node.output_tree = "hash_123"
+        mock_engine.current_node = mock_node
+        mock_engine.history_graph = { "hash_123": mock_node }
 
-            # 模拟 Engine 初始状态
-            mock_engine.align.return_value = "CLEAN"
+        # Patch 工厂函数和 Executor 类
+        # 注意：controller 直接导入了 Executor 类，所以我们要 patch 这个类
+        with patch("pyquipu.application.controller.create_engine", return_value=mock_engine) as mk_eng_fac, \
+             patch("pyquipu.application.controller.Executor", return_value=mock_runtime) as mk_exec_cls:
 
             # 执行
             result = run_quipu(
                 content=plan_content,
-                work_dir=tmp_path,  # 提供一个路径即可，不需要真实 Git 仓库
+                work_dir=tmp_path,
                 yolo=True,
                 confirmation_handler=lambda *a: True
             )
@@ -47,14 +49,18 @@ hello
 
             # 验证交互
             mk_eng_fac.assert_called_once_with(tmp_path)
-            mk_exec_fac.assert_called_once()
+            # Executor 类被实例化
+            mk_exec_cls.assert_called_once()
             
-            # 验证编排顺序：Align -> Capture (Pre) -> Execute -> Capture (Post)
-            mock_engine.align.assert_called()
+            # 验证编排顺序
+            # 1. _prepare_workspace 调用了 get_tree_hash
+            mock_engine.git_db.get_tree_hash.assert_called()
+            
+            # 2. Executor 执行
             mock_runtime.execute.assert_called_once()
-            # 至少调用一次 capture_drift (通常是两次，执行前和执行后，或者根据实现可能有变化)
-            # 这里我们只断言它被调用了，作为副作用的记录
-            assert mock_engine.capture_drift.called
+            
+            # 3. 最后生成 Plan Node
+            mock_engine.create_plan_node.assert_called_once()
 
     def test_run_quipu_execution_error(self, tmp_path, mock_engine, mock_runtime):
         """测试执行器抛出异常时的错误处理流程。"""
@@ -63,8 +69,13 @@ hello
 fail_act
 ```
 """
+        # 配置 Mock Engine
+        mock_engine.git_db.get_tree_hash.return_value = "hash_123"
+        mock_engine.current_node = MagicMock()
+        mock_engine.current_node.output_tree = "hash_123"
+
         with patch("pyquipu.application.controller.create_engine", return_value=mock_engine), \
-             patch("pyquipu.application.controller.create_executor", return_value=mock_runtime):
+             patch("pyquipu.application.controller.Executor", return_value=mock_runtime):
 
             # 模拟 Runtime 抛出业务异常
             mock_runtime.execute.side_effect = ExecutionError("Task failed successfully")
@@ -86,9 +97,14 @@ fail_act
     def test_run_quipu_empty_plan(self, tmp_path, mock_engine, mock_runtime):
         """测试空计划的处理。"""
         plan_content = "Just some text, no acts."
+        
+        # 配置 Mock Engine
+        mock_engine.git_db.get_tree_hash.return_value = "hash_123"
+        mock_engine.current_node = MagicMock()
+        mock_engine.current_node.output_tree = "hash_123"
 
         with patch("pyquipu.application.controller.create_engine", return_value=mock_engine), \
-             patch("pyquipu.application.controller.create_executor", return_value=mock_runtime):
+             patch("pyquipu.application.controller.Executor", return_value=mock_runtime):
 
             result = run_quipu(
                 content=plan_content,

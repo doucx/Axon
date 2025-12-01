@@ -126,7 +126,7 @@ class TestCLIWrapper:
             m.setattr("pyquipu.cli.commands.workspace.bus", mock_bus)
             result = runner.invoke(app, ["discard", "-f", "-w", str(workspace)])
             assert result.exit_code == 1
-            mock_bus.error.assert_called_with("workspace.error.noHistory")
+            mock_bus.error.assert_called_with("workspace.discard.error.noHistory")
 
 
 class TestCheckoutCLI:
@@ -236,4 +236,4 @@ class TestCheckoutCLI:
             result = runner.invoke(app, ["checkout", hash_b[:8], "--work-dir", str(workspace), "--force"])
 
             assert result.exit_code == 0
-            mock_bus.success.assert_called_with("navigation.checkout.success.alreadyOnState")
+            mock_bus.success.assert_called_with("navigation.checkout.info.noAction", short_hash=ANY)
