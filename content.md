@@ -1,180 +1,151 @@
-好的，我理解了。这个修正后的方案通过“后台渲染、前台切换”的双缓冲策略，可以彻底解决 TUI 在加载复杂 Markdown 内容时可能出现的视觉卡顿或空白问题，实现更平滑的用户体验。
+好的，我们立即开始创建 `pyquipu-application` 包。
 
-我将生成一个计划来实施这个方案。
+这是一个奠定未来架构基础的关键步骤。我们将创建必要的文件和目录，并更新工作区的配置，为后续的逻辑迁移做好准备。
 
-## [WIP] refactor(cli): 优化 TUI 内容视图的加载和渲染逻辑
+## [WIP] feat: 创建核心业务逻辑包 `pyquipu-application`
 
 ### 用户需求
-根据最新的设计方案，需要重构 `quipu ui` 的内容视图（Content View）逻辑，以解决从纯文本预览切换到 Markdown 渲染时可能出现的卡顿或闪烁问题。
+为了实现 `cli` 和 `webapi` 等不同入口的逻辑复用，并遵循 DRY (Don't Repeat Yourself) 原则，需要创建一个新的核心包 `pyquipu-application`，用于承载与具体表现层（如 CLI 或 Web）无关的通用业务逻辑。
 
 ### 评论
-这是一个关键的用户体验优化。通过引入“双缓冲”和后台渲染的机制，可以确保在快速滚动或加载复杂内容时，界面始终保持响应，为用户提供一个平滑、无缝的浏览体验。
+这是对项目架构的一次重要重构。通过将应用逻辑从 `pyquipu-cli` 中剥离出来，我们建立了一个清晰、单向的依赖关系，极大地提升了项目的可维护性、可测试性和未来的可扩展性。
 
 ### 目标
-1.  修改 `tui.py` 中的 `_set_state` 方法，实现新的三状态（`HIDDEN`, `LOADING`, `SHOWING_CONTENT`）管理逻辑。
-2.  在 `LOADING` 状态下，立即显示纯文本预览 (`Static` 组件)。
-3.  在 `SHOWING_CONTENT` 状态下，在后台更新不可见的 `Markdown` 组件，完成后再将其与 `Static` 组件进行原子化切换。
-4.  确保在切换 Markdown 渲染模式 (`action_toggle_markdown`) 时，视图也能被正确地重新渲染。
+1.  创建 `packages/quipu-application` 目录结构。
+2.  为新包创建 `pyproject.toml` 文件，并定义其对 `engine`, `runtime`, `interfaces` 和 `common` 包的依赖。
+3.  更新根 `pyproject.toml`，将新包纳入 UV 工作区管理和 Pytest 的 `pythonpath` 中。
+4.  更新 `dev-requirements.txt`，将新包加入开发环境。
 
 ### 基本原理
-我们将始终在组件树中保留 `Static` 和 `Markdown` 两个组件。通过 `display` CSS 属性来控制哪个组件在前台可见。耗时的 `Markdown.update()` 操作将在一个不可见的组件上执行，利用 Textual 的后台渲染能力。一旦渲染完成，我们只执行一个快速的、原子化的可见性切换操作，从而避免了 UI 线程的阻塞和视觉上的延迟。
+通过在 `packages` 目录下新增一个标准的 Python 包，并调整 monorepo 的相关配置（`pyproject.toml`, `dev-requirements.txt`），我们可以将 `pyquipu-application` 无缝地集成到现有的开发工作流中。这为下一步从 `pyquipu-cli` 中安全地迁移代码提供了必要的基础设施。
 
 ### 标签
-#intent/refine #flow/ready #priority/high #comp/cli #concept/ui #scope/ux #ai/instruct #task/domain/ui #task/object/tui-rendering #task/action/refactor #task/state/begin
+#intent/architect #flow/ready #priority/high #comp/build #scope/core #dx #ai/instruct #task/domain/architecture #task/object/core-application-layer #task/action/creation #task/state/begin
 
 ---
 
 ### Script
 
-#### Acts 1: 重构 TUI 的状态管理和渲染逻辑
+#### Acts 1: 创建 `pyquipu-application` 包的 `pyproject.toml`
 
-我们将用新的实现替换 `tui.py` 中现有的 `_set_state` 方法以及相关的辅助逻辑，以实现后台渲染和平滑切换。
+这是新包的核心定义文件。
+
+~~~~~act
+write_file
+packages/quipu-application/pyproject.toml
+~~~~~
+~~~~~toml
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyquipu-application"
+version = "0.1.0"
+authors = [
+  { name="doucx", email="doucxldh@gmail.com" },
+]
+description = "Core application logic for the Quipu ecosystem, coordinating the engine and runtime."
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pyquipu-interfaces",
+    "pyquipu-engine",
+    "pyquipu-runtime",
+    "pyquipu-common",
+]
+
+[tool.uv.sources]
+pyquipu-interfaces = { workspace = true }
+pyquipu-engine = { workspace = true }
+pyquipu-runtime = { workspace = true }
+pyquipu-common = { workspace = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+~~~~~
+
+#### Acts 2: 创建包的源代码目录结构
+
+建立标准的 `src/pyquipu/application` 目录结构。
+
+~~~~~act
+write_file
+packages/quipu-application/src/pyquipu/application/__init__.py
+~~~~~
+~~~~~python
+# This file makes 'pyquipu.application' a package.
+~~~~~
+
+#### Acts 3: 更新根 `pyproject.toml` 以集成新包
+
+将 `pyquipu-application` 添加到 UV 工作区和 Pytest 的 Python 路径中，使其能够被其他包发现和测试。
 
 ~~~~~act
 patch_file
-packages/quipu-cli/src/pyquipu/cli/tui.py
+pyproject.toml
 ~~~~~
-~~~~~python
-    def _update_loading_preview(self):
-        """A lightweight method to only update header/placeholder text."""
-        node = self.view_model.get_selected_node()
-        if not node:
-            return
+~~~~~toml
+[tool.uv]
+# 将 packages 下的所有包纳入工作区管理
+workspace.members = ["packages/*", "packages/quipu-common"]
 
-        # Update header and placeholder text
-        self.query_one("#content-header", Static).update(
-            f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
-        )
-
-        # Always get the full content bundle for consistent information display.
-        # The Static widget is in markup=False mode, so it's fast and safe.
-        content_bundle = self.view_model.get_content_bundle(node)
-        self.query_one("#content-placeholder", Static).update(content_bundle)
-
-    def _set_state(self, new_state: ContentViewSate):
-        # Allow re-entering SHOWING_CONTENT to force a re-render after toggling markdown
-        if self.content_view_state == new_state and new_state != ContentViewSate.SHOWING_CONTENT:
-            return
-
-        self.content_view_state = new_state
-
-        container = self.query_one("#main-container")
-        placeholder_widget = self.query_one("#content-placeholder", Static)
-        markdown_widget = self.query_one("#content-body", Markdown)
-
-        if self.update_timer:
-            self.update_timer.stop()
-
-        match new_state:
-            case ContentViewSate.HIDDEN:
-                container.set_class(False, "split-mode")
-
-            case ContentViewSate.LOADING:
-                container.set_class(True, "split-mode")
-
-                # Perform lightweight text updates
-                self._update_loading_preview()
-
-                # Perform heavy, one-time visibility setup
-                placeholder_widget.display = True
-                markdown_widget.display = False
-                markdown_widget.update("")  # Prevent ghosting
-
-                # Start timer for next state transition
-                self.update_timer = self.set_timer(self.debounce_delay_seconds, self._on_timer_finished)
-
-            case ContentViewSate.SHOWING_CONTENT:
-                container.set_class(True, "split-mode")
-                node = self.view_model.get_selected_node()
-
-                if node:
-                    content = self.view_model.get_content_bundle(node)
-                    # Update header
-                    self.query_one("#content-header", Static).update(
-                        f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
-                    )
-
-                    if self.markdown_enabled:
-                        markdown_widget.update(content)
-                        placeholder_widget.display = False
-                        markdown_widget.display = True
-                    else:
-                        placeholder_widget.update(content)
-                        placeholder_widget.display = True
-                        markdown_widget.display = False
+[tool.pytest.ini_options]
+addopts = "-ra --cov=pyquipu --cov-report=term-missing"
+pythonpath = [
+  "packages/quipu-interfaces/src",
+  "packages/quipu-engine/src",
+  "packages/quipu-runtime/src",
+  "packages/quipu-cli/src",
+  "packages/quipu-common/src",
+]
 ~~~~~
-~~~~~python
-    def _update_loading_preview(self):
-        """A lightweight method to only update header/placeholder text."""
-        node = self.view_model.get_selected_node()
-        if not node:
-            return
+~~~~~toml
+[tool.uv]
+# 将 packages 下的所有包纳入工作区管理
+workspace.members = ["packages/*"]
 
-        # Update header and placeholder text
-        self.query_one("#content-header", Static).update(
-            f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
-        )
+[tool.pytest.ini_options]
+addopts = "-ra --cov=pyquipu --cov-report=term-missing"
+pythonpath = [
+  "packages/quipu-interfaces/src",
+  "packages/quipu-engine/src",
+  "packages/quipu-runtime/src",
+  "packages/quipu-cli/src",
+  "packages/quipu-common/src",
+  "packages/quipu-application/src",
+]
+~~~~~
 
-        # Always get the full content bundle for consistent information display.
-        # The Static widget is in markup=False mode, so it's fast and safe.
-        content_bundle = self.view_model.get_content_bundle(node)
-        self.query_one("#content-placeholder", Static).update(content_bundle)
+#### Acts 4: 更新开发依赖文件
 
-    def _set_state(self, new_state: ContentViewSate):
-        # Allow re-entering SHOWING_CONTENT to force a re-render after toggling markdown
-        if self.content_view_state == new_state and new_state != ContentViewSate.SHOWING_CONTENT:
-            return
+将新包添加到 `dev-requirements.txt` 中，以便在开发环境中以可编辑模式安装。
 
-        self.content_view_state = new_state
-
-        container = self.query_one("#main-container")
-        placeholder_widget = self.query_one("#content-placeholder", Static)
-        markdown_widget = self.query_one("#content-body", Markdown)
-
-        if self.update_timer:
-            self.update_timer.stop()
-
-        match new_state:
-            case ContentViewSate.HIDDEN:
-                container.set_class(False, "split-mode")
-
-            case ContentViewSate.LOADING:
-                container.set_class(True, "split-mode")
-
-                # Perform lightweight text updates
-                self._update_loading_preview()
-
-                # Perform heavy, one-time visibility setup
-                placeholder_widget.display = True
-                markdown_widget.display = False
-                markdown_widget.update("")  # Prevent ghosting
-
-                # Start timer for next state transition
-                self.update_timer = self.set_timer(self.debounce_delay_seconds, self._on_timer_finished)
-
-            case ContentViewSate.SHOWING_CONTENT:
-                container.set_class(True, "split-mode")
-                node = self.view_model.get_selected_node()
-
-                if node:
-                    content = self.view_model.get_content_bundle(node)
-                    # Update header
-                    self.query_one("#content-header", Static).update(
-                        f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
-                    )
-
-                    if self.markdown_enabled:
-                        markdown_widget.update(content)
-                        placeholder_widget.display = False
-                        markdown_widget.display = True
-                    else:
-                        placeholder_widget.update(content)
-                        placeholder_widget.display = True
-                        markdown_widget.display = False
+~~~~~act
+patch_file
+dev-requirements.txt
+~~~~~
+~~~~~text
+-e packages/pyquipu-interfaces
+-e packages/pyquipu-engine
+-e packages/pyquipu-runtime
+-e packages/pyquipu-cli
+-e packages/pyquipu-common
+~~~~~
+~~~~~text
+-e packages/pyquipu-interfaces
+-e packages/pyquipu-engine
+-e packages/quipu-runtime
+-e packages/pyquipu-cli
+-e packages/quipu-common
+-e packages/quipu-application
 ~~~~~
 
 ### 下一步建议
-修改完成后，建议运行 `quipu ui` 并进行手动测试，特别关注以下几点：
-1.  在历史列表中快速上下移动，观察右侧内容面板的响应是否流畅。
-2.  选中一个包含复杂或大量 Markdown 内容的节点，观察从纯文本预览到最终渲染效果的切换是否平滑，无明显空白或卡顿。
-3.  在内容面板打开时，反复按 `m` 键切换 Markdown/Raw 模式，确认视图能正确更新。
+包的基础结构已经搭建完毕。下一步，我们将开始把 `controller.py`, `factory.py` 和 `plugin_manager.py` 从 `pyquipu-cli` 包中迁移到新的 `pyquipu-application` 包中。
