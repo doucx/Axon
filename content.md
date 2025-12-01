@@ -1,54 +1,432 @@
-好的，我们已经完成了代码的修改和验证。现在，我将创建一个 `[COMMIT]` 计划，将这些改进作为一个原子单元提交到版本历史中。
-
-## [COMMIT] feat(cli): 改进 TUI 交互，支持空格检出和纯内容输出
+## [WIP] refactor(cli): 实现 TUI 防抖异步加载以消除闪烁
 
 ### 用户需求
-1.  **快捷键对齐**：将 `quipu ui` 中“检出节点”的快捷键从 `c` 更改为 `space`，以符合 `lazygit` 等工具的通用习惯。
-2.  **内容提取优化**：修改“输出内容” (`p` 键) 的功能，使其仅输出选中节点的公共 `content.md` 内容，提供一种干净的“cherry-pick”能力。
+当前 TUI 在浏览历史记录时，采用了“滚动 -> 防抖 -> 清空旧内容 -> 加载新内容 -> 渲染”的同步模式。这导致用户在停止滚动等待加载时，内容区域会先闪烁变为空白，体验不佳。
+用户希望改为“防抖触发的异步加载”模式：在滚动和等待加载期间保持显示旧内容，后台加载完成后原子化地无缝替换，从而彻底消除闪烁。
 
 ### 评论
-这个提交通过两个小的用户体验改进，显著提升了 TUI 的可用性和直观性。快捷键的统一降低了用户在不同工具间切换的心智负担，而纯净的内容提取功能则为复用历史计划提供了极大的便利。
+这是一个涉及 UI 核心渲染逻辑的重要重构。它引入了并发编程模型，需要通过请求 ID (`request_id`) 协调机制来解决竞态条件，确保 UI 的最终一致性。这是从简单的同步 UI 迈向高性能异步 UI 的关键一步。
 
 ### 目标
-1.  已将 `pyquipu/cli/tui.py` 中的检出快捷键绑定从 `c` 更改为 `space`。
-2.  已在 `pyquipu/cli/view_model.py` 中添加了 `get_public_content` 方法，用于专门提取公共内容。
-3.  已更新 `pyquipu/cli/tui.py` 中的 `action_dump_content` 以使用新方法。
-4.  将上述变更作为一个完整的特性提交到版本控制。
+1.  在 `QuipuUiApp` 中引入 `itertools.count` 生成唯一的请求 ID。
+2.  使用 Textual 的 `@work` 装饰器创建一个后台加载方法 `load_content_task`。
+3.  重构 `on_row_highlighted` 和定时器逻辑：滚动时不再清空内容，仅重置定时器。
+4.  实现 `on_load_content_task_finished` 回调：校验请求 ID，仅在 ID 匹配时更新 UI，实现无缝切换。
 
 ### 基本原理
-通过 `git add` 将相关的两个文件 (`tui.py` 和 `view_model.py`) 添加到暂存区，然后使用 `git commit` 创建一个符合 Conventional Commits 规范的提交，清晰地记录这次功能增强的目的和范围。
+利用 Textual 的 Worker 机制将耗时的 I/O 和数据处理移出 UI 线程。通过维护一个 `current_request_id`，主线程可以识别并丢弃由快速滚动产生的过时 Worker 的结果，仅渲染用户最终停留节点的最新数据。这在保留了防抖（减少资源消耗）优势的同时，消除了视觉上的中断。
 
 ### 标签
-#intent/build #flow/ready #priority/medium #comp/cli #concept/ui #scope/ux #ai/instruct #task/domain/ui #task/object/tui-keybindings #task/action/refinement #task/state/end #task/status/completed
+#intent/refine #flow/ready #priority/medium #comp/cli #concept/ui #scope/ux #ai/instruct #task/domain/ui #task/object/tui-async-loader #task/action/refactor #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 暂存并提交变更
+#### Acts 1: 重写 `tui.py` 以实现异步加载
 
-我们将把已修改的文件添加到 Git 暂存区，并创建一个内容详尽的提交。
-
-~~~~~act
-git_add
-packages/quipu-cli/src/pyquipu/cli/tui.py
-packages/quipu-cli/src/pyquipu/cli/view_model.py
-~~~~~
+由于本次修改涉及 `__init__` 初始化、状态机逻辑 (`_set_state`)、事件处理 (`on_row_highlighted`) 以及新增异步 Worker 方法，修改范围较大且逻辑紧密相关，为避免 `patch_file` 产生上下文错位，直接使用 `write_file` 重写文件。
 
 ~~~~~act
-git_commit
+write_file packages/quipu-cli/src/pyquipu/cli/tui.py
 ~~~~~
-~~~~~text
-feat(cli): improve TUI with space-to-checkout and clean content dump
+~~~~~python
+import itertools
+import logging
+from enum import Enum, auto
+from pathlib import Path
+from typing import List, Optional
 
-This commit introduces two quality-of-life improvements to the TUI:
+from pyquipu.engine.state_machine import Engine
+from pyquipu.interfaces.models import QuipuNode
+from textual import on
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.coordinate import Coordinate
+from textual.timer import Timer
+from textual.widgets import DataTable, Footer, Header, Markdown, Static
+from textual.worker import Worker, work
 
-1.  **Aligns Checkout Keybinding**: The keybinding for checking out a node in the history viewer (`quipu ui`) is changed from 'c' to 'space'. This aligns with the user experience of popular tools like `lazygit`, reducing friction for users familiar with that ecosystem.
+from .factory import create_engine
+from .view_model import GraphViewModel
 
-2.  **Refines Content Dump**: The 'dump content' action (triggered by 'p') now only outputs the public plan content (`content.md`) of the selected node. This removes developer-specific metadata (like intent) from the output, providing a clean "cherry-pick" mechanism for reusing historical plans in new contexts or scripts.
+logger = logging.getLogger(__name__)
+
+# 定义 UI 返回类型: (动作类型, 数据)
+# 动作: "checkout" | "dump"
+UiResult = tuple[str, str]
+
+
+class ContentViewSate(Enum):
+    HIDDEN = auto()
+    # LOADING 状态在异步模型中不再需要显式清空内容，
+    # 但我们保留它用于表示“正在等待后台结果”的逻辑状态（例如显示加载指示器，虽然目前不显示）
+    # 或者简单地，我们可以简化为 SHOWING 和 HIDDEN，因为内容总是存在的。
+    # 为了保持逻辑清晰，我们主要使用 HIDDEN 和 ACTIVE (SHOWING)。
+    SHOWING_CONTENT = auto()
+
+
+class QuipuUiApp(App[Optional[UiResult]]):
+    CSS_PATH = "tui.css"
+    TITLE = "Quipu History Explorer"
+
+    BINDINGS = [
+        Binding("q", "quit", "退出"),
+        Binding("space", "checkout_node", "检出节点"),
+        Binding("enter", "checkout_node", "检出节点"),
+        Binding("v", "toggle_view", "切换内容视图"),
+        Binding("m", "toggle_markdown", "切换 Markdown 渲染"),
+        Binding("p", "dump_content", "输出内容(stdout)"),
+        Binding("t", "toggle_hidden", "显隐非关联分支"),
+        Binding("k", "move_up", "上移", show=False),
+        Binding("j", "move_down", "下移", show=False),
+        Binding("up", "move_up", "上移", show=False),
+        Binding("down", "move_down", "下移", show=False),
+        Binding("h", "previous_page", "上一页", show=False),
+        Binding("left", "previous_page", "上一页"),
+        Binding("l", "next_page", "下一页", show=False),
+        Binding("right", "next_page", "下一页"),
+    ]
+
+    def __init__(self, work_dir: Path, initial_raw_mode: bool = False):
+        super().__init__()
+        self.work_dir = work_dir
+        self.engine: Optional[Engine] = None
+        self.view_model: Optional[GraphViewModel] = None
+
+        # --- State Machine ---
+        self.content_view_state = ContentViewSate.HIDDEN
+        self.update_timer: Optional[Timer] = None
+        self.debounce_delay_seconds: float = 0.15
+        self.markdown_enabled = not initial_raw_mode
+
+        # --- Async Coordination ---
+        self.request_id_gen = itertools.count()
+        self.current_request_id = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Horizontal(id="main-container"):
+            yield DataTable(id="history-table", cursor_type="row", zebra_stripes=False)
+            with Vertical(id="content-view"):
+                # Header 用于显示当前选中的节点信息，即使内容还没加载出来
+                yield Static("Node Content", id="content-header")
+                
+                # Placeholder 用于 Raw 模式显示
+                yield Static("", id="content-placeholder", markup=False)
+                
+                # Markdown 用于渲染模式显示
+                yield Markdown("", id="content-body")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        """Loads the first page of data."""
+        logger.debug("TUI: on_mount started.")
+        self.query_one(Header).tall = False
+
+        self.engine = create_engine(self.work_dir, lazy=True)
+        current_output_tree_hash = self.engine.git_db.get_tree_hash()
+        self.view_model = GraphViewModel(reader=self.engine.reader, current_output_tree_hash=current_output_tree_hash)
+        self.view_model.initialize()
+
+        table = self.query_one(DataTable)
+        table.add_columns("Time", "Graph", "Node Info")
+
+        # 计算 HEAD 所在的页码并跳转
+        initial_page = self.view_model.calculate_initial_page()
+        logger.debug(f"TUI: HEAD is on page {initial_page}. Loading...")
+        self._load_page(initial_page)
+
+        # 强制将焦点给到表格，确保高亮可见且键盘可用
+        table.focus()
+
+    def on_unmount(self) -> None:
+        logger.debug("TUI: on_unmount called, closing engine.")
+        if self.engine:
+            self.engine.close()
+
+    def _update_header(self):
+        """Centralized method to update the app's title and sub_title."""
+        mode = "Markdown" if self.markdown_enabled else "Raw Text"
+        self.sub_title = f"Page {self.view_model.current_page} / {self.view_model.total_pages} | View: {mode} (m)"
+
+    def _load_page(self, page_number: int) -> None:
+        """Loads and displays a specific page of nodes."""
+        logger.debug(f"TUI: Loading page {page_number}")
+        self.view_model.load_page(page_number)
+        logger.debug(f"TUI: Page {page_number} loaded with {len(self.view_model.current_page_nodes)} nodes.")
+
+        table = self.query_one(DataTable)
+        table.clear()
+        # 从 ViewModel 获取过滤后的节点列表进行渲染
+        self._populate_table(table, self.view_model.get_nodes_to_render())
+        self._focus_current_node(table)
+        self._update_header()
+
+    def action_move_up(self) -> None:
+        self.query_one(DataTable).action_cursor_up()
+
+    def action_move_down(self) -> None:
+        self.query_one(DataTable).action_cursor_down()
+
+    def action_toggle_hidden(self) -> None:
+        self.view_model.toggle_unreachable()
+        self._refresh_table()
+
+    def action_toggle_markdown(self) -> None:
+        """Toggles the rendering mode between Markdown and raw text."""
+        self.markdown_enabled = not self.markdown_enabled
+        self._update_header()
+        
+        # 切换模式时，如果当前视图是打开的，强制刷新内容
+        if self.content_view_state == ContentViewSate.SHOWING_CONTENT:
+             # 我们通过重新触发加载逻辑来刷新，这会使用正确的渲染模式
+            self._trigger_content_load()
+
+    def action_checkout_node(self) -> None:
+        selected_node = self.view_model.get_selected_node()
+        if selected_node:
+            self.exit(result=("checkout", selected_node.output_tree))
+
+    def action_dump_content(self) -> None:
+        selected_node = self.view_model.get_selected_node()
+        if selected_node:
+            content = self.view_model.get_public_content(selected_node)
+            self.exit(result=("dump", content))
+
+    def action_previous_page(self) -> None:
+        if self.view_model.current_page > 1:
+            self._load_page(self.view_model.current_page - 1)
+        else:
+            self.bell()
+
+    def action_next_page(self) -> None:
+        if self.view_model.current_page < self.view_model.total_pages:
+            self._load_page(self.view_model.current_page + 1)
+        else:
+            self.bell()
+
+    def _refresh_table(self):
+        table = self.query_one(DataTable)
+        table.clear()
+        nodes_to_render = self.view_model.get_nodes_to_render()
+        self._populate_table(table, nodes_to_render)
+        self._focus_current_node(table)
+        self._update_header()
+
+    def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
+        tracks: list[Optional[str]] = []
+
+        for node in nodes:
+            is_reachable = self.view_model.is_reachable(node.output_tree)
+            dim_tag = "[dim]" if not is_reachable else ""
+            end_dim_tag = "[/dim]" if dim_tag else ""
+            base_color = "magenta"
+            if node.node_type == "plan":
+                base_color = "green" if node.input_tree == node.output_tree else "cyan"
+            graph_chars = self._get_graph_chars(tracks, node, base_color, dim_tag, end_dim_tag)
+            ts_str = f"{dim_tag}{node.timestamp.strftime('%Y-%m-%d %H:%M')}{end_dim_tag}"
+            summary = self._get_node_summary(node)
+
+            owner_info = ""
+            if node.owner_id:
+                owner_display = node.owner_id[:12]
+                owner_info = f"[yellow]({owner_display}) [/yellow]"
+
+            info_text = (
+                f"{owner_info}[{base_color}][{node.node_type.upper()}] {node.short_hash}[/{base_color}] - {summary}"
+            )
+            info_str = f"{dim_tag}{info_text}{end_dim_tag}"
+            table.add_row(ts_str, "".join(graph_chars), info_str, key=str(node.filename))
+
+    def _get_graph_chars(
+        self, tracks: list, node: QuipuNode, base_color: str, dim_tag: str, end_dim_tag: str
+    ) -> list[str]:
+        merging_indices = [i for i, h in enumerate(tracks) if h == node.output_tree]
+        try:
+            col_idx = tracks.index(None) if not merging_indices else merging_indices[0]
+        except ValueError:
+            col_idx = len(tracks)
+        while len(tracks) <= col_idx:
+            tracks.append(None)
+        tracks[col_idx] = node.output_tree
+        graph_chars = []
+        for i, track_hash in enumerate(tracks):
+            if i == col_idx:
+                symbol = "●" if node.node_type == "plan" else "○"
+                graph_chars.append(f"{dim_tag}[{base_color}]{symbol}[/] {end_dim_tag}")
+            elif i in merging_indices:
+                graph_chars.append(f"{dim_tag}┘ {end_dim_tag}")
+            elif track_hash:
+                graph_chars.append(f"{dim_tag}│ {end_dim_tag}")
+            else:
+                graph_chars.append("  ")
+        tracks[col_idx] = node.input_tree
+        for i in merging_indices[1:]:
+            tracks[i] = None
+        while tracks and tracks[-1] is None:
+            tracks.pop()
+        return graph_chars
+
+    def _get_node_summary(self, node: QuipuNode) -> str:
+        return node.summary or "No description"
+
+    def _focus_current_node(self, table: DataTable):
+        current_output_tree_hash = self.view_model.current_output_tree_hash
+        if not current_output_tree_hash:
+            return
+
+        matching = [n for n in self.view_model.current_page_nodes if n.output_tree == current_output_tree_hash]
+        target_node = matching[0] if matching else None
+        if not target_node:
+            return
+
+        try:
+            row_key = str(target_node.filename)
+            try:
+                row_index = table.get_row_index(row_key)
+                table.cursor_coordinate = Coordinate(row=row_index, column=0)
+                self.view_model.select_node_by_key(row_key)
+                
+                # 初始化时也触发一次内容更新
+                self._update_header_info_only(target_node)
+                self._trigger_content_load()
+
+            except LookupError:
+                pass
+
+        except Exception as e:
+            logger.error(f"DEBUG: Failed to focus current node: {e}", exc_info=True)
+
+    # --- Async Content Loading Logic ---
+
+    @work(exclusive=True, group="content_loader")
+    async def load_content_task(self, node: QuipuNode, request_id: int) -> tuple[int, str]:
+        """
+        后台 Worker：负责从 ViewModel 加载内容。
+        这是耗时操作，不应阻塞 UI。
+        """
+        # 模拟可能的耗时（实际上文件读取就是 I/O）
+        content = self.view_model.get_content_bundle(node)
+        return request_id, content
+
+    def on_load_content_task_finished(self, worker: Worker) -> None:
+        """
+        当后台加载任务完成时被 Textual 调用。
+        在这里进行请求 ID 校验和 UI 更新。
+        """
+        try:
+            request_id, content = worker.result
+        except Exception:
+            # 如果任务被取消或出错，直接忽略
+            return
+
+        # 核心协调逻辑：如果这个结果对应的请求不是当前最新的请求，丢弃它
+        if request_id != self.current_request_id:
+            logger.debug(f"Discarding stale content result for req_id {request_id} (current: {self.current_request_id})")
+            return
+            
+        # 如果视图已经关闭，也不再更新
+        if self.content_view_state == ContentViewSate.HIDDEN:
+            return
+
+        self._update_content_ui(content)
+
+    def _update_content_ui(self, content: str):
+        """执行原子化的 UI 内容替换"""
+        placeholder_widget = self.query_one("#content-placeholder", Static)
+        markdown_widget = self.query_one("#content-body", Markdown)
+
+        if self.markdown_enabled:
+            markdown_widget.update(content)
+            placeholder_widget.display = False
+            markdown_widget.display = True
+        else:
+            placeholder_widget.update(content)
+            placeholder_widget.display = True
+            markdown_widget.display = False
+
+    def _update_header_info_only(self, node: QuipuNode):
+        """轻量级更新：仅更新标题栏，不涉及内容读取"""
+        self.query_one("#content-header", Static).update(
+            f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
+        )
+
+    def _trigger_content_load(self):
+        """
+        启动加载流程：
+        1. 停止之前的计时器
+        2. 生成新 ID
+        3. 启动后台 Worker
+        """
+        if self.update_timer:
+            self.update_timer.stop()
+
+        node = self.view_model.get_selected_node()
+        if not node:
+            return
+
+        # 生成新的请求 ID，宣告之前的请求作废
+        self.current_request_id = next(self.request_id_gen)
+        logger.debug(f"Triggering content load for node {node.short_hash} with req_id {self.current_request_id}")
+        
+        # 启动后台任务
+        self.load_content_task(node, self.current_request_id)
+
+    # --- Event Handlers ---
+
+    @on(DataTable.RowHighlighted)
+    def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        # 1. Update data model
+        if event.row_key.value:
+            node = self.view_model.select_node_by_key(event.row_key.value)
+            if node:
+                # 立即更新 Header，提供即时反馈
+                self._update_header_info_only(node)
+
+        # 2. Debounce Logic
+        # 停止之前的计时器（如果存在）
+        if self.update_timer:
+            self.update_timer.stop()
+
+        if self.content_view_state == ContentViewSate.HIDDEN:
+            return
+
+        # 启动新的防抖计时器
+        # 注意：这里我们不再清空内容面板！旧内容会一直保留，直到新内容加载完毕。
+        self.update_timer = self.set_timer(self.debounce_delay_seconds, self._on_timer_finished)
+
+    def _on_timer_finished(self) -> None:
+        """当用户停止滚动时触发。"""
+        # 只有在计时器真正走完时，才触发昂贵的加载操作
+        self._trigger_content_load()
+
+    def action_toggle_view(self) -> None:
+        """Handles the 'v' key press to toggle the content view."""
+        container = self.query_one("#main-container")
+        
+        if self.content_view_state == ContentViewSate.HIDDEN:
+            # 打开视图
+            self.content_view_state = ContentViewSate.SHOWING_CONTENT
+            container.set_class(True, "split-mode")
+            
+            # 立即触发加载
+            node = self.view_model.get_selected_node()
+            if node:
+                self._update_header_info_only(node)
+                self._trigger_content_load()
+        else:
+            # 关闭视图
+            self.content_view_state = ContentViewSate.HIDDEN
+            container.set_class(False, "split-mode")
+            # 停止任何正在进行的加载计时器
+            if self.update_timer:
+                self.update_timer.stop()
 ~~~~~
 
 ### 下一步建议
-我们已经成功地改进了 TUI 的交互性。接下来，我们可以考虑以下方向：
-*   **TUI 搜索功能**：在 `quipu ui` 中增加一个 `/` 快捷键，允许用户直接在 TUI 内部实时过滤历史节点，而不是退出后使用 `quipu find`。
-*   **全面的快捷键审查**：系统地审查 TUI 的所有快捷键，确保它们与 `lazygit`、`tig` 等成熟的 TUI 工具保持最大程度的一致性。
+现在 TUI 应该具有更流畅的浏览体验。建议运行 `qd ui` 验证：
+1.  快速上下滚动列表，确认右侧内容面板在滚动过程中保持不变，没有闪烁。
+2.  停止滚动后，确认内容面板会在短暂延迟后更新为当前选中节点的内容。
+3.  测试 `v` (切换视图) 和 `m` (切换 Markdown) 功能，确保异步逻辑没有破坏这些基本功能。

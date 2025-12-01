@@ -1,3 +1,4 @@
+import itertools
 import logging
 from enum import Enum, auto
 from pathlib import Path
@@ -12,6 +13,7 @@ from textual.containers import Horizontal, Vertical
 from textual.coordinate import Coordinate
 from textual.timer import Timer
 from textual.widgets import DataTable, Footer, Header, Markdown, Static
+from textual.worker import Worker, work
 
 from .factory import create_engine
 from .view_model import GraphViewModel
@@ -25,7 +27,10 @@ UiResult = tuple[str, str]
 
 class ContentViewSate(Enum):
     HIDDEN = auto()
-    LOADING = auto()
+    # LOADING 状态在异步模型中不再需要显式清空内容，
+    # 但我们保留它用于表示“正在等待后台结果”的逻辑状态（例如显示加载指示器，虽然目前不显示）
+    # 或者简单地，我们可以简化为 SHOWING 和 HIDDEN，因为内容总是存在的。
+    # 为了保持逻辑清晰，我们主要使用 HIDDEN 和 ACTIVE (SHOWING)。
     SHOWING_CONTENT = auto()
 
 
@@ -63,16 +68,22 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self.debounce_delay_seconds: float = 0.15
         self.markdown_enabled = not initial_raw_mode
 
+        # --- Async Coordination ---
+        self.request_id_gen = itertools.count()
+        self.current_request_id = 0
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main-container"):
             yield DataTable(id="history-table", cursor_type="row", zebra_stripes=False)
             with Vertical(id="content-view"):
+                # Header 用于显示当前选中的节点信息，即使内容还没加载出来
                 yield Static("Node Content", id="content-header")
-                # Add a lightweight placeholder that we can update quickly.
-                # It's used for both fast-scrolling and the "raw" text mode.
+                
+                # Placeholder 用于 Raw 模式显示
                 yield Static("", id="content-placeholder", markup=False)
-                # The expensive Markdown widget
+                
+                # Markdown 用于渲染模式显示
                 yield Markdown("", id="content-body")
         yield Footer()
 
@@ -134,12 +145,11 @@ class QuipuUiApp(App[Optional[UiResult]]):
         """Toggles the rendering mode between Markdown and raw text."""
         self.markdown_enabled = not self.markdown_enabled
         self._update_header()
-        # If the content view is already showing, force a re-render with the new mode.
+        
+        # 切换模式时，如果当前视图是打开的，强制刷新内容
         if self.content_view_state == ContentViewSate.SHOWING_CONTENT:
-            self._set_state(ContentViewSate.SHOWING_CONTENT)
-        elif self.content_view_state == ContentViewSate.LOADING:
-            # If it's loading, let the timer finish and it will naturally pick up the new mode.
-            pass
+             # 我们通过重新触发加载逻辑来刷新，这会使用正确的渲染模式
+            self._trigger_content_load()
 
     def action_checkout_node(self) -> None:
         selected_node = self.view_model.get_selected_node()
@@ -167,14 +177,12 @@ class QuipuUiApp(App[Optional[UiResult]]):
     def _refresh_table(self):
         table = self.query_one(DataTable)
         table.clear()
-        # 从 ViewModel 获取要渲染的节点
         nodes_to_render = self.view_model.get_nodes_to_render()
         self._populate_table(table, nodes_to_render)
         self._focus_current_node(table)
         self._update_header()
 
     def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
-        # 移除了过滤逻辑，因为 ViewModel 已经处理
         tracks: list[Optional[str]] = []
 
         for node in nodes:
@@ -233,149 +241,152 @@ class QuipuUiApp(App[Optional[UiResult]]):
 
     def _focus_current_node(self, table: DataTable):
         current_output_tree_hash = self.view_model.current_output_tree_hash
-        logger.debug(f"DEBUG: Attempting focus. HEAD={current_output_tree_hash}")
-
         if not current_output_tree_hash:
-            logger.debug("DEBUG: No HEAD hash, skipping.")
             return
 
-        # 查找当前页面中匹配 HEAD 的所有节点
         matching = [n for n in self.view_model.current_page_nodes if n.output_tree == current_output_tree_hash]
-        logger.debug(f"DEBUG: Found {len(matching)} matching nodes in current page map.")
-
         target_node = matching[0] if matching else None
         if not target_node:
-            logger.debug("DEBUG: Target node not found in current page.")
             return
 
         try:
             row_key = str(target_node.filename)
-            logger.debug(f"DEBUG: Target row key: {row_key}")
-
-            # Textual 的 DataTable API 中，get_row_index 会在 key 不存在时抛出 KeyError
-            # 或者 RowKeyError，具体取决于版本，但 KeyError 是基类
             try:
                 row_index = table.get_row_index(row_key)
-                logger.debug(f"DEBUG: Row index found: {row_index}. Setting cursor.")
-
-                # 1. 设置视觉光标
                 table.cursor_coordinate = Coordinate(row=row_index, column=0)
-
-                # 2. Sync data model state
                 self.view_model.select_node_by_key(row_key)
-
-                # 3. Force-update the header on initial load, regardless of view mode.
-                # The state machine will handle the rest of the UI.
-                header = self.query_one("#content-header", Static)
-                header.update(f"[{target_node.node_type.upper()}] {target_node.short_hash} - {target_node.timestamp}")
+                
+                # 初始化时也触发一次内容更新
+                self._update_header_info_only(target_node)
+                self._trigger_content_load()
 
             except LookupError:
-                # LookupError 捕获 RowKeyError 等
-                logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
+                pass
 
         except Exception as e:
             logger.error(f"DEBUG: Failed to focus current node: {e}", exc_info=True)
 
-    def _update_loading_preview(self):
-        """A lightweight method to only update header/placeholder text."""
-        node = self.view_model.get_selected_node()
-        if not node:
+    # --- Async Content Loading Logic ---
+
+    @work(exclusive=True, group="content_loader")
+    async def load_content_task(self, node: QuipuNode, request_id: int) -> tuple[int, str]:
+        """
+        后台 Worker：负责从 ViewModel 加载内容。
+        这是耗时操作，不应阻塞 UI。
+        """
+        # 模拟可能的耗时（实际上文件读取就是 I/O）
+        content = self.view_model.get_content_bundle(node)
+        return request_id, content
+
+    def on_load_content_task_finished(self, worker: Worker) -> None:
+        """
+        当后台加载任务完成时被 Textual 调用。
+        在这里进行请求 ID 校验和 UI 更新。
+        """
+        try:
+            request_id, content = worker.result
+        except Exception:
+            # 如果任务被取消或出错，直接忽略
             return
 
-        # Update header and placeholder text
+        # 核心协调逻辑：如果这个结果对应的请求不是当前最新的请求，丢弃它
+        if request_id != self.current_request_id:
+            logger.debug(f"Discarding stale content result for req_id {request_id} (current: {self.current_request_id})")
+            return
+            
+        # 如果视图已经关闭，也不再更新
+        if self.content_view_state == ContentViewSate.HIDDEN:
+            return
+
+        self._update_content_ui(content)
+
+    def _update_content_ui(self, content: str):
+        """执行原子化的 UI 内容替换"""
+        placeholder_widget = self.query_one("#content-placeholder", Static)
+        markdown_widget = self.query_one("#content-body", Markdown)
+
+        if self.markdown_enabled:
+            markdown_widget.update(content)
+            placeholder_widget.display = False
+            markdown_widget.display = True
+        else:
+            placeholder_widget.update(content)
+            placeholder_widget.display = True
+            markdown_widget.display = False
+
+    def _update_header_info_only(self, node: QuipuNode):
+        """轻量级更新：仅更新标题栏，不涉及内容读取"""
         self.query_one("#content-header", Static).update(
             f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
         )
 
-        # Always get the full content bundle for consistent information display.
-        # The Static widget is in markup=False mode, so it's fast and safe.
-        content_bundle = self.view_model.get_content_bundle(node)
-        self.query_one("#content-placeholder", Static).update(content_bundle)
-
-    def _set_state(self, new_state: ContentViewSate):
-        # Allow re-entering SHOWING_CONTENT to force a re-render after toggling markdown
-        if self.content_view_state == new_state and new_state != ContentViewSate.SHOWING_CONTENT:
-            return
-
-        self.content_view_state = new_state
-
-        container = self.query_one("#main-container")
-        placeholder_widget = self.query_one("#content-placeholder", Static)
-        markdown_widget = self.query_one("#content-body", Markdown)
-
+    def _trigger_content_load(self):
+        """
+        启动加载流程：
+        1. 停止之前的计时器
+        2. 生成新 ID
+        3. 启动后台 Worker
+        """
         if self.update_timer:
             self.update_timer.stop()
 
-        match new_state:
-            case ContentViewSate.HIDDEN:
-                container.set_class(False, "split-mode")
+        node = self.view_model.get_selected_node()
+        if not node:
+            return
 
-            case ContentViewSate.LOADING:
-                container.set_class(True, "split-mode")
+        # 生成新的请求 ID，宣告之前的请求作废
+        self.current_request_id = next(self.request_id_gen)
+        logger.debug(f"Triggering content load for node {node.short_hash} with req_id {self.current_request_id}")
+        
+        # 启动后台任务
+        self.load_content_task(node, self.current_request_id)
 
-                # Perform lightweight text updates
-                self._update_loading_preview()
-
-                # Perform heavy, one-time visibility setup
-                placeholder_widget.display = True
-                markdown_widget.display = False
-                markdown_widget.update("")  # Prevent ghosting
-
-                # Start timer for next state transition
-                self.update_timer = self.set_timer(self.debounce_delay_seconds, self._on_timer_finished)
-
-            case ContentViewSate.SHOWING_CONTENT:
-                container.set_class(True, "split-mode")
-                node = self.view_model.get_selected_node()
-
-                if node:
-                    content = self.view_model.get_content_bundle(node)
-                    # Update header
-                    self.query_one("#content-header", Static).update(
-                        f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp}"
-                    )
-
-                    if self.markdown_enabled:
-                        markdown_widget.update(content)
-                        placeholder_widget.display = False
-                        markdown_widget.display = True
-                    else:
-                        placeholder_widget.update(content)
-                        placeholder_widget.display = True
-                        markdown_widget.display = False
+    # --- Event Handlers ---
 
     @on(DataTable.RowHighlighted)
     def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         # 1. Update data model
         if event.row_key.value:
-            self.view_model.select_node_by_key(event.row_key.value)
+            node = self.view_model.select_node_by_key(event.row_key.value)
+            if node:
+                # 立即更新 Header，提供即时反馈
+                self._update_header_info_only(node)
 
-        # 2. Handle UI updates based on current state
+        # 2. Debounce Logic
+        # 停止之前的计时器（如果存在）
         if self.update_timer:
             self.update_timer.stop()
 
         if self.content_view_state == ContentViewSate.HIDDEN:
-            return  # Do nothing if panel is closed
+            return
 
-        elif self.content_view_state == ContentViewSate.SHOWING_CONTENT:
-            # Transition from showing content to loading
-            self._set_state(ContentViewSate.LOADING)
-
-        elif self.content_view_state == ContentViewSate.LOADING:
-            # Already loading, just do a lightweight update and restart timer
-            self._update_loading_preview()
-            self.update_timer = self.set_timer(self.debounce_delay_seconds, self._on_timer_finished)
+        # 启动新的防抖计时器
+        # 注意：这里我们不再清空内容面板！旧内容会一直保留，直到新内容加载完毕。
+        self.update_timer = self.set_timer(self.debounce_delay_seconds, self._on_timer_finished)
 
     def _on_timer_finished(self) -> None:
-        """Callback for the debounce timer."""
-        # The timer finished, so we are ready to show content
-        self._set_state(ContentViewSate.SHOWING_CONTENT)
+        """当用户停止滚动时触发。"""
+        # 只有在计时器真正走完时，才触发昂贵的加载操作
+        self._trigger_content_load()
 
     def action_toggle_view(self) -> None:
         """Handles the 'v' key press to toggle the content view."""
+        container = self.query_one("#main-container")
+        
         if self.content_view_state == ContentViewSate.HIDDEN:
-            # If a node is selected, transition to loading, otherwise do nothing
-            if self.view_model.get_selected_node():
-                self._set_state(ContentViewSate.LOADING)
+            # 打开视图
+            self.content_view_state = ContentViewSate.SHOWING_CONTENT
+            container.set_class(True, "split-mode")
+            
+            # 立即触发加载
+            node = self.view_model.get_selected_node()
+            if node:
+                self._update_header_info_only(node)
+                self._trigger_content_load()
         else:
-            self._set_state(ContentViewSate.HIDDEN)
+            # 关闭视图
+            self.content_view_state = ContentViewSate.HIDDEN
+            container.set_class(False, "split-mode")
+            # 停止任何正在进行的加载计时器
+            if self.update_timer:
+                self.update_timer.stop()
