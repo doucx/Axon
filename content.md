@@ -1,152 +1,257 @@
-好的，我们立即开始创建 `pyquipu-application` 包。
+好的，我们开始执行代码迁移。
 
-这是一个奠定未来架构基础的关键步骤。我们将创建必要的文件和目录，并更新工作区的配置，为后续的逻辑迁移做好准备。
+这个过程将分为几个原子化的步骤：首先移动文件，然后修复因移动而产生的依赖关系和耦合问题。
 
-## [WIP] feat: 创建核心业务逻辑包 `pyquipu-application`
+## [WIP] refactor: 将核心逻辑迁移到 `pyquipu-application`
 
 ### 用户需求
-为了实现 `cli` 和 `webapi` 等不同入口的逻辑复用，并遵循 DRY (Don't Repeat Yourself) 原则，需要创建一个新的核心包 `pyquipu-application`，用于承载与具体表现层（如 CLI 或 Web）无关的通用业务逻辑。
+将 `controller.py`, `factory.py`, `plugin_manager.py` 和 `utils.py` 从 `pyquipu-cli` 包迁移到新创建的 `pyquipu-application` 包中，并修复由此引起的模块间依赖关系。
 
 ### 评论
-这是对项目架构的一次重要重构。通过将应用逻辑从 `pyquipu-cli` 中剥离出来，我们建立了一个清晰、单向的依赖关系，极大地提升了项目的可维护性、可测试性和未来的可扩展性。
+这是实现架构解耦的核心执行步骤。通过这次迁移，`pyquipu-cli` 将演变为一个纯粹的“表现层”，其所有核心业务逻辑都委托给新的 `pyquipu-application` 包处理。这为未来添加 `pyquipu-webapi` 等其他入口打下了坚实的基础。
 
 ### 目标
-1.  创建 `packages/quipu-application` 目录结构。
-2.  为新包创建 `pyproject.toml` 文件，并定义其对 `engine`, `runtime`, `interfaces` 和 `common` 包的依赖。
-3.  更新根 `pyproject.toml`，将新包纳入 UV 工作区管理和 Pytest 的 `pythonpath` 中。
-4.  更新 `dev-requirements.txt`，将新包加入开发环境。
+1.  将四个核心逻辑文件物理移动到 `pyquipu-application` 的 `src` 目录。
+2.  更新被移动文件内部的导入语句，以反映其新的命名空间。
+3.  重构 `QuipuApplication` 控制器，通过依赖注入的方式解耦其与 `cli` 特有的 UI 工具 (`ui_utils`) 的绑定。
+4.  更新 `pyquipu-cli` 中的命令，使其调用新的 `pyquipu-application` 包中的逻辑。
 
 ### 基本原理
-通过在 `packages` 目录下新增一个标准的 Python 包，并调整 monorepo 的相关配置（`pyproject.toml`, `dev-requirements.txt`），我们可以将 `pyquipu-application` 无缝地集成到现有的开发工作流中。这为下一步从 `pyquipu-cli` 中安全地迁移代码提供了必要的基础设施。
+我们采用“移动-修复”的策略。首先通过 `move_file` 操作完成文件的物理迁移。然后，通过一系列精准的 `patch_file` 操作来重构代码：首先修复新包内部的相对导入路径，接着修改 `QuipuApplication` 的构造函数以接受一个可调用对象 (`confirmation_handler`)，最后更新 `pyquipu-cli` 包的 `import` 语句，使其指向新的 `pyquipu.application` 命名空间。
 
 ### 标签
-#intent/architect #flow/ready #priority/high #comp/build #scope/core #dx #ai/instruct #task/domain/architecture #task/object/core-application-layer #task/action/creation #task/state/begin
+#intent/refine #flow/ready #priority/high #comp/cli #comp/build #scope/core #dx #ai/instruct #task/domain/architecture #task/object/core-application-layer #task/action/refactor #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 创建 `pyquipu-application` 包的 `pyproject.toml`
+#### Acts 1: 物理移动核心逻辑文件
 
-这是新包的核心定义文件。
-
-~~~~~act
-write_file
-packages/quipu-application/pyproject.toml
-~~~~~
-~~~~~toml
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "pyquipu-application"
-version = "0.1.0"
-authors = [
-  { name="doucx", email="doucxldh@gmail.com" },
-]
-description = "Core application logic for the Quipu ecosystem, coordinating the engine and runtime."
-requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: OS Independent",
-]
-dependencies = [
-    "pyquipu-interfaces",
-    "pyquipu-engine",
-    "pyquipu-runtime",
-    "pyquipu-common",
-]
-
-[tool.uv.sources]
-pyquipu-interfaces = { workspace = true }
-pyquipu-engine = { workspace = true }
-pyquipu-runtime = { workspace = true }
-pyquipu-common = { workspace = true }
-
-[tool.setuptools.packages.find]
-where = ["src"]
-namespaces = true
-~~~~~
-
-#### Acts 2: 创建包的源代码目录结构
-
-建立标准的 `src/pyquipu/application` 目录结构。
+我们将 `controller`, `factory`, `plugin_manager`, 和 `utils` 从 `cli` 移动到 `application` 包。
 
 ~~~~~act
-write_file
-packages/quipu-application/src/pyquipu/application/__init__.py
+move_file
+packages/quipu-cli/src/pyquipu/cli/utils.py
+packages/quipu-application/src/pyquipu/application/utils.py
+~~~~~
+
+~~~~~act
+move_file
+packages/quipu-cli/src/pyquipu/cli/plugin_manager.py
+packages/quipu-application/src/pyquipu/application/plugin_manager.py
+~~~~~
+
+~~~~~act
+move_file
+packages/quipu-cli/src/pyquipu/cli/factory.py
+packages/quipu-application/src/pyquipu/application/factory.py
+~~~~~
+
+~~~~~act
+move_file
+packages/quipu-cli/src/pyquipu/cli/controller.py
+packages/quipu-application/src/pyquipu/application/controller.py
+~~~~~
+
+#### Acts 2: 修复 `application` 包内部的导入路径
+
+现在文件已经移动，我们需要更新它们内部的 `import` 语句。
+
+~~~~~act
+patch_file
+packages/quipu-application/src/pyquipu/application/factory.py
 ~~~~~
 ~~~~~python
-# This file makes 'pyquipu.application' a package.
+from .utils import find_git_repository_root
 ~~~~~
-
-#### Acts 3: 更新根 `pyproject.toml` 以集成新包
-
-将 `pyquipu-application` 添加到 UV 工作区和 Pytest 的 Python 路径中，使其能够被其他包发现和测试。
+~~~~~python
+from pyquipu.application.utils import find_git_repository_root
+~~~~~
 
 ~~~~~act
 patch_file
-pyproject.toml
+packages/quipu-application/src/pyquipu/application/plugin_manager.py
 ~~~~~
-~~~~~toml
-[tool.uv]
-# 将 packages 下的所有包纳入工作区管理
-workspace.members = ["packages/*", "packages/quipu-common"]
-
-[tool.pytest.ini_options]
-addopts = "-ra --cov=pyquipu --cov-report=term-missing"
-pythonpath = [
-  "packages/quipu-interfaces/src",
-  "packages/quipu-engine/src",
-  "packages/quipu-runtime/src",
-  "packages/quipu-cli/src",
-  "packages/quipu-common/src",
-]
+~~~~~python
+from .utils import find_git_repository_root
 ~~~~~
-~~~~~toml
-[tool.uv]
-# 将 packages 下的所有包纳入工作区管理
-workspace.members = ["packages/*"]
-
-[tool.pytest.ini_options]
-addopts = "-ra --cov=pyquipu --cov-report=term-missing"
-pythonpath = [
-  "packages/quipu-interfaces/src",
-  "packages/quipu-engine/src",
-  "packages/quipu-runtime/src",
-  "packages/quipu-cli/src",
-  "packages/quipu-common/src",
-  "packages/quipu-application/src",
-]
+~~~~~python
+from pyquipu.application.utils import find_git_repository_root
 ~~~~~
-
-#### Acts 4: 更新开发依赖文件
-
-将新包添加到 `dev-requirements.txt` 中，以便在开发环境中以可编辑模式安装。
 
 ~~~~~act
 patch_file
-dev-requirements.txt
+packages/quipu-application/src/pyquipu/application/controller.py
 ~~~~~
-~~~~~text
--e packages/pyquipu-interfaces
--e packages/pyquipu-engine
--e packages/pyquipu-runtime
--e packages/pyquipu-cli
--e packages/pyquipu-common
+~~~~~python
+from .factory import create_engine
+from .plugin_manager import PluginManager
+from .ui_utils import prompt_for_confirmation
 ~~~~~
-~~~~~text
--e packages/pyquipu-interfaces
--e packages/pyquipu-engine
--e packages/quipu-runtime
--e packages/pyquipu-cli
--e packages/quipu-common
--e packages/quipu-application
+~~~~~python
+from pyquipu.application.factory import create_engine
+from pyquipu.application.plugin_manager import PluginManager
+from pyquipu.common.messaging import bus
+~~~~~
+
+#### Acts 3: 解耦 `QuipuApplication` 与 CLI 的 UI 依赖
+
+我们将修改 `QuipuApplication` 以接受一个外部的 `confirmation_handler`，而不是直接调用 `cli` 的 `ui_utils`。
+
+~~~~~act
+patch_file
+packages/quipu-application/src/pyquipu/application/controller.py
+~~~~~
+~~~~~python
+def confirmation_handler_for_executor(diff_lines: List[str], prompt: str) -> bool:
+    """
+    为 Executor 的确认处理器契约提供的适配器。
+    它调用统一的提示器，并在用户取消时抛出异常。
+    对于 'run' 操作，默认行为是继续，除非用户按下 'n'。
+    """
+    # 原始逻辑是 `char.lower() != "n"`，这相当于默认为 True
+    confirmed = prompt_for_confirmation(prompt=prompt, diff_lines=diff_lines, default=True)
+    if not confirmed:
+        raise OperationCancelledError("User cancelled the operation.")
+    # 执行器的处理器不使用布尔返回值，它依赖于异常。
+    # 但为保持契约一致性，我们返回 True。
+    return True
+
+
+class QuipuApplication:
+    """
+    封装了 Quipu 核心业务流程的高层应用对象。
+    负责协调 Engine, Parser, Executor。
+    """
+
+    def __init__(self, work_dir: Path, yolo: bool = False):
+        self.work_dir = work_dir
+        self.yolo = yolo
+        self.engine: Engine = create_engine(work_dir)
+        logger.info(f"Operation boundary set to: {self.work_dir}")
+~~~~~
+~~~~~python
+from typing import Callable, List, Optional
+
+# ... (other imports)
+
+ConfirmationHandler = Callable[[List[str], str], bool]
+
+
+def default_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+    """A default handler that always cancels to prevent accidental changes."""
+    bus.warning("run.error.noConfirmationHandler")
+    return False
+
+
+class QuipuApplication:
+    """
+    封装了 Quipu 核心业务流程的高层应用对象。
+    负责协调 Engine, Parser, Executor。
+    """
+
+    def __init__(
+        self,
+        work_dir: Path,
+        yolo: bool = False,
+        confirmation_handler: Optional[ConfirmationHandler] = None,
+    ):
+        self.work_dir = work_dir
+        self.yolo = yolo
+        self.engine: Engine = create_engine(work_dir)
+        self.confirmation_handler = confirmation_handler or default_confirmation_handler
+        logger.info(f"Operation boundary set to: {self.work_dir}")
+~~~~~
+
+~~~~~act
+patch_file
+packages/quipu-application/src/pyquipu/application/controller.py
+~~~~~
+~~~~~python
+    def _setup_executor(self) -> Executor:
+        """创建、配置并返回一个 Executor 实例，并注入 UI 依赖。"""
+
+        executor = Executor(
+            root_dir=self.work_dir,
+            yolo=self.yolo,
+            confirmation_handler=confirmation_handler_for_executor,
+        )
+~~~~~
+~~~~~python
+    def _setup_executor(self) -> Executor:
+        """创建、配置并返回一个 Executor 实例，并注入 UI 依赖。"""
+
+        executor = Executor(
+            root_dir=self.work_dir,
+            yolo=self.yolo,
+            confirmation_handler=self.confirmation_handler,
+        )
+~~~~~
+
+#### Acts 4: 更新 `pyquipu-cli` 的 `run` 命令以使用新架构
+
+最后，我们更新 `run.py`，让它调用 `pyquipu-application` 中的逻辑，并向其注入 CLI 特有的确认处理器。
+
+~~~~~act
+patch_file
+packages/quipu-cli/src/pyquipu/cli/commands/run.py
+~~~~~
+~~~~~python
+from ..controller import run_quipu
+~~~~~
+~~~~~python
+from pyquipu.application.controller import QuipuApplication
+from pyquipu.interfaces.exceptions import OperationCancelledError, ExecutionError as CoreExecutionError
+from pyquipu.interfaces.result import QuipuResult
+from ..ui_utils import prompt_for_confirmation
+
+
+def confirmation_handler_for_cli(diff_lines: List[str], prompt: str) -> bool:
+    """
+    Adapter for the Executor's confirmation handler contract, specific to the CLI.
+    """
+    confirmed = prompt_for_confirmation(prompt=prompt, diff_lines=diff_lines, default=True)
+    if not confirmed:
+        raise OperationCancelledError("User cancelled the operation.")
+    return True
+
+
+def run_quipu(content: str, work_dir: Path, parser_name: str = "auto", yolo: bool = False) -> QuipuResult:
+    """
+    Wrapper for the core Quipu business logic.
+    """
+    app = None
+    try:
+        app = QuipuApplication(
+            work_dir=work_dir,
+            yolo=yolo,
+            confirmation_handler=confirmation_handler_for_cli,
+        )
+        return app.run(content=content, parser_name=parser_name)
+
+    except OperationCancelledError as e:
+        logger.info(f"🚫 操作已取消: {e}")
+        return QuipuResult(
+            success=False, exit_code=2, message="run.error.cancelled", msg_kwargs={"error": str(e)}, error=e
+        )
+    except CoreExecutionError as e:
+        logger.error(f"❌ 操作失败: {e}")
+        return QuipuResult(
+            success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
+        )
+    except Exception as e:
+        logger.error(f"运行时错误: {e}", exc_info=True)
+        return QuipuResult(
+            success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
+        )
+    finally:
+        if app and hasattr(app, "engine") and app.engine:
+            app.engine.close()
 ~~~~~
 
 ### 下一步建议
-包的基础结构已经搭建完毕。下一步，我们将开始把 `controller.py`, `factory.py` 和 `plugin_manager.py` 从 `pyquipu-cli` 包中迁移到新的 `pyquipu-application` 包中。
+我们已经成功地将核心业务逻辑迁移到了 `pyquipu-application` 包中。然而，这次重构影响了多个模块，`axon.py`, `ui.py`, `workspace.py` 等命令文件中的导入和调用方式也需要更新，以适应新的架构。
+
+下一步，我们将全面修复 `pyquipu-cli` 中所有剩余的、因本次重构而损坏的命令。
 

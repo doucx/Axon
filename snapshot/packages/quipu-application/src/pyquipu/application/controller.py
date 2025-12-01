@@ -11,26 +11,24 @@ from pyquipu.interfaces.result import QuipuResult
 from pyquipu.runtime.executor import Executor
 from pyquipu.runtime.parser import detect_best_parser, get_parser
 
-from .factory import create_engine
-from .plugin_manager import PluginManager
-from .ui_utils import prompt_for_confirmation
+from pyquipu.application.factory import create_engine
+from pyquipu.application.plugin_manager import PluginManager
+from pyquipu.common.messaging import bus
 
 logger = logging.getLogger(__name__)
 
 
-def confirmation_handler_for_executor(diff_lines: List[str], prompt: str) -> bool:
-    """
-    为 Executor 的确认处理器契约提供的适配器。
-    它调用统一的提示器，并在用户取消时抛出异常。
-    对于 'run' 操作，默认行为是继续，除非用户按下 'n'。
-    """
-    # 原始逻辑是 `char.lower() != "n"`，这相当于默认为 True
-    confirmed = prompt_for_confirmation(prompt=prompt, diff_lines=diff_lines, default=True)
-    if not confirmed:
-        raise OperationCancelledError("User cancelled the operation.")
-    # 执行器的处理器不使用布尔返回值，它依赖于异常。
-    # 但为保持契约一致性，我们返回 True。
-    return True
+from typing import Callable, List, Optional
+
+# ... (other imports)
+
+ConfirmationHandler = Callable[[List[str], str], bool]
+
+
+def default_confirmation_handler(diff_lines: List[str], prompt: str) -> bool:
+    """A default handler that always cancels to prevent accidental changes."""
+    bus.warning("run.error.noConfirmationHandler")
+    return False
 
 
 class QuipuApplication:
@@ -39,10 +37,16 @@ class QuipuApplication:
     负责协调 Engine, Parser, Executor。
     """
 
-    def __init__(self, work_dir: Path, yolo: bool = False):
+    def __init__(
+        self,
+        work_dir: Path,
+        yolo: bool = False,
+        confirmation_handler: Optional[ConfirmationHandler] = None,
+    ):
         self.work_dir = work_dir
         self.yolo = yolo
         self.engine: Engine = create_engine(work_dir)
+        self.confirmation_handler = confirmation_handler or default_confirmation_handler
         logger.info(f"Operation boundary set to: {self.work_dir}")
 
     def _prepare_workspace(self) -> str:
@@ -77,7 +81,7 @@ class QuipuApplication:
         executor = Executor(
             root_dir=self.work_dir,
             yolo=self.yolo,
-            confirmation_handler=confirmation_handler_for_executor,
+            confirmation_handler=self.confirmation_handler,
         )
 
         # 加载核心 acts

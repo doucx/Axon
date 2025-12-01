@@ -9,7 +9,53 @@ from pyquipu.common.messaging import bus
 from pyquipu.runtime.executor import Executor
 
 from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
-from ..controller import run_quipu
+from pyquipu.application.controller import QuipuApplication
+from pyquipu.interfaces.exceptions import OperationCancelledError, ExecutionError as CoreExecutionError
+from pyquipu.interfaces.result import QuipuResult
+from ..ui_utils import prompt_for_confirmation
+
+
+def confirmation_handler_for_cli(diff_lines: List[str], prompt: str) -> bool:
+    """
+    Adapter for the Executor's confirmation handler contract, specific to the CLI.
+    """
+    confirmed = prompt_for_confirmation(prompt=prompt, diff_lines=diff_lines, default=True)
+    if not confirmed:
+        raise OperationCancelledError("User cancelled the operation.")
+    return True
+
+
+def run_quipu(content: str, work_dir: Path, parser_name: str = "auto", yolo: bool = False) -> QuipuResult:
+    """
+    Wrapper for the core Quipu business logic.
+    """
+    app = None
+    try:
+        app = QuipuApplication(
+            work_dir=work_dir,
+            yolo=yolo,
+            confirmation_handler=confirmation_handler_for_cli,
+        )
+        return app.run(content=content, parser_name=parser_name)
+
+    except OperationCancelledError as e:
+        logger.info(f"🚫 操作已取消: {e}")
+        return QuipuResult(
+            success=False, exit_code=2, message="run.error.cancelled", msg_kwargs={"error": str(e)}, error=e
+        )
+    except CoreExecutionError as e:
+        logger.error(f"❌ 操作失败: {e}")
+        return QuipuResult(
+            success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
+        )
+    except Exception as e:
+        logger.error(f"运行时错误: {e}", exc_info=True)
+        return QuipuResult(
+            success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
+        )
+    finally:
+        if app and hasattr(app, "engine") and app.engine:
+            app.engine.close()
 from ..logger_config import setup_logging
 
 logger = logging.getLogger(__name__)

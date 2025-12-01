@@ -6,7 +6,7 @@ from pyquipu.engine.git_db import GitDB
 from pyquipu.engine.git_object_storage import GitObjectHistoryReader, GitObjectHistoryWriter
 from pyquipu.engine.state_machine import Engine
 
-from .utils import find_git_repository_root
+from pyquipu.application.utils import find_git_repository_root
 
 # 迟延导入以避免循环依赖
 try:

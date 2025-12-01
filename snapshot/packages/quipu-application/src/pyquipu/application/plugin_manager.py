@@ -4,7 +4,7 @@ from pathlib import Path
 from pyquipu.runtime.executor import Executor
 from pyquipu.runtime.plugin_loader import load_plugins
 
-from .utils import find_git_repository_root
+from pyquipu.application.utils import find_git_repository_root
 
 
 class PluginManager:
