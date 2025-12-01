@@ -9,7 +9,7 @@ from pyquipu.common.messaging import bus
 from pyquipu.engine.state_machine import Engine
 from pyquipu.interfaces.models import QuipuNode
 
-from ..factory import create_engine
+from pyquipu.application.factory import create_engine
 from ..logger_config import setup_logging
 
 logger = logging.getLogger(__name__)

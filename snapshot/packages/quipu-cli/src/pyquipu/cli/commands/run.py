@@ -9,6 +9,8 @@ from pyquipu.common.messaging import bus
 from pyquipu.runtime.executor import Executor
 
 from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
+from typing import List
+
 from pyquipu.application.controller import QuipuApplication
 from pyquipu.interfaces.exceptions import OperationCancelledError, ExecutionError as CoreExecutionError
 from pyquipu.interfaces.result import QuipuResult

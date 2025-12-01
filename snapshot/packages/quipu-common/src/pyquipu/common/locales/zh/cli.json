@@ -52,6 +52,7 @@
   "run.error.cancelled": "🚫 操作已取消: {error}",
   "run.error.execution": "❌ 操作失败: {error}",
   "run.error.system": "系统错误: {error}",
+  "run.error.noConfirmationHandler": "⚠️  警告: 未提供交互式确认处理器，操作已自动取消。",
   "run.warning.noInput": "⚠️  提示: 未提供输入，且当前目录下未找到默认文件 '{filename}'。",
   "run.info.usageHint": "\n用法示例:\n  quipu run my_plan.md\n  echo '...' | quipu run",
   "run.error.ambiguousCommand": "💡 提示: 你是不是想执行 'quipu {command}' 命令？",

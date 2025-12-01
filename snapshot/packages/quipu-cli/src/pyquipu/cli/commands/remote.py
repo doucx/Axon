@@ -11,7 +11,7 @@ from pyquipu.engine.git_db import GitDB
 
 from ..config import DEFAULT_WORK_DIR
 from ..logger_config import setup_logging
-from ..utils import find_git_repository_root
+from pyquipu.application.utils import find_git_repository_root
 
 
 class SyncMode(str, Enum):

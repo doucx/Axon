@@ -12,9 +12,22 @@ from pyquipu.runtime.executor import Executor
 from pyquipu.runtime.parser import detect_best_parser, get_parser
 
 from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
-from ..controller import confirmation_handler_for_executor
+from typing import List
+
+from pyquipu.interfaces.exceptions import OperationCancelledError
+
+from ..controller import confirmation_handler_for_cli
 from ..logger_config import setup_logging
-from ..plugin_manager import PluginManager
+from pyquipu.application.plugin_manager import PluginManager
+from ..ui_utils import prompt_for_confirmation
+
+
+def confirmation_handler_for_executor(diff_lines: List[str], prompt: str) -> bool:
+    """Adapter for the Executor's confirmation handler contract, specific to the CLI."""
+    confirmed = prompt_for_confirmation(prompt=prompt, diff_lines=diff_lines, default=True)
+    if not confirmed:
+        raise OperationCancelledError("User cancelled the operation.")
+    return True
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +62,7 @@ def register(app: typer.Typer):
         executor = Executor(
             root_dir=work_dir,
             yolo=yolo,
-            confirmation_handler=confirmation_handler_for_executor,
+            confirmation_handler=confirmation_handler_for_cli,
         )
         register_core_acts(executor)
 

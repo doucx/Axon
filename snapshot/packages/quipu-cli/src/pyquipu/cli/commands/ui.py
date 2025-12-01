@@ -6,7 +6,7 @@ import typer
 from pyquipu.common.messaging import bus
 
 from ..config import DEFAULT_WORK_DIR, LOG_LEVEL
-from ..factory import create_engine
+from pyquipu.application.factory import create_engine
 from ..logger_config import configure_file_logging, setup_logging
 from .helpers import _execute_visit, engine_context
 
