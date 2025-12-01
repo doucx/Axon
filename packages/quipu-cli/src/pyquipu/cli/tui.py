@@ -60,7 +60,7 @@ class QuipuUiApp(App[Optional[UiResult]]):
         # --- State Machine ---
         self.content_view_state = ContentViewSate.HIDDEN
         self.update_timer: Optional[Timer] = None
-        self.debounce_delay_seconds: float = 0.15
+        self.debounce_delay_seconds: float = 0.50
         self.markdown_enabled = not initial_raw_mode
 
     def compose(self) -> ComposeResult:
