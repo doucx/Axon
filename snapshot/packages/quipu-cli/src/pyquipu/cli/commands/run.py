@@ -88,8 +88,7 @@ def register(app: typer.Typer):
         setup_logging()
         if list_acts:
             from pyquipu.acts import register_core_acts
-
-            from ..plugin_manager import PluginManager
+            from pyquipu.application.plugin_manager import PluginManager
 
             executor = Executor(root_dir=work_dir, yolo=True)
             register_core_acts(executor)
