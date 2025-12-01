@@ -11,7 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.coordinate import Coordinate
 from textual.timer import Timer
-from textual.widgets import DataTable, Footer, Header, Markdown, Static
+from textual.widgets import ContentSwitcher, DataTable, Footer, Header, Markdown, Static
 
 from .factory import create_engine
 from .view_model import GraphViewModel
@@ -19,7 +19,6 @@ from .view_model import GraphViewModel
 logger = logging.getLogger(__name__)
 
 # 定义 UI 返回类型: (动作类型, 数据)
-# 动作: "checkout" | "dump"
 UiResult = tuple[str, str]
 
 
@@ -27,7 +26,6 @@ class QuipuUiApp(App[Optional[UiResult]]):
     CSS_PATH = "tui.css"
     TITLE = "Quipu History Explorer"
 
-    # 1. 快捷键定义 (包含空格检出)
     BINDINGS = [
         Binding("q", "quit", "退出"),
         Binding("space", "checkout_node", "检出节点"),
@@ -56,10 +54,11 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self.markdown_enabled = not initial_raw_mode
         self.is_details_visible = False
 
-        # --- Async & Debounce State ---
-        self._debounce_timer: Optional[Timer] = None
+        # --- Async State ---
+        self._render_timer: Optional[Timer] = None
         self._current_request_id: int = 0
-        self._debounce_delay: float = 0.15
+        # 渲染防抖延迟，数据获取(Fetch)不防抖
+        self._render_delay: float = 0.2
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -67,10 +66,13 @@ class QuipuUiApp(App[Optional[UiResult]]):
             yield DataTable(id="history-table", cursor_type="row", zebra_stripes=False)
             with Vertical(id="content-view"):
                 yield Static("Node Content", id="content-header")
-                # content-raw 用于 Raw 模式，content-body 用于 Markdown 模式
-                # 两者在加载期间都不再会被清空
-                yield Static("", id="content-raw", markup=False)
-                yield Markdown("", id="content-body")
+                
+                # 使用 ContentSwitcher 管理多态视图
+                # 默认显示 raw-view (轻量级)
+                with ContentSwitcher(initial="content-raw", id="content-switcher"):
+                    yield Static("", id="content-raw", markup=False)
+                    yield Markdown("", id="content-body")
+                    
         yield Footer()
 
     def on_mount(self) -> None:
@@ -107,23 +109,12 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self.sub_title = f"Page {self.view_model.current_page} / {self.view_model.total_pages} | View: {mode} (m)"
 
     def _update_visibility_classes(self):
-        """根据当前状态控制面板显隐和组件切换"""
+        """根据当前状态控制面板显隐"""
         container = self.query_one("#main-container")
         container.set_class(self.is_details_visible, "split-mode")
 
-        raw_widget = self.query_one("#content-raw", Static)
-        md_widget = self.query_one("#content-body", Markdown)
-
-        if self.is_details_visible:
-            if self.markdown_enabled:
-                md_widget.display = True
-                raw_widget.display = False
-            else:
-                md_widget.display = False
-                raw_widget.display = True
-
     # --- Actions ---
-
+    
     def action_move_up(self) -> None:
         self.query_one(DataTable).action_cursor_up()
 
@@ -137,16 +128,19 @@ class QuipuUiApp(App[Optional[UiResult]]):
     def action_toggle_markdown(self) -> None:
         self.markdown_enabled = not self.markdown_enabled
         self._update_header_title()
-        self._update_visibility_classes()
-        # 切换模式后立即触发重载，无需防抖
+        
+        # 切换模式时，如果已打开详情页，强制触发一次渲染更新
         if self.is_details_visible:
-            self._trigger_content_load(immediate=True)
+            self._try_upgrade_to_markdown()
 
     def action_toggle_view(self) -> None:
         self.is_details_visible = not self.is_details_visible
         self._update_visibility_classes()
+        # 打开视图时，立即触发当前选中节点的内容加载
         if self.is_details_visible:
-            self._trigger_content_load(immediate=True)
+            node = self.view_model.get_selected_node()
+            if node:
+                self._trigger_progressive_load(node)
 
     def action_checkout_node(self) -> None:
         selected_node = self.view_model.get_selected_node()
@@ -154,10 +148,9 @@ class QuipuUiApp(App[Optional[UiResult]]):
             self.exit(result=("checkout", selected_node.output_tree))
 
     def action_dump_content(self) -> None:
-        """改进后的内容提取：仅输出公共内容 (Cherry-pick)"""
+        """仅输出公共内容 (Cherry-pick)"""
         selected_node = self.view_model.get_selected_node()
         if selected_node:
-            # 使用 ViewModel 的新方法 (假设 view_model.py 已更新)
             content = self.view_model.get_public_content(selected_node)
             self.exit(result=("dump", content))
 
@@ -210,7 +203,7 @@ class QuipuUiApp(App[Optional[UiResult]]):
             table.add_row(ts_str, "".join(graph_chars), info_str, key=str(node.filename))
 
     def _get_graph_chars(self, tracks: list, node: QuipuNode, base_color: str, dim_tag: str, end_dim_tag: str) -> list[str]:
-        # 简化的 Graph 渲染逻辑，保持与原版一致
+        # Graph 渲染逻辑
         merging_indices = [i for i, h in enumerate(tracks) if h == node.output_tree]
         try:
             col_idx = tracks.index(None) if not merging_indices else merging_indices[0]
@@ -252,91 +245,115 @@ class QuipuUiApp(App[Optional[UiResult]]):
             row_index = table.get_row_index(row_key)
             table.cursor_coordinate = Coordinate(row=row_index, column=0)
             
-            # 手动触发一次选中逻辑，但不带防抖，直接加载
             self.view_model.select_node_by_key(row_key)
             if self.is_details_visible:
-                self._trigger_content_load(immediate=True)
+                # 初始加载，无需动画
+                self._trigger_progressive_load(target_node)
         except LookupError:
             pass
 
-    # --- Async Loading & Debounce Logic ---
+    # --- Progressive Loading Architecture ---
 
     @on(DataTable.RowHighlighted)
     def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """处理行高亮事件：更新 ViewModel 并触发防抖加载"""
+        """
+        核心交互逻辑：
+        1. 立即更新 ViewModel 选中状态
+        2. 立即更新 Header (Metadata)
+        3. 启动渐进式内容加载 (Fetch -> Render)
+        """
         if event.row_key.value:
             node = self.view_model.select_node_by_key(event.row_key.value)
-            # 立即更新 Header，提供即时视觉反馈
+            
+            # Step 1: Immediate Metadata Feedback
             if node and self.is_details_visible:
                 self._update_header_ui(node)
-        
-        if self.is_details_visible:
-            self._trigger_content_load(immediate=False)
-
-    def _trigger_content_load(self, immediate: bool = False):
-        """
-        触发内容加载流程。
-        immediate=True: 立即启动 Worker (用于切换视图模式等)
-        immediate=False: 启动防抖计时器 (用于快速滚动)
-        """
-        if self._debounce_timer:
-            self._debounce_timer.stop()
-            self._debounce_timer = None
-
-        if immediate:
-            self._launch_worker()
-        else:
-            self._debounce_timer = self.set_timer(self._debounce_delay, self._launch_worker)
-
-    def _launch_worker(self):
-        """计时器结束，启动后台 Worker"""
-        node = self.view_model.get_selected_node()
-        if not node:
-            return
-
-        # 1. 生成新的请求 ID
-        self._current_request_id += 1
-        req_id = self._current_request_id
-
-        # 2. 启动独占 Worker
-        # 使用 partial 封装函数和参数，而不是直接调用
-        worker_func = partial(self._load_content_in_background, node, req_id)
-        
-        self.run_worker(
-            worker_func,
-            thread=True,
-            group="content_loader",
-            exclusive=True
-        )
-
-    def _load_content_in_background(self, node: QuipuNode, req_id: int):
-        """后台线程：执行耗时的 I/O 操作"""
-        # 注意：这里调用 view_model 的方法，它会去读 DB/Git
-        try:
-            content_bundle = self.view_model.get_content_bundle(node)
-            # 调度回主 UI 线程进行更新
-            self.call_from_thread(self._update_content_ui, content_bundle, node, req_id)
-        except Exception as e:
-            logger.error(f"Error loading content for node {node.short_hash}: {e}")
+                # Step 2: Trigger Progressive Load
+                self._trigger_progressive_load(node)
 
     def _update_header_ui(self, node: QuipuNode):
-        """立即更新 Header 内容"""
+        """同步更新 Header，保证跟手性"""
         header = self.query_one("#content-header", Static)
         header.update(f"[{node.node_type.upper()}] {node.short_hash} - {node.timestamp.strftime('%Y-%m-%d %H:%M')}")
 
-    def _update_content_ui(self, content: str, node: QuipuNode, req_id: int):
-        """主 UI 线程：原子化更新界面"""
-        # 协调机制：如果 ID 不匹配，说明结果已过时，直接丢弃
+    def _trigger_progressive_load(self, node: QuipuNode):
+        """
+        启动渐进式加载流程：
+        1. 立即切换到 Raw View (避免显示陈旧的 Markdown)
+        2. 启动独占 Worker 获取内容 (无防抖，低延迟)
+        3. 重置 Markdown 渲染计时器
+        """
+        # 1. 立即降级到 Raw View
+        # 这消除了“陈旧内容”问题：用户看到的是正在加载或刚加载好的 Raw Text
+        self.query_one("#content-switcher", ContentSwitcher).current = "content-raw"
+        
+        # 2. 停止之前的渲染计时器 (如果存在)
+        if self._render_timer:
+            self._render_timer.stop()
+            self._render_timer = None
+
+        # 3. 启动数据获取 Worker (Textual 会自动取消同组旧 Worker)
+        self._current_request_id += 1
+        req_id = self._current_request_id
+        
+        worker_func = partial(self._fetch_content_bg, node, req_id)
+        self.run_worker(
+            worker_func, 
+            thread=True, 
+            group="content_fetcher", 
+            exclusive=True
+        )
+
+    def _fetch_content_bg(self, node: QuipuNode, req_id: int):
+        """后台线程：快速读取文本内容"""
+        try:
+            # 耗时 I/O 操作
+            content = self.view_model.get_content_bundle(node)
+            # 调度回主线程
+            self.call_from_thread(self._on_content_fetched, content, req_id)
+        except Exception as e:
+            logger.error(f"Fetch failed: {e}")
+
+    def _on_content_fetched(self, content: str, req_id: int):
+        """
+        主线程：内容获取完成 (Stage 1 Complete)
+        此时我们有了最新的纯文本，立即显示它，并安排 Markdown 渲染。
+        """
         if req_id != self._current_request_id:
-            logger.debug(f"Ignored stale result for req_id {req_id} (current: {self._current_request_id})")
+            return # 结果已过时
+
+        # 1. 更新 Raw View (这是用户滚动时看到的内容)
+        self.query_one("#content-raw", Static).update(content)
+        
+        # 2. 安排升级到 Markdown (Stage 2)
+        if self.markdown_enabled:
+            # 启动防抖计时器
+            self._render_timer = self.set_timer(
+                self._render_delay, 
+                partial(self._upgrade_to_markdown, content, req_id)
+            )
+
+    def _upgrade_to_markdown(self, content: str, req_id: int):
+        """
+        主线程：执行昂贵的 Markdown 渲染 (Stage 2 Complete)
+        """
+        if req_id != self._current_request_id:
             return
 
-        # Header 已经在 on_row_highlighted 中更新过了，但在 Worker 完成时
-        # 再次更新也是安全的，且能确保最终一致性（防止极端的时序问题）
-        self._update_header_ui(node)
+        # 1. 更新 Markdown 组件 (Textual 会在此时解析 Markdown)
+        self.query_one("#content-body", Markdown).update(content)
+        
+        # 2. 切换视图
+        self.query_one("#content-switcher", ContentSwitcher).current = "content-body"
 
-        # 原子化更新内容组件，无中间空白状态
-        if self.markdown_enabled:
-            self.query_one("#content-body", Markdown).update(content)
-        else:
-            self.query_one("#content-raw", Static).update(content)
+    def _try_upgrade_to_markdown(self):
+        """辅助方法：在切换开关时手动触发升级"""
+        if not self.markdown_enabled:
+            self.query_one("#content-switcher", ContentSwitcher).current = "content-raw"
+            return
+            
+        # 如果当前 Raw View 有内容，尝试渲染它
+        raw_content = str(self.query_one("#content-raw", Static).renderable)
+        if raw_content:
+            self.query_one("#content-body", Markdown).update(raw_content)
+            self.query_one("#content-switcher", ContentSwitcher).current = "content-body"
