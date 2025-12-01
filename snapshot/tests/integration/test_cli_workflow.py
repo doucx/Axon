@@ -201,7 +201,7 @@ class TestCheckoutCLI:
         State B contains only b.txt.
         This fixture is backend-agnostic.
         """
-        from pyquipu.cli.factory import create_engine
+        from pyquipu.application.factory import create_engine
 
         # State A: Create a.txt
         plan_a = "```act\nwrite_file a.txt\n```\n```content\nState A\n```"
