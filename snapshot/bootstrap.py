@@ -124,7 +124,7 @@ def update_dev_env():
     """仅更新开发环境"""
     print("🔄 正在更新 Dev 环境...")
     if not DEV_DIR.exists():
-        print(f"   -> Dev 环境不存在，将创建一个新环境。")
+        print("   -> Dev 环境不存在，将创建一个新环境。")
         create_venv(DEV_DIR)
     install_packages(DEV_DIR, editable=True)
     print("\n✅ Dev 环境更新完成。")
