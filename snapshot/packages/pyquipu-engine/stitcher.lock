@@ -533,6 +533,10 @@
       "baseline_code_signature_text": "def test_get_ancestors_with_cte(self, populated_db):",
       "baseline_code_structure_hash": "2d527b6bbd8c8522c14e44816f0bfac6cc7f0cb04d0203f2e2ca223f5278f34c"
     },
+    "py://packages/pyquipu-engine/tests/integration/sqlite/test_reader.py#TestSQLiteReaderPaginated.test_get_ancestors_with_duplicate_hashes": {
+      "baseline_code_signature_text": "def test_get_ancestors_with_duplicate_hashes(self, sqlite_reader_setup):",
+      "baseline_code_structure_hash": "ee5b175761b6117081e554369ece9980d7de9e5a196c077e1c638dfb9980fd3e"
+    },
     "py://packages/pyquipu-engine/tests/integration/sqlite/test_reader.py#TestSQLiteReaderPaginated.test_get_node_count": {
       "baseline_code_signature_text": "def test_get_node_count(self, populated_db):",
       "baseline_code_structure_hash": "9254f7bc13ec9a1049ca38b97fa7489a406477bea5294581ec27bed03ff3cee2"
@@ -676,6 +680,10 @@
       "baseline_code_signature_text": "def test_align_orphan_state(engine_instance: Engine):",
       "baseline_code_structure_hash": "43f8a3ef39ab9685ad8337f7bf67b29793caf5a9f4b07df5b6eb649197317cde",
       "baseline_yaml_content_hash": "259ac340352bf2a8078c22b704151502f815d912f411b143662741c600dafd03"
+    },
+    "py://packages/pyquipu-engine/tests/integration/test_engine.py#test_align_prefers_connected_node": {
+      "baseline_code_signature_text": "def test_align_prefers_connected_node(engine_instance: Engine):",
+      "baseline_code_structure_hash": "c8506691800e2258628adddea87b4807072377a1be0895633156fe90ce863048"
     },
     "py://packages/pyquipu-engine/tests/integration/test_engine.py#test_capture_drift_git_object": {
       "baseline_code_signature_text": "def test_capture_drift_git_object(engine_instance: Engine):",

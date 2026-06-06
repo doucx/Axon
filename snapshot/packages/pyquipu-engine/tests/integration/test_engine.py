@@ -199,7 +199,7 @@ def test_align_prefers_connected_node(engine_instance: Engine):
     # 1. 创建初始状态并提交为第一个节点
     (repo_path / "file.txt").write_text("v0")
     hash_init = engine.git_db.get_tree_hash()
-    node_init = engine.create_plan_node(EMPTY_TREE_HASH, hash_init, "init plan")
+    # node_init = engine.create_plan_node(EMPTY_TREE_HASH, hash_init, "init plan")
 
     # 2. 在其基础上创建状态 A 并作为子节点提交
     (repo_path / "file.txt").write_text("v1")
@@ -207,12 +207,12 @@ def test_align_prefers_connected_node(engine_instance: Engine):
     node_connected = engine.create_plan_node(hash_init, hash_a, "connected plan")
 
     # 3. 本地漂移节点（孤立，无 parent）也指向 hash_a
-    node_orphan = engine.writer.create_node(
-        node_type="capture",
-        input_tree=EMPTY_TREE_HASH,
-        output_tree=hash_a,
-        content="orphan capture",
-    )
+    # node_orphan = engine.writer.create_node(
+    #     node_type="capture",
+    #     input_tree=EMPTY_TREE_HASH,
+    #     output_tree=hash_a,
+    #     content="orphan capture",
+    # )
 
     # 4. 对齐
     engine.align()

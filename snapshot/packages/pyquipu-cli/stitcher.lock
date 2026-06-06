@@ -169,8 +169,8 @@
       "baseline_code_structure_hash": "74013f04bbff01b4572176f4cdac1721665fcad57786891db1ea372e5ce7de3b"
     },
     "py://packages/pyquipu-cli/src/quipu/cli/rendering.py#TyperRenderer.render": {
-      "baseline_code_signature_text": "def render(self, message: str, level: str = 'info', **kwargs: Any = {}) -> None:",
-      "baseline_code_structure_hash": "57bc7dbe344574c09b6a51360029a7c9507a664bc79fc7f97bd18d5e14875205",
+      "baseline_code_signature_text": "def render(self, message_text: str, level: str = 'info', **kwargs: Any = {}) -> None:",
+      "baseline_code_structure_hash": "c897d124c7f19819c8e20117846fe3d9be9073386194b4ba26c498e8445daec0",
       "baseline_yaml_content_hash": "3d091d6f09b4504c32d5f4ccda9ff0968af5d54f778c659d651cdf76b2b75b3d"
     },
     "py://packages/pyquipu-cli/src/quipu/cli/rendering.py#TyperRenderer.success": {
@@ -458,6 +458,10 @@
     "py://packages/pyquipu-cli/tests/integration/test_navigation_commands.py#populated_workspace": {
       "baseline_code_signature_text": "def populated_workspace(quipu_workspace):",
       "baseline_code_structure_hash": "c59fd4dc20ce857fa9138cf6a141777d82bf81b65fa1291a92ecce757b547f80"
+    },
+    "py://packages/pyquipu-cli/tests/integration/test_navigation_commands.py#test_checkout_duplicate_tree_hashes": {
+      "baseline_code_signature_text": "def test_checkout_duplicate_tree_hashes(runner, quipu_workspace, monkeypatch):",
+      "baseline_code_structure_hash": "90d43a2c8e72ef4330803f5cdc67d9ca6580c5bbe335fd11f428ccae502be4e5"
     },
     "py://packages/pyquipu-cli/tests/integration/test_navigation_commands.py#test_checkout_not_found": {
       "baseline_code_signature_text": "def test_checkout_not_found(runner, populated_workspace, monkeypatch):",

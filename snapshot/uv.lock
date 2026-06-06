@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [manifest]
@@ -403,6 +403,7 @@ name = "pyquipu-cli"
 version = "0.3.0"
 source = { editable = "packages/pyquipu-cli" }
 dependencies = [
+    { name = "click" },
     { name = "pyquipu-application" },
     { name = "pyquipu-common" },
     { name = "pyquipu-engine" },
@@ -414,6 +415,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.0" },
     { name = "pyquipu-application", editable = "packages/pyquipu-application" },
     { name = "pyquipu-common", editable = "packages/pyquipu-common" },
     { name = "pyquipu-engine", editable = "packages/pyquipu-engine" },

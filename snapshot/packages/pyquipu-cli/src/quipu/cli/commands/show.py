@@ -24,7 +24,7 @@ def _find_target_node(graph: Dict, hash_prefix: str):
     if not matches:
         bus.error(L.show.error.notFound, hash_prefix=hash_prefix)
         raise typer.Exit(1)
-    
+
     unique_commits = {node.commit_hash for node in matches}
     if len(unique_commits) > 1:
         unique_output_trees = {node.output_tree for node in matches}
