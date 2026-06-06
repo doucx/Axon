@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "ruff Capture: M show.py, M stitcher.lock, M stitcher.lock ... and 3 more files", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780752998.5510697, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "Capture: M test_reader.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780789685.5099435, "duration_ms": 0}}
