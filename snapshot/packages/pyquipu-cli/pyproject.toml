@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyquipu-cli"
-version = "0.3.0"
+version = "0.3.1"
 authors = [{ name="doucx", email="doucxldh@gmail.com" }]
 description = "The command-line interface for Quipu."
 requires-python = ">=3.10"
