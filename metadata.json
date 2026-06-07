@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(tests): 完成集成测试向 Key 标识符断言的全面迁移", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791176.5060275, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[COMMIT] fix(tests): 统一 CI 与本地测试环境，全面转向 Key 标识符断言", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791224.9650688, "duration_ms": 0}}
