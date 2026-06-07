@@ -1,73 +1,198 @@
-这是一个**非常好的信号**！
+我们已经成功在本地激活了 `raw` 语言模式，目前本地与远端 CI 的环境已经达成高度统一：它们都通过总线输出原始的消息 Key 标识符。
 
-这 9 个新失败的用例证明：我们的 **`raw` 语言模式已经在你的本地测试环境中完美生效了**。之前因为本地输出了中文（例如“快照已保存”）而侥幸通过的断言，现在全部统一输出成了稳定的 Key 标识符（例如 `workspace.save.success`），从而在本地暴露了出来。
+剩下的 8 个失败用例是因为测试代码仍在断言旧的中文翻译。我将把这些硬编码的文本全部替换为对应的 Key 标识符。
 
-这正是我们追求的**高一致性状态**：本地和远端 CI 现在都在完全相同的 `raw` 模式下运行。我们现在只需要将这最后 9 个硬编码的中文断言替换为它们对应的 Key 标识符即可。
-
-我将生成一个计划来执行此操作：
-1.  **直接修改 `test_cli_workflow.py`**（内容已在上下文中）。
-2.  **读取并分析 `test_storage_selection.py` 和 `test_sync_modes.py`** 的内容，以便在下一轮中精确替换它们。
-
-## [WIP] fix(tests): 统一剩余集成测试的 I18N 断言为 Key 标识符
+## [WIP] fix(tests): 完成集成测试向 Key 标识符断言的全面迁移
 
 ### 用户需求
+将 `test_storage_selection.py` 和 `test_sync_modes.py` 中遗留的硬编码中文断言替换为 Key 标识符，使测试在 `raw` 语言模式下全绿。
 
-将剩余测试用例中硬编码的中文翻译文本替换为对应的原始 Key，以适配全局 `raw` 测试语言模式。
+### 评论
+这次迁移彻底解决了测试套件对翻译文件的脆弱依赖。由于本地和 CI 均强制开启 `raw` 模式，我们的断言现在是绝对稳定的。
 
 ### 目标
-
-1.  修改 `test_cli_workflow.py` 中的 `test_cli_list_acts` 断言。
-2.  读取 `test_storage_selection.py` 和 `test_sync_modes.py` 的内容，定位并替换硬编码的中文。
+1.  修正 `test_storage_selection.py` 中的快照保存、日志头、查找头和无结果提示断言。
+2.  修正 `test_sync_modes.py` 中的推送、拉取、强制推送和修剪提示断言。
 
 ### 标签
-#intent/refine #flow/ready #priority/critical #comp/tests #scope/dx #ai/instruct #task/domain/testing #task/object/i18n-raw-mode #task/action/refactor #task/state/continue
+#intent/refine #flow/ready #priority/critical #comp/tests #scope/dx #ai/instruct #task/domain/testing #task/object/i18n-raw-mode #task/action/refactor #task/state/end
 
 ---
 
 ### Script
 
-#### Acts 1: 修正 `test_cli_workflow.py` 中的 `list-acts` 断言
+#### Acts 1: 修正 `tests/integration/test_storage_selection.py`
 
-在 `raw` 模式下，由于不加载翻译模板，`name` 参数（即 `"write_file"`）不会被格式化进最终的字符串中，而是直接输出未填充的 Key 标识符 `run.listActs.ui.actItem`。我们将断言修改为匹配该 Key。
+我们将替换所有 UI 相关的字符串匹配。
 
 ~~~~~act
 patch_file
-tests/integration/test_cli_workflow.py
-~~~~~
-~~~~~python.old
-    def test_cli_list_acts(self):
-        """测试 --list-acts"""
-        # --list-acts 是 'run' 命令的一个选项
-        result = runner.invoke(app, ["run", "--list-acts"])
-        assert result.exit_code == 0
-        assert "run.listActs.ui.header" in result.stderr
-        assert "write_file" in result.stdout
-~~~~~
-~~~~~python.new
-    def test_cli_list_acts(self):
-        """测试 --list-acts"""
-        # --list-acts 是 'run' 命令的一个选项
-        result = runner.invoke(app, ["run", "--list-acts"])
-        assert result.exit_code == 0
-        assert "run.listActs.ui.header" in result.stderr
-        # 在 raw 模式下，输出将是原始的 Key 标识符
-        assert "run.listActs.ui.actItem" in result.stdout
-~~~~~
-
-#### Acts 2: 读取剩余失败测试文件进行分析
-
-我们需要读取这两个文件的内容，以便下一轮进行精确的代码替换。
-
-~~~~~act
-read_file
 tests/integration/test_storage_selection.py
 ~~~~~
+~~~~~python.old
+        # 2. Manually add a file and use `save` to create state B
+        (git_workspace / "b.txt").write_text("manual change")
+        res_save = runner.invoke(app, ["save", "add b.txt", "-w", str(git_workspace)])
+        assert res_save.exit_code == 0
+        assert "快照已保存" in res_save.stderr
+
+        # 3. Use `log` to check history
+        res_log = runner.invoke(app, ["log", "-w", str(git_workspace)])
+        assert res_log.exit_code == 0
+        assert "--- Quipu History Log ---" in res_log.stderr
+        assert "add b.txt" in res_log.stdout  # Check data in stdout
+        assert "Write: a.txt" in res_log.stdout  # Check data in stdout
+
+        # 4. Use `find` and `checkout` to go back to state A
+        res_find = runner.invoke(app, ["find", "--summary", "Write: a.txt", "-w", str(git_workspace)])
+        assert res_find.exit_code == 0
+        assert "--- 查找结果 ---" in res_find.stderr
+~~~~~
+~~~~~python.new
+        # 2. Manually add a file and use `save` to create state B
+        (git_workspace / "b.txt").write_text("manual change")
+        res_save = runner.invoke(app, ["save", "add b.txt", "-w", str(git_workspace)])
+        assert res_save.exit_code == 0
+        assert "workspace.save.success" in res_save.stderr
+
+        # 3. Use `log` to check history
+        res_log = runner.invoke(app, ["log", "-w", str(git_workspace)])
+        assert res_log.exit_code == 0
+        assert "query.log.ui.header" in res_log.stderr
+        assert "add b.txt" in res_log.stdout  # Check data in stdout
+        assert "Write: a.txt" in res_log.stdout  # Check data in stdout
+
+        # 4. Use `find` and `checkout` to go back to state A
+        res_find = runner.invoke(app, ["find", "--summary", "Write: a.txt", "-w", str(git_workspace)])
+        assert res_find.exit_code == 0
+        assert "query.find.ui.header" in res_find.stderr
+~~~~~
 
 ~~~~~act
-read_file
+patch_file
+tests/integration/test_storage_selection.py
+~~~~~
+~~~~~python.old
+    def test_find_cli_by_type(self, runner, populated_workspace):
+        result = runner.invoke(app, ["find", "--type", "plan", "-w", str(populated_workspace)])
+        assert result.exit_code == 0
+        assert "--- 查找结果 ---" in result.stderr
+        assert "[PLAN]" in result.stdout
+        assert "[CAPTURE]" not in result.stdout
+        assert "Write: a.txt" in result.stdout
+
+    def test_find_cli_by_summary(self, runner, populated_workspace):
+        result = runner.invoke(app, ["find", "-s", "snapshot", "-w", str(populated_workspace)])
+        assert result.exit_code == 0
+        assert "--- 查找结果 ---" in result.stderr
+        assert "[CAPTURE]" in result.stdout
+        assert "Snapshot 1" in result.stdout
+        assert "[PLAN]" not in result.stdout
+
+    def test_find_cli_no_results(self, runner, populated_workspace):
+        result = runner.invoke(app, ["find", "-s", "non-existent", "-w", str(populated_workspace)])
+        assert result.exit_code == 0
+        assert "未找到符合条件" in result.stderr
+~~~~~
+~~~~~python.new
+    def test_find_cli_by_type(self, runner, populated_workspace):
+        result = runner.invoke(app, ["find", "--type", "plan", "-w", str(populated_workspace)])
+        assert result.exit_code == 0
+        assert "query.find.ui.header" in result.stderr
+        assert "[PLAN]" in result.stdout
+        assert "[CAPTURE]" not in result.stdout
+        assert "Write: a.txt" in result.stdout
+
+    def test_find_cli_by_summary(self, runner, populated_workspace):
+        result = runner.invoke(app, ["find", "-s", "snapshot", "-w", str(populated_workspace)])
+        assert result.exit_code == 0
+        assert "query.find.ui.header" in result.stderr
+        assert "[CAPTURE]" in result.stdout
+        assert "Snapshot 1" in result.stdout
+        assert "[PLAN]" not in result.stdout
+
+    def test_find_cli_no_results(self, runner, populated_workspace):
+        result = runner.invoke(app, ["find", "-s", "non-existent", "-w", str(populated_workspace)])
+        assert result.exit_code == 0
+        assert "query.info.noResults" in result.stderr
+~~~~~
+
+#### Acts 2: 修正 `tests/integration/test_sync_modes.py`
+
+我们将同步模式下的各种进度描述词替换为 Key。
+
+~~~~~act
+patch_file
 tests/integration/test_sync_modes.py
+~~~~~
+~~~~~python.old
+        # User A syncs with push-only
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--mode", "push-only"])
+        assert sync_result.exit_code == 0
+        assert "⬆️  正在推送..." in sync_result.stderr
+        assert "⬇️" not in sync_result.stderr  # Should not fetch
+~~~~~
+~~~~~python.new
+        # User A syncs with push-only
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--mode", "push-only"])
+        assert sync_result.exit_code == 0
+        assert "sync.run.info.pushing" in sync_result.stderr
+        assert "sync.run.info.pulling" not in sync_result.stderr  # Should not fetch
+~~~~~
+
+~~~~~act
+patch_file
+tests/integration/test_sync_modes.py
+~~~~~
+~~~~~python.old
+        # User B syncs with pull-only
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--mode", "pull-only"])
+        assert sync_result.exit_code == 0
+        assert "⬇️  正在拉取..." in sync_result.stderr
+        assert "⬆️" not in sync_result.stderr  # Should not push
+~~~~~
+~~~~~python.new
+        # User B syncs with pull-only
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--mode", "pull-only"])
+        assert sync_result.exit_code == 0
+        assert "sync.run.info.pulling" in sync_result.stderr
+        assert "sync.run.info.pushing" not in sync_result.stderr  # Should not push
+~~~~~
+
+~~~~~act
+patch_file
+tests/integration/test_sync_modes.py
+~~~~~
+~~~~~python.old
+        # User A syncs with push-force
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--mode", "push-force"])
+        assert sync_result.exit_code == 0
+        assert "⬆️  正在强制推送..." in sync_result.stderr
+~~~~~
+~~~~~python.new
+        # User A syncs with push-force
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--mode", "push-force"])
+        assert sync_result.exit_code == 0
+        assert "sync.run.info.pushingForce" in sync_result.stderr
+~~~~~
+
+~~~~~act
+patch_file
+tests/integration/test_sync_modes.py
+~~~~~
+~~~~~python.old
+        # User B syncs with pull-prune
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--mode", "pull-prune"])
+        assert sync_result.exit_code == 0
+        assert "🗑️  正在修剪本地..." in sync_result.stderr
+~~~~~
+~~~~~python.new
+        # User B syncs with pull-prune
+        sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--mode", "pull-prune"])
+        assert sync_result.exit_code == 0
+        assert "sync.run.info.pruning" in sync_result.stderr
 ~~~~~
 
 ### 下一步建议
-
-收到你确认这两个文件的内容后，我将立刻生成精确的 `patch_file` 指令，彻底消灭这最后的 8 个失败断言，让本地与远端 CI 的测试状态全部回归全绿（100% Pass）。
+1.  **运行全量测试**：执行 `pytest`。预期结果应为 100% 通过。
+2.  **验证 Git Commit**：如果测试通过，你可以使用 `git_commit` 将这些变更固化。任务已完成。

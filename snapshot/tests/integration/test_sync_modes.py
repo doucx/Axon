@@ -23,8 +23,8 @@ class TestSyncModes:
         # User A syncs with push-only
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--mode", "push-only"])
         assert sync_result.exit_code == 0
-        assert "⬆️  正在推送..." in sync_result.stderr
-        assert "⬇️" not in sync_result.stderr  # Should not fetch
+        assert "sync.run.info.pushing" in sync_result.stderr
+        assert "sync.run.info.pulling" not in sync_result.stderr  # Should not fetch
 
         # Verify remote has User A's node
         remote_refs = run_git_command(remote_path, ["for-each-ref"])
@@ -61,8 +61,8 @@ class TestSyncModes:
         # User B syncs with pull-only
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--mode", "pull-only"])
         assert sync_result.exit_code == 0
-        assert "⬇️  正在拉取..." in sync_result.stderr
-        assert "⬆️" not in sync_result.stderr  # Should not push
+        assert "sync.run.info.pulling" in sync_result.stderr
+        assert "sync.run.info.pushing" not in sync_result.stderr  # Should not push
 
         # Verify User B's local repo HAS User A's node (in remotes ONLY)
         local_refs_b = run_git_command(user_b_path, ["for-each-ref"])
@@ -94,7 +94,7 @@ class TestSyncModes:
         # User A syncs with push-force
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--mode", "push-force"])
         assert sync_result.exit_code == 0
-        assert "⬆️  正在强制推送..." in sync_result.stderr
+        assert "sync.run.info.pushingForce" in sync_result.stderr
 
         # Verify stale node is GONE from remote, but keep node is still there
         remote_refs_after = run_git_command(remote_path, ["for-each-ref"])
@@ -117,7 +117,7 @@ class TestSyncModes:
         # User B syncs with pull-prune
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--mode", "pull-prune"])
         assert sync_result.exit_code == 0
-        assert "🗑️  正在修剪本地..." in sync_result.stderr
+        assert "sync.run.info.pruning" in sync_result.stderr
 
         # Verify stale node is GONE from User B's local heads, but keep node is still there
         local_refs_b = run_git_command(user_b_path, ["for-each-ref", "refs/quipu/local/heads"])

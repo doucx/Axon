@@ -128,19 +128,19 @@ class TestGitObjectWorkflow:
         (git_workspace / "b.txt").write_text("manual change")
         res_save = runner.invoke(app, ["save", "add b.txt", "-w", str(git_workspace)])
         assert res_save.exit_code == 0
-        assert "快照已保存" in res_save.stderr
+        assert "workspace.save.success" in res_save.stderr
 
         # 3. Use `log` to check history
         res_log = runner.invoke(app, ["log", "-w", str(git_workspace)])
         assert res_log.exit_code == 0
-        assert "--- Quipu History Log ---" in res_log.stderr
+        assert "query.log.ui.header" in res_log.stderr
         assert "add b.txt" in res_log.stdout  # Check data in stdout
         assert "Write: a.txt" in res_log.stdout  # Check data in stdout
 
         # 4. Use `find` and `checkout` to go back to state A
         res_find = runner.invoke(app, ["find", "--summary", "Write: a.txt", "-w", str(git_workspace)])
         assert res_find.exit_code == 0
-        assert "--- 查找结果 ---" in res_find.stderr
+        assert "query.find.ui.header" in res_find.stderr
 
         # Parse the output to get the full hash
         found_line = res_find.stdout.strip().splitlines()[-1]  # Get data from stdout
@@ -170,7 +170,7 @@ class TestFindCliCommand:
     def test_find_cli_by_type(self, runner, populated_workspace):
         result = runner.invoke(app, ["find", "--type", "plan", "-w", str(populated_workspace)])
         assert result.exit_code == 0
-        assert "--- 查找结果 ---" in result.stderr
+        assert "query.find.ui.header" in result.stderr
         assert "[PLAN]" in result.stdout
         assert "[CAPTURE]" not in result.stdout
         assert "Write: a.txt" in result.stdout
@@ -178,7 +178,7 @@ class TestFindCliCommand:
     def test_find_cli_by_summary(self, runner, populated_workspace):
         result = runner.invoke(app, ["find", "-s", "snapshot", "-w", str(populated_workspace)])
         assert result.exit_code == 0
-        assert "--- 查找结果 ---" in result.stderr
+        assert "query.find.ui.header" in result.stderr
         assert "[CAPTURE]" in result.stdout
         assert "Snapshot 1" in result.stdout
         assert "[PLAN]" not in result.stdout
@@ -186,4 +186,4 @@ class TestFindCliCommand:
     def test_find_cli_no_results(self, runner, populated_workspace):
         result = runner.invoke(app, ["find", "-s", "non-existent", "-w", str(populated_workspace)])
         assert result.exit_code == 0
-        assert "未找到符合条件" in result.stderr
+        assert "query.info.noResults" in result.stderr
