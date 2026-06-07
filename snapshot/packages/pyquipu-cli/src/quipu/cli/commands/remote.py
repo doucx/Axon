@@ -13,6 +13,7 @@ from quipu.engine.git_db import GitDB
 
 from ..config import DEFAULT_WORK_DIR
 from ..logger_config import setup_logging
+from .helpers import engine_context
 
 
 class SyncMode(str, Enum):
@@ -120,7 +121,15 @@ def register(app: typer.Typer):
                     git_db.push_quipu_refs(remote, final_user_id, force=True)
                     bus.success(L.sync.run.success.pushForce)
 
-            bus.info(L.sync.run.info.cacheHint)
+            # --- 自动数据补水 ---
+            # 确保远程拉取的引用立即被 SQLite 索引
+            bus.info(L.cache.sync.info.hydrating)
+            try:
+                with engine_context(work_dir):
+                    pass
+                bus.success(L.cache.sync.success)
+            except Exception as e:
+                logger.warning(f"自动数据补水失败: {e}")
 
         except RuntimeError as e:
             bus.error(L.sync.run.error.generic, error=str(e))
