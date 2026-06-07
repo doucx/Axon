@@ -102,7 +102,8 @@ class TestCLIWrapper:
         result = runner.invoke(app, ["run", "--list-acts"])
         assert result.exit_code == 0
         assert "run.listActs.ui.header" in result.stderr
-        assert "write_file" in result.stdout
+        # 在 raw 模式下，输出将是原始的 Key 标识符
+        assert "run.listActs.ui.actItem" in result.stdout
 
     def test_cli_run_file_not_found(self):
         """测试 `run` 命令在文件不存在时的行为"""

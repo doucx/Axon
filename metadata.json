@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(i18n): 引入 raw 语言模式以统一本地与 CI 的测试断言", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791052.0083852, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(tests): 统一剩余集成测试的 I18N 断言为 Key 标识符", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791126.1173935, "duration_ms": 0}}
