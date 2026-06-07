@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "ruff Capture: M conftest.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791251.4953408, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] feat(cli): 添加 --version 选项以显示子包版本信息", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791734.1479828, "duration_ms": 0}}
