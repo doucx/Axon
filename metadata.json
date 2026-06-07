@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[COMMIT] feat(cli): 添加 --version 选项以显示套件版本", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791842.5233877, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[COMMIT] feat(cli): 添加 --version 选项以显示套件版本", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780792146.0367045, "duration_ms": 0}}
