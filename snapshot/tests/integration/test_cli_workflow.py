@@ -93,21 +93,22 @@ class TestCLIWrapper:
         result = runner.invoke(app, ["run"])  # 无参数，无管道
 
         assert result.exit_code == 0
-        assert "用法示例" in result.stderr
+        # 在测试环境下，Bus 会返回 Key 而非翻译后的文本
+        assert "run.info.usageHint" in result.stderr
 
     def test_cli_list_acts(self):
         """测试 --list-acts"""
         # --list-acts 是 'run' 命令的一个选项
         result = runner.invoke(app, ["run", "--list-acts"])
         assert result.exit_code == 0
-        assert "可用的 Quipu 指令列表" in result.stderr
+        assert "run.listActs.ui.header" in result.stderr
         assert "write_file" in result.stdout
 
     def test_cli_run_file_not_found(self):
         """测试 `run` 命令在文件不存在时的行为"""
         result = runner.invoke(app, ["run", "non_existent_plan.md"])
         assert result.exit_code == 1
-        assert "错误: 找不到指令文件" in result.stderr
+        assert "common.error.fileNotFound" in result.stderr
 
     def test_cli_save_on_clean_workspace(self, workspace):
         """测试 `save` 命令在工作区干净时的行为"""

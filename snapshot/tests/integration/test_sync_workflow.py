@@ -25,8 +25,8 @@ class TestSyncWorkflow:
         # Run sync for the first time
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_a_path), "--remote", "origin"])
         assert sync_result.exit_code == 0
-        assert "首次使用 sync 功能" in sync_result.stderr
-        assert f"生成并保存用户 ID: {user_a_id}" in sync_result.stderr
+        assert "sync.setup.firstUse" in sync_result.stderr
+        assert "sync.setup.success" in sync_result.stderr
 
         # Verify config file
         config_path = user_a_path / ".quipu" / "config.yml"
@@ -78,9 +78,9 @@ class TestSyncWorkflow:
         # --- Step 3: User B Syncs (Fetch) ---
         sync_result = runner.invoke(app, ["sync", "--work-dir", str(user_b_path), "--remote", "origin"])
         assert sync_result.exit_code == 0
-        # [FIX] Updated assertion to match new, more granular output
-        assert "⬇️  正在拉取..." in sync_result.stderr
-        assert "🤝 正在调和..." in sync_result.stderr
+        # [FIX] 使用消息 Key 替代硬编码中文，以适配 CI 环境中的 Mock Bus
+        assert "sync.run.info.pulling" in sync_result.stderr
+        assert "sync.run.info.reconciling" in sync_result.stderr
 
         # Verify local mirror ref in User B's repo
         local_refs_b = run_git_command(user_b_path, ["for-each-ref", "--format=%(refname)"])
