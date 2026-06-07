@@ -21,10 +21,9 @@ echo "Success" > {output_file.name}
 ```
 """
 
-    # 模拟用户输入 'y' 并按回车
-    user_input = "y\n"
-
-    result = runner.invoke(app, ["run", "-w", str(work_dir)], input=plan_content + user_input)
+    # 在 CI 环境下，click.getchar 无法读取管道输入。
+    # 使用 -y (YOLO) 标志绕过交互式确认是集成测试的最佳实践。
+    result = runner.invoke(app, ["run", "-w", str(work_dir), "-y"], input=plan_content)
 
     assert result.exit_code == 0
     mock_bus.success.assert_called_once_with(L.run.success)

@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "Capture: M test_reader.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780789685.5099435, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(tests): 解决 CI 环境下的交互与断言冲突", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780790452.896047, "duration_ms": 0}}
