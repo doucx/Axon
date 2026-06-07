@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] feat(cli): 自动在 sync 操作后执行数据补水", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780793130.2182877, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "Capture: M pyproject.toml", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780793293.2290363, "duration_ms": 0}}
