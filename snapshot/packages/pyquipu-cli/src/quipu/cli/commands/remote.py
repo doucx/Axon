@@ -129,7 +129,8 @@ def register(app: typer.Typer):
                     pass
                 bus.success(L.cache.sync.success)
             except Exception as e:
-                logger.warning(f"自动数据补水失败: {e}")
+                # 使用 bus 进行本地化告警反馈
+                bus.warning(L.cache.sync.error, error=str(e))
 
         except RuntimeError as e:
             bus.error(L.sync.run.error.generic, error=str(e))
