@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(tests): 标准化 CI 测试断言与交互模式", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780790538.6764596, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix(i18n): 引入 raw 语言模式以统一本地与 CI 的测试断言", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780791052.0083852, "duration_ms": 0}}

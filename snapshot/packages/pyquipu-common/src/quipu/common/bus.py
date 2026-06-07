@@ -41,10 +41,14 @@ def _detect_lang() -> str:
 _assets_root = Path(__file__).parent / "assets"
 _lang = _detect_lang()
 
-_factory = I18NFactoryOperator(_assets_root)
-_quipu_i18n = _factory(_lang)
-
-_nexus = OverlayOperator([_quipu_i18n, global_nexus])
+if _lang in ("raw", "keys"):
+    # "raw" 或 "keys" 模式下，不加载任何本地化翻译，让总线直接输出原始 Key。
+    # 这对于在本地和 CI 等不同环境下保持测试断言的一致性至关重要。
+    _nexus = global_nexus
+else:
+    _factory = I18NFactoryOperator(_assets_root)
+    _quipu_i18n = _factory(_lang)
+    _nexus = OverlayOperator([_quipu_i18n, global_nexus])
 
 # --- 4. 实例化自定义 Bus ---
 bus = QuipuBus()
