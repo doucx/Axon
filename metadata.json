@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "Capture: M axon.py, M helpers.py, M query.py ... and 3 more files", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786459240.0292056, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] bump: 为所有变更影响的包更新版本号", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786459342.394527, "duration_ms": 0}}
