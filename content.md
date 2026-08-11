@@ -1,65 +1,47 @@
-我们将针对 Ruff 检查出的错误和警告进行两方面的修复：
-1. **代码层面重构**：将不合规的 `logger.error(..., exc_info=True)` 改为规范的 `logger.exception(...)`；更新 TUI 模块中过时的类型注解 `Optional` 为 Python 3.10+ 的 `| None`，并为 `BINDINGS` 增加 `ClassVar` 注解。
-2. **规则配置层优化**：在 `pyproject.toml` 中增加对框架级兜底异常捕获（如 `BLE001`, `S110`）、无时区 datetime 对象（`DTZ` 系列）以及子进程检查等领域特化规则的忽略，确保静态检查精准且无误报。
+我们将针对剩余的 7 个 Ruff 提示点进行二次修复：
+1. **`TRY401` 修复**：`logger.exception` 会自动记录并格式化当前捕获的异常追踪栈（traceback），因此在日志字符串模板中再次拼接 `{e}` 对象是冗余的，需将其从字符串中移除。
+2. **`G201` 遗漏点修正**：在 `cache.py` 和 `helpers.py` 中将残留的 `logger.error(..., exc_info=True)` 改为 `logger.exception(...)`。
+3. **`F401` 清理**：移除 `tui.py` 中未再使用的 `Optional` 导入。
 
-## [WIP] fix: 修复 Ruff 静态代码检查错误与配置 Lint 规则
+## [WIP] fix: 清理 TRY401、G201 及未使用的 Optional 导入
 
 ### 错误分析
 
-1. **`G201` (Logging 规范)**：在异常处理块中使用了 `logger.error(..., exc_info=True)`，而在 Python `logging` 中应直接使用更地道的 `logger.exception(...)`。
-2. **`UP045` & `RUF012` (类型注解规范)**：Textual TUI 应用类中使用 `App[Optional[UiResult]]` 触发了 Python 3.10+ 现代类型语法警告，且可变类属性 `BINDINGS` 缺少 `ClassVar` 标记。
-3. **误报与框架冲突规则**：
-   - `BLE001` / `S110`：应用控制层和引擎层需要全局 `except Exception:` 来捕获未知运行时错误并进行安全回滚或状态包装。
-   - `DTZ001` / `DTZ005` / `DTZ006`：测试用例和 Git 提交时间戳解析不涉及跨时区转换。
-   - `PLW1510` / `EXE001` / `LOG015` / `SIM102`：命令行工具和内部脚本的标准模式。
+1. **`TRY401`**：`logger.exception(...)` 默认开启 `exc_info=True` 并在输出追加异常文本，在日志消息中显式包含 `{e}` 属于冗余信息。
+2. **`G201`**：`cache.py` (line 34) 和 `helpers.py` (line 49) 仍存在 `logger.error(..., exc_info=True)` 调用。
+3. **`F401`**：`tui.py` 中的 `Optional` 在改用 `| None` 后未被引入使用，触发了 unused import 警告。
 
 ### 用户需求
 
-修复 `ruff check . --fix --unsafe-fixes` 报告的所有静态检查问题，使得项目顺利通过静态检查。
+彻底清理所有 Ruff 在二次扫描时报出的 7 处剩余 Warning/Error，达到干净通过的预期。
 
 ### 评论
 
-修正日志调用方式和现代类型注解能够有效增强代码整洁度与类型安全；同时将框架兜底逻辑和测试辅助代码的误报规则在配置文件中予以忽略，是维持良好的 CI / Lint 工作流的正确实践。
+消除 `TRY401` 和无用导入能够让代码实现干净、精炼的 Python 标准形态。
 
 ### 目标
 
-1. 修复 `controller.py`、`navigation.py`、`tui.py` 以及 `state_machine.py` 中的 `logger.error(..., exc_info=True)` 为 `logger.exception(...)`。
-2. 修复 `tui.py` 中的类型注解 `App[UiResult | None]` 和 `BINDINGS: ClassVar[list[Binding]]`。
-3. 在 `pyproject.toml` 中配置 `[tool.ruff.lint.ignore]` 列表，忽略特定的噪音规则。
+1. 在 `controller.py`、`tui.py` 和 `state_machine.py` 中移除 `logger.exception` 消息体中的 `{e}` 变量拼接。
+2. 修复 `cache.py` 与 `helpers.py` 中的 `logger.error` 为 `logger.exception`。
+3. 移除 `tui.py` 中未使用的 `Optional` 导入。
 
 ### 基本原理
 
-利用 `patch_file` 针对源文件中的具体位置进行上下文对齐与精确修改。对于项目整体策略规则，通过修改根目录的 `pyproject.toml` 统一收敛控制。
+通过 `patch_file` 精确重构上述文件，补齐剩余 7 处静态问题点。
 
 ### 标签
 
-#intent/fix #flow/ready #priority/high #comp/cli #comp/engine #comp/runtime #scope/dx #ai/instruct #task/domain/tooling #task/object/lint-rules #task/action/refactor #task/state/begin
+#intent/fix #flow/ready #priority/high #comp/cli #comp/engine #comp/runtime #scope/dx #ai/instruct #task/domain/tooling #task/object/lint-rules #task/action/refactor #task/state/continue
 
 ---
 
 ### Script
 
-#### Acts 1: 修正 `controller.py` 中的异常日志记录方式
-
-将 `controller.py` 中的 `logger.error(..., exc_info=True)` 重构为 `logger.exception(...)`。
+#### Acts 1: 清理 `controller.py` 中 `logger.exception` 冗余的 `{e}` 拼接
 
 ~~~~~act
 patch_file
 packages/pyquipu-application/src/quipu/application/controller.py
-~~~~~
-~~~~~python
-    except CoreExecutionError as e:
-        logger.error(f"❌ 操作失败: {e}")
-        return QuipuResult(
-            success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
-        )
-
-    except Exception as e:
-        logger.error(f"运行时错误: {e}", exc_info=True)
-        return QuipuResult(
-            success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
-        )
-    finally:
 ~~~~~
 ~~~~~python
     except CoreExecutionError as e:
@@ -75,22 +57,24 @@ packages/pyquipu-application/src/quipu/application/controller.py
         )
     finally:
 ~~~~~
-
-~~~~~act
-patch_file
-packages/pyquipu-application/src/quipu/application/controller.py
-~~~~~
 ~~~~~python
     except CoreExecutionError as e:
         logger.error(f"❌ 操作失败: {e}")
         return QuipuResult(
             success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
         )
+
     except Exception as e:
-        logger.error(f"运行时错误: {e}", exc_info=True)
+        logger.exception("运行时错误")
         return QuipuResult(
             success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
         )
+    finally:
+~~~~~
+
+~~~~~act
+patch_file
+packages/pyquipu-application/src/quipu/application/controller.py
 ~~~~~
 ~~~~~python
     except CoreExecutionError as e:
@@ -104,112 +88,64 @@ packages/pyquipu-application/src/quipu/application/controller.py
             success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
         )
 ~~~~~
+~~~~~python
+    except CoreExecutionError as e:
+        logger.error(f"❌ 操作失败: {e}")
+        return QuipuResult(
+            success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
+        )
+    except Exception as e:
+        logger.exception("运行时错误")
+        return QuipuResult(
+            success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
+        )
+~~~~~
 
-#### Acts 2: 修正 `navigation.py` 中的异常日志记录方式
+#### Acts 2: 修正 `cache.py` 与 `helpers.py` 中的 `logger.error`
 
 ~~~~~act
 patch_file
-packages/pyquipu-cli/src/quipu/cli/commands/navigation.py
+packages/pyquipu-cli/src/quipu/cli/commands/cache.py
 ~~~~~
 ~~~~~python
-            try:
-                result_hash = engine.back()
-                if result_hash:
-                    bus.success(L.navigation.back.success, short_hash=result_hash[:7])
-                else:
-                    bus.warning(L.navigation.back.atStart)
-            except Exception as e:
-                logger.error("后退操作失败", exc_info=True)
-                bus.error(L.navigation.back.error, error=str(e))
-                ctx.exit(1)
+        bus.success(L.cache.sync.success)
+    except Exception as e:
+        logger.error("数据同步失败", exc_info=True)
+        bus.error(L.cache.sync.error, error=str(e))
+        ctx.exit(1)
 ~~~~~
 ~~~~~python
-            try:
-                result_hash = engine.back()
-                if result_hash:
-                    bus.success(L.navigation.back.success, short_hash=result_hash[:7])
-                else:
-                    bus.warning(L.navigation.back.atStart)
-            except Exception as e:
-                logger.exception("后退操作失败")
-                bus.error(L.navigation.back.error, error=str(e))
-                ctx.exit(1)
+        bus.success(L.cache.sync.success)
+    except Exception as e:
+        logger.exception("数据同步失败")
+        bus.error(L.cache.sync.error, error=str(e))
+        ctx.exit(1)
 ~~~~~
 
 ~~~~~act
 patch_file
-packages/pyquipu-cli/src/quipu/cli/commands/navigation.py
+packages/pyquipu-cli/src/quipu/cli/commands/helpers.py
 ~~~~~
 ~~~~~python
-            try:
-                result_hash = engine.forward()
-                if result_hash:
-                    bus.success(L.navigation.forward.success, short_hash=result_hash[:7])
-                else:
-                    bus.warning(L.navigation.forward.atEnd)
-            except Exception as e:
-                logger.error("前进操作失败", exc_info=True)
-                bus.error(L.navigation.forward.error, error=str(e))
-                ctx.exit(1)
+        bus.success(L.navigation.success.visit, short_hash=target_hash[:7])
+    except Exception as e:
+        logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
+        bus.error(L.navigation.error.generic, error=str(e))
+        ctx.exit(1)
 ~~~~~
 ~~~~~python
-            try:
-                result_hash = engine.forward()
-                if result_hash:
-                    bus.success(L.navigation.forward.success, short_hash=result_hash[:7])
-                else:
-                    bus.warning(L.navigation.forward.atEnd)
-            except Exception as e:
-                logger.exception("前进操作失败")
-                bus.error(L.navigation.forward.error, error=str(e))
-                ctx.exit(1)
+        bus.success(L.navigation.success.visit, short_hash=target_hash[:7])
+    except Exception as e:
+        logger.exception(f"导航操作失败 (目标哈希: {target_hash[:12]})")
+        bus.error(L.navigation.error.generic, error=str(e))
+        ctx.exit(1)
 ~~~~~
 
-#### Acts 3: 修正 `tui.py` 中的类型注解与日志方法
-
-更新类型注解 `Optional[UiResult]` -> `UiResult | None`，为 `BINDINGS` 添加 `ClassVar` 标记，并替换 `logger.error(..., exc_info=True)`。
+#### Acts 3: 清理 `tui.py` 中未使用的 `Optional` 导入与 TRY401 问题
 
 ~~~~~act
 patch_file
 packages/pyquipu-cli/src/quipu/cli/tui.py
-~~~~~
-~~~~~python
-import logging
-from enum import Enum, auto
-from pathlib import Path
-from typing import Optional
-
-from quipu.application.factory import create_engine
-from quipu.engine.state_machine import Engine
-from quipu.spec.models.graph import QuipuNode
-from textual import on
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.coordinate import Coordinate
-from textual.timer import Timer
-from textual.widgets import DataTable, Footer, Header, Markdown, Static
-
-from .view_model import GraphViewModel
-
-logger = logging.getLogger(__name__)
-
-# 定义 UI 返回类型: (动作类型, 数据)
-# 动作: "checkout" | "dump"
-UiResult = tuple[str, str]
-
-
-class ContentViewSate(Enum):
-    HIDDEN = auto()
-    LOADING = auto()
-    SHOWING_CONTENT = auto()
-
-
-class QuipuUiApp(App[Optional[UiResult]]):
-    CSS_PATH = "tui.css"
-    TITLE = "Quipu History Explorer"
-
-    BINDINGS = [
 ~~~~~
 ~~~~~python
 import logging
@@ -218,51 +154,19 @@ from pathlib import Path
 from typing import ClassVar, Optional
 
 from quipu.application.factory import create_engine
-from quipu.engine.state_machine import Engine
-from quipu.spec.models.graph import QuipuNode
-from textual import on
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.coordinate import Coordinate
-from textual.timer import Timer
-from textual.widgets import DataTable, Footer, Header, Markdown, Static
+~~~~~
+~~~~~python
+import logging
+from enum import Enum, auto
+from pathlib import Path
+from typing import ClassVar
 
-from .view_model import GraphViewModel
-
-logger = logging.getLogger(__name__)
-
-# 定义 UI 返回类型: (动作类型, 数据)
-# 动作: "checkout" | "dump"
-UiResult = tuple[str, str]
-
-
-class ContentViewSate(Enum):
-    HIDDEN = auto()
-    LOADING = auto()
-    SHOWING_CONTENT = auto()
-
-
-class QuipuUiApp(App[UiResult | None]):
-    CSS_PATH = "tui.css"
-    TITLE = "Quipu History Explorer"
-
-    BINDINGS: ClassVar[list[Binding]] = [
+from quipu.application.factory import create_engine
 ~~~~~
 
 ~~~~~act
 patch_file
 packages/pyquipu-cli/src/quipu/cli/tui.py
-~~~~~
-~~~~~python
-            except LookupError:
-                # LookupError 捕获 RowKeyError 等
-                logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
-
-        except Exception as e:
-            logger.error(f"DEBUG: Failed to focus current node: {e}", exc_info=True)
-
-    def _update_loading_preview(self):
 ~~~~~
 ~~~~~python
             except LookupError:
@@ -274,8 +178,18 @@ packages/pyquipu-cli/src/quipu/cli/tui.py
 
     def _update_loading_preview(self):
 ~~~~~
+~~~~~python
+            except LookupError:
+                # LookupError 捕获 RowKeyError 等
+                logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
 
-#### Acts 4: 修正 `state_machine.py` 中的异常日志记录方式
+        except Exception as e:
+            logger.exception("DEBUG: Failed to focus current node")
+
+    def _update_loading_preview(self):
+~~~~~
+
+#### Acts 4: 清理 `state_machine.py` 中的 TRY401 问题
 
 ~~~~~act
 patch_file
@@ -289,7 +203,7 @@ packages/pyquipu-engine/src/quipu/engine/state_machine.py
                 hydrator = Hydrator(self.git_db, self.db_manager)
                 hydrator.sync(local_user_id=user_id)
             except Exception as e:
-                logger.error(f"❌ 自动数据补水失败: {e}", exc_info=True)
+                logger.exception(f"❌ 自动数据补水失败: {e}")
 
         all_nodes = self.reader.load_all_nodes()
 ~~~~~
@@ -301,50 +215,12 @@ packages/pyquipu-engine/src/quipu/engine/state_machine.py
                 hydrator = Hydrator(self.git_db, self.db_manager)
                 hydrator.sync(local_user_id=user_id)
             except Exception as e:
-                logger.exception(f"❌ 自动数据补水失败: {e}")
+                logger.exception("❌ 自动数据补水失败")
 
         all_nodes = self.reader.load_all_nodes()
 ~~~~~
 
-#### Acts 5: 配置 `pyproject.toml` 中的 Ruff Lint 规则
-
-排除全局兜底捕获及测试框架模式误报规则。
-
-~~~~~act
-patch_file
-pyproject.toml
-~~~~~
-~~~~~toml
-[tool.ruff]
-line-length = 120
-target-version = "py310"
-
-[tool.stitcher]
-scan_paths = ["packages"]
-~~~~~
-~~~~~toml
-[tool.ruff]
-line-length = 120
-target-version = "py310"
-
-[tool.ruff.lint]
-ignore = [
-    "BLE001",
-    "DTZ001",
-    "DTZ005",
-    "DTZ006",
-    "EXE001",
-    "LOG015",
-    "PLW1510",
-    "S110",
-    "SIM102",
-]
-
-[tool.stitcher]
-scan_paths = ["packages"]
-~~~~~
-
 ### 下一步建议
 
-1. 执行指令块应用修改后，可以运行 `ruff check .` 验证检查结果。
-2. 运行 `pytest` 运行测试套件，确保修改未对代码功能造成任何影响。
+1. 应用此计划中的指令块。
+2. 重新运行 `ruff check .` 验证是否全部通过。

@@ -46,7 +46,7 @@ def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, msg_id:
         engine.visit(target_hash)
         bus.success(L.navigation.success.visit, short_hash=target_hash[:7])
     except Exception as e:
-        logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
+        logger.exception(f"导航操作失败 (目标哈希: {target_hash[:12]})")
         bus.error(L.navigation.error.generic, error=str(e))
         ctx.exit(1)
 

@@ -1,7 +1,7 @@
 import logging
 from enum import Enum, auto
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from quipu.application.factory import create_engine
 from quipu.engine.state_machine import Engine
@@ -280,7 +280,7 @@ class QuipuUiApp(App[UiResult | None]):
                 logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
 
         except Exception as e:
-            logger.exception(f"DEBUG: Failed to focus current node: {e}")
+            logger.exception("DEBUG: Failed to focus current node")
 
     def _update_loading_preview(self):
         assert self.view_model is not None

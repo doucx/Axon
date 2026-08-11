@@ -220,7 +220,7 @@ class Engine:
                 hydrator = Hydrator(self.git_db, self.db_manager)
                 hydrator.sync(local_user_id=user_id)
             except Exception as e:
-                logger.exception(f"❌ 自动数据补水失败: {e}")
+                logger.exception("❌ 自动数据补水失败")
 
         all_nodes = self.reader.load_all_nodes()
         self.history_graph = {node.commit_hash: node for node in all_nodes}
