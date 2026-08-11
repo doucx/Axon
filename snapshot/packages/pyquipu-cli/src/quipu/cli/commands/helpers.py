@@ -51,9 +51,7 @@ def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, msg_id:
         ctx.exit(1)
 
 
-def filter_nodes(
-    nodes: list[QuipuNode], limit: int | None, since: str | None, until: str | None
-) -> list[QuipuNode]:
+def filter_nodes(nodes: list[QuipuNode], limit: int | None, since: str | None, until: str | None) -> list[QuipuNode]:
     filtered = nodes
     if since:
         try:
