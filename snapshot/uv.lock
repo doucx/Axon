@@ -400,7 +400,7 @@ requires-dist = [
 
 [[package]]
 name = "pyquipu-cli"
-version = "0.3.2"
+version = "0.3.0"
 source = { editable = "packages/pyquipu-cli" }
 dependencies = [
     { name = "click" },
