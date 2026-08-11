@@ -4,7 +4,6 @@ import shutil
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 
 from needle.pointer import L
 from quipu.common.bus import bus
@@ -30,10 +29,10 @@ class GitDB:
     def _run(
         self,
         args: list[str],
-        env: Optional[Dict] = None,
+        env: dict | None = None,
         check: bool = True,
         log_error: bool = True,
-        input_data: Optional[Union[str, bytes]] = None,
+        input_data: str | bytes | None = None,
         capture_as_text: bool = True,
     ) -> subprocess.CompletedProcess:
         full_env = os.environ.copy()
@@ -121,7 +120,7 @@ class GitDB:
         result = self._run(["mktree"], input_data=tree_descriptor)
         return result.stdout.strip()
 
-    def commit_tree(self, tree_hash: str, parent_hashes: Optional[List[str]], message: str) -> str:
+    def commit_tree(self, tree_hash: str, parent_hashes: list[str] | None, message: str) -> str:
         cmd = ["commit-tree", tree_hash]
         if parent_hashes:
             for p in parent_hashes:
@@ -136,7 +135,7 @@ class GitDB:
     def delete_ref(self, ref_name: str):
         self._run(["update-ref", "-d", ref_name], check=False)
 
-    def get_commit_by_output_tree(self, tree_hash: str) -> Optional[str]:
+    def get_commit_by_output_tree(self, tree_hash: str) -> str | None:
         # 使用 grep 搜索所有 refs/quipu/ 下的记录
         # 注意：这假设 Output Tree 是唯一的，这在大概率上是成立的，
         # 且即使有重复（如 merge），找到任意一个作为父节点通常也是可接受的起点。
@@ -146,7 +145,7 @@ class GitDB:
             return res.stdout.strip()
         return None
 
-    def get_head_commit(self) -> Optional[str]:
+    def get_head_commit(self) -> str | None:
         try:
             result = self._run(["rev-parse", "HEAD"])
             return result.stdout.strip()
@@ -169,7 +168,7 @@ class GitDB:
         result = self._run(["diff-tree", f"--stat=,,{count}", old_tree, new_tree])
         return result.stdout.strip()
 
-    def get_diff_name_status(self, old_tree: str, new_tree: str) -> List[Tuple[str, str]]:
+    def get_diff_name_status(self, old_tree: str, new_tree: str) -> list[tuple[str, str]]:
         result = self._run(["diff-tree", "--name-status", "--no-commit-id", "-r", old_tree, new_tree])
         changes = []
         for line in result.stdout.strip().splitlines():
@@ -181,7 +180,7 @@ class GitDB:
                 changes.append((status, path))
         return changes
 
-    def checkout_tree(self, new_tree_hash: str, old_tree_hash: Optional[str] = None):
+    def checkout_tree(self, new_tree_hash: str, old_tree_hash: str | None = None):
         bus.info(L.engine.git.info.checkoutStarted, short_hash=new_tree_hash[:7])
 
         # 1. 高性能检出核心
@@ -205,7 +204,7 @@ class GitDB:
         result = self._run(cmd, capture_as_text=False)
         return result.stdout
 
-    def get_blobs_from_tree(self, tree_hash: str) -> Dict[str, bytes]:
+    def get_blobs_from_tree(self, tree_hash: str) -> dict[str, bytes]:
         # 1. 获取 Tree 的内容
         tree_content_bytes = self.cat_file(tree_hash, "tree")
         tree_content = tree_content_bytes.decode("utf-8", "ignore")
@@ -225,7 +224,7 @@ class GitDB:
         # 3. 批量获取所有 blob 的内容
         return self.batch_cat_file(list(blob_info.values()))
 
-    def batch_cat_file(self, object_hashes: List[str]) -> Dict[str, bytes]:
+    def batch_cat_file(self, object_hashes: list[str]) -> dict[str, bytes]:
         if not object_hashes:
             return {}
 
@@ -296,7 +295,7 @@ class GitDB:
 
         return results
 
-    def get_all_ref_heads(self, prefix: str) -> List[Tuple[str, str]]:
+    def get_all_ref_heads(self, prefix: str) -> list[tuple[str, str]]:
         res = self._run(["for-each-ref", "--format=%(objectname) %(refname)", prefix], check=False)
         if res.returncode != 0 or not res.stdout.strip():
             return []
@@ -313,7 +312,7 @@ class GitDB:
         res = self._run(["show-ref", "--verify", "--quiet", "refs/quipu/"], check=False, log_error=False)
         return res.returncode == 0
 
-    def log_ref(self, ref_names: Union[str, List[str]]) -> List[Dict[str, str]]:
+    def log_ref(self, ref_names: str | list[str]) -> list[dict[str, str]]:
         # A unique delimiter that's unlikely to appear in commit messages
         DELIMITER = "---QUIPU-LOG-ENTRY---"
         # Format: H=hash, P=parent, T=tree, ct=commit_timestamp, B=body

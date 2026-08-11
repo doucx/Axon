@@ -84,7 +84,7 @@ class TestSQLiteHistoryReader:
 
         # 4. 使用 Reader 加载节点并触发 get_node_content
         nodes = reader.load_all_nodes()
-        node_c = [n for n in nodes if n.commit_hash == commit_hash_c][0]
+        node_c = next(n for n in nodes if n.commit_hash == commit_hash_c)
 
         # 首次读取前，内存中的 content 应该是空的
         assert not node_c.content
@@ -186,7 +186,7 @@ class TestSQLiteReaderPaginated:
         assert private_data is None
 
     def test_get_ancestors_with_cte(self, populated_db):
-        reader, db_manager, commit_hashes, output_tree_hashes = populated_db
+        reader, _db_manager, _commit_hashes, output_tree_hashes = populated_db
         # We want ancestors of the last created node (Node 14)
         # The input is the output_tree_hash of the last node.
         ancestor_output_trees = reader.get_ancestor_output_trees(output_tree_hashes[14])
@@ -198,7 +198,7 @@ class TestSQLiteReaderPaginated:
         assert output_tree_hashes[14] not in ancestor_output_trees  # Should not contain itself
 
     def test_get_ancestors_with_duplicate_hashes(self, sqlite_reader_setup):
-        reader, git_writer, hydrator, db_manager, repo, git_db = sqlite_reader_setup
+        reader, git_writer, hydrator, _db_manager, repo, git_db = sqlite_reader_setup
 
         # 1. 模拟两条有公共哈希终点但属于不同分支的历史
         # 节点 A (v1)

@@ -7,7 +7,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from quipu.engine.git_db import GitDB
 from quipu.spec.constants import EMPTY_TREE_HASH
@@ -20,11 +20,11 @@ class GitObjectHistoryReader:
     def __init__(self, git_db: GitDB):
         self.git_db = git_db
 
-    def _parse_output_tree_from_body(self, body: str) -> Optional[str]:
+    def _parse_output_tree_from_body(self, body: str) -> str | None:
         match = re.search(r"X-Quipu-Output-Tree:\s*([0-9a-f]{40})", body)
         return match.group(1) if match else None
 
-    def _parse_tree_binary(self, data: bytes) -> Dict[str, str]:
+    def _parse_tree_binary(self, data: bytes) -> dict[str, str]:
         entries = {}
         idx = 0
         length = len(data)
@@ -56,13 +56,13 @@ class GitObjectHistoryReader:
             idx = hash_start + 20
         return entries
 
-    def load_all_nodes(self) -> List[QuipuNode]:
+    def load_all_nodes(self) -> list[QuipuNode]:
         # Step 1: Get Commits
         ref_tuples = self.git_db.get_all_ref_heads("refs/quipu/")
         if not ref_tuples:
             return []
 
-        all_heads = list(set(t[0] for t in ref_tuples))
+        all_heads = list({t[0] for t in ref_tuples})
         log_entries = self.git_db.log_ref(all_heads)
         if not log_entries:
             return []
@@ -91,8 +91,8 @@ class GitObjectHistoryReader:
         metas_content = self.git_db.batch_cat_file(meta_blob_hashes)
 
         # Step 5: Assemble Nodes
-        temp_nodes: Dict[str, QuipuNode] = {}
-        parent_map: Dict[str, str] = {}
+        temp_nodes: dict[str, QuipuNode] = {}
+        parent_map: dict[str, str] = {}
 
         for entry in log_entries:
             commit_hash = entry["hash"]
@@ -178,12 +178,12 @@ class GitObjectHistoryReader:
                 return i
         return -1
 
-    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+    def load_nodes_paginated(self, limit: int, offset: int) -> list[QuipuNode]:
         all_nodes = self.load_all_nodes()
         # load_all_nodes 通常按时间倒序返回
         return all_nodes[offset : offset + limit]
 
-    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> set[str]:
         all_nodes = self.load_all_nodes()
         start_nodes = [n for n in all_nodes if n.output_tree == start_output_tree_hash]
 
@@ -200,10 +200,10 @@ class GitObjectHistoryReader:
 
         return ancestors
 
-    def get_private_data(self, node_commit_hash: str) -> Optional[str]:
+    def get_private_data(self, node_commit_hash: str) -> str | None:
         return None
 
-    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> set[str]:
         all_nodes = self.load_all_nodes()
         start_nodes = [n for n in all_nodes if n.output_tree == start_output_tree_hash]
 
@@ -220,7 +220,7 @@ class GitObjectHistoryReader:
 
         return descendants
 
-    def get_node_blobs(self, commit_hash: str) -> Dict[str, bytes]:
+    def get_node_blobs(self, commit_hash: str) -> dict[str, bytes]:
         try:
             # 1. Get Tree Hash from Commit
             commit_content = self.git_db.cat_file(commit_hash, "commit").decode("utf-8", "ignore")
@@ -291,10 +291,10 @@ class GitObjectHistoryReader:
 
     def find_nodes(
         self,
-        summary_regex: Optional[str] = None,
-        node_type: Optional[str] = None,
+        summary_regex: str | None = None,
+        node_type: str | None = None,
         limit: int = 10,
-    ) -> List[QuipuNode]:
+    ) -> list[QuipuNode]:
         # 这是一个高成本操作，因为它需要加载整个图
         candidates = self.load_all_nodes()
 
@@ -319,13 +319,13 @@ class GitObjectHistoryWriter:
     def __init__(self, git_db: GitDB):
         self.git_db = git_db
 
-    def _get_generator_info(self) -> Dict[str, str]:
+    def _get_generator_info(self) -> dict[str, str]:
         return {
             "id": os.getenv("QUIPU_GENERATOR_ID", "manual"),
             "tool": os.getenv("QUIPU_TOOL", "quipu-cli"),
         }
 
-    def _get_env_info(self) -> Dict[str, str]:
+    def _get_env_info(self) -> dict[str, str]:
         try:
             quipu_version = importlib.metadata.version("quipu-engine")
         except importlib.metadata.PackageNotFoundError:

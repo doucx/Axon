@@ -1,10 +1,11 @@
 import logging
 import subprocess
-from typing import List
 
 from needle.pointer import L
+
 from quipu.common.bus import bus
-from quipu.spec.protocols.runtime import ActContext, ExecutorProtocol as Executor
+from quipu.spec.protocols.runtime import ActContext
+from quipu.spec.protocols.runtime import ExecutorProtocol as Executor
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ def register(executor: Executor):
     executor.register("run_command", _run_command, arg_mode="exclusive")
 
 
-def _run_command(ctx: ActContext, args: List[str]):
+def _run_command(ctx: ActContext, args: list[str]):
     if len(args) < 1:
         ctx.fail(
             bus.render_to_string(

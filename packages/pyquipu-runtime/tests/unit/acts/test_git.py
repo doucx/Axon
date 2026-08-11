@@ -1,7 +1,6 @@
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List
 
 import pytest
 from quipu.acts.git import register as register_git_acts
@@ -60,7 +59,7 @@ class TestGitActs:
         (isolated_vault / "untracked.txt").write_text("new file")
 
         # 2. 我们通过 executor.execute 来模拟完整的执行流程
-        stmts: List[Statement] = [{"act": "git_status", "contexts": []}]
+        stmts: list[Statement] = [{"act": "git_status", "contexts": []}]
         executor.execute(stmts)
 
         # 3. 验证 bus 调用

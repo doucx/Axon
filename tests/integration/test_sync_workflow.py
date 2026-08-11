@@ -44,7 +44,7 @@ class TestSyncWorkflow:
         Tests that User B can subscribe to and fetch User A's history.
         AND verifies that ownership is correctly propagated to all ancestor nodes during hydration.
         """
-        remote_path, user_a_path, user_b_path = sync_test_environment
+        _remote_path, user_a_path, user_b_path = sync_test_environment
         user_a_id = get_user_id_from_email("user.a@example.com")
 
         # --- Step 1: User A creates more history (Node 2) ---

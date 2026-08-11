@@ -2,7 +2,7 @@ import logging
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from quipu.common.identity import get_user_id_from_email
 from quipu.spec.constants import EMPTY_TREE_HASH
@@ -63,7 +63,7 @@ class Engine:
         db: Any,
         reader: HistoryReader,
         writer: HistoryWriter,
-        db_manager: Optional[Any] = None,
+        db_manager: Any | None = None,
     ):
         self.root_dir = root_dir.resolve()
         self.quipu_dir = self.root_dir / ".quipu"
@@ -85,8 +85,8 @@ class Engine:
         self.reader = reader
         self.writer = writer
         self.db_manager = db_manager  # 持有数据库管理器引用
-        self.history_graph: Dict[str, QuipuNode] = {}
-        self.current_node: Optional[QuipuNode] = None
+        self.history_graph: dict[str, QuipuNode] = {}
+        self.current_node: QuipuNode | None = None
 
         if isinstance(db, GitDB):
             self._sync_persistent_ignores()
@@ -118,13 +118,13 @@ class Engine:
                 return derived_id
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.debug("无法从 git config 中获取 user.email。")
-            pass  # 忽略错误，继续执行最终的回退逻辑
+            # 忽略错误，继续执行最终的回退逻辑
 
         # 3. 最终回退
         logger.debug("未找到 user_id，将使用默认回退值 'unknown-local-user'。")
         return "unknown-local-user"
 
-    def _read_head(self) -> Optional[str]:
+    def _read_head(self) -> str | None:
         if self.head_file.exists():
             return self.head_file.read_text(encoding="utf-8").strip()
         return None
@@ -135,7 +135,7 @@ class Engine:
         except Exception as e:
             logger.warning(f"⚠️  无法更新 HEAD 指针: {e}")
 
-    def _read_nav(self) -> Tuple[List[str], int]:
+    def _read_nav(self) -> tuple[list[str], int]:
         log = []
         ptr = -1
         if self.nav_log_file.exists():
@@ -158,7 +158,7 @@ class Engine:
             ptr = len(log) - 1
         return log, ptr
 
-    def _write_nav(self, log: List[str], ptr: int):
+    def _write_nav(self, log: list[str], ptr: int):
         try:
             self.nav_log_file.write_text("\n".join(log), encoding="utf-8")
             self.nav_ptr_file.write_text(str(ptr), encoding="utf-8")
@@ -190,7 +190,7 @@ class Engine:
         self.checkout(target_hash)
         self._append_nav(target_hash)
 
-    def back(self) -> Optional[str]:
+    def back(self) -> str | None:
         log, ptr = self._read_nav()
         if ptr > 0:
             new_ptr = ptr - 1
@@ -201,7 +201,7 @@ class Engine:
             return target_hash
         return None
 
-    def forward(self) -> Optional[str]:
+    def forward(self) -> str | None:
         log, ptr = self._read_nav()
         if ptr < len(log) - 1:
             new_ptr = ptr + 1
@@ -219,8 +219,8 @@ class Engine:
                 user_id = self._get_current_user_id()
                 hydrator = Hydrator(self.git_db, self.db_manager)
                 hydrator.sync(local_user_id=user_id)
-            except Exception as e:
-                logger.error(f"❌ 自动数据补水失败: {e}", exc_info=True)
+            except Exception:
+                logger.exception("❌ 自动数据补水失败")
 
         all_nodes = self.reader.load_all_nodes()
         self.history_graph = {node.commit_hash: node for node in all_nodes}
@@ -253,17 +253,17 @@ class Engine:
 
     def find_nodes(
         self,
-        summary_regex: Optional[str] = None,
-        node_type: Optional[str] = None,
+        summary_regex: str | None = None,
+        node_type: str | None = None,
         limit: int = 10,
-    ) -> List[QuipuNode]:
+    ) -> list[QuipuNode]:
         return self.reader.find_nodes(
             summary_regex=summary_regex,
             node_type=node_type,
             limit=limit,
         )
 
-    def capture_drift(self, current_hash: str, message: Optional[str] = None) -> QuipuNode:
+    def capture_drift(self, current_hash: str, message: str | None = None) -> QuipuNode:
         log_message = f"📸 正在捕获工作区漂移 (Message: {message})" if message else "📸 正在捕获工作区漂移"
         logger.info(f"{log_message}，新状态 Hash: {current_hash[:7]}")
 
@@ -323,7 +323,7 @@ class Engine:
         return new_node
 
     def create_plan_node(
-        self, input_tree: str, output_tree: str, plan_content: str, summary_override: Optional[str] = None
+        self, input_tree: str, output_tree: str, plan_content: str, summary_override: str | None = None
     ) -> QuipuNode:
         if input_tree == output_tree:
             logger.info(f"📝 记录幂等操作节点 (Idempotent Node): {output_tree[:7]}")

@@ -92,7 +92,7 @@ class TestGitObjectHistoryWriterIntegration:
         assert "content.md" in tree_data
 
         # 3.4 检查 Blob 内容
-        meta_blob_hash = [line.split()[2] for line in tree_data.splitlines() if "metadata.json" in line][0]
+        meta_blob_hash = next(line.split()[2] for line in tree_data.splitlines() if "metadata.json" in line)
         meta_content_str = subprocess.check_output(
             ["git", "cat-file", "blob", meta_blob_hash], cwd=repo_path, text=True
         )

@@ -1,8 +1,9 @@
 import difflib
 import logging
 import shlex
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from needle.pointer import L
 from quipu.common.bus import bus
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 # 定义确认处理器的签名: (diff_lines: List[str], prompt_message: str) -> bool
-ConfirmationHandler = Callable[[List[str], str], bool]
+ConfirmationHandler = Callable[[list[str], str], bool]
 
 
 class Executor:
@@ -21,13 +22,13 @@ class Executor:
         self,
         root_dir: Path,
         yolo: bool = False,
-        confirmation_handler: Optional[ConfirmationHandler] = None,
+        confirmation_handler: ConfirmationHandler | None = None,
     ):
         self.root_dir = root_dir.resolve()
         self.yolo = yolo
         self.confirmation_handler = confirmation_handler
         # Map: name -> (func, arg_mode, summarizer)
-        self._acts: Dict[str, tuple[ActFunction, str, Any]] = {}
+        self._acts: dict[str, tuple[ActFunction, str, Any]] = {}
 
         if not self.root_dir.exists():
             try:
@@ -43,7 +44,7 @@ class Executor:
         self._acts[name] = (func, arg_mode, summarizer)
         logger.debug(f"注册 Act: {name} (Mode: {arg_mode})")
 
-    def get_registered_acts(self) -> Dict[str, str]:
+    def get_registered_acts(self) -> dict[str, str]:
         return {name: data[0].__doc__ or "No documentation." for name, data in self._acts.items()}
 
     def summarize_statement(self, stmt: Statement) -> str | None:
@@ -109,7 +110,7 @@ class Executor:
         # 此调用现在要么成功返回，要么抛出 OperationCancelledError
         self.confirmation_handler(diff, prompt)
 
-    def execute(self, statements: List[Statement]):
+    def execute(self, statements: list[Statement]):
         bus.info(L.runtime.executor.info.starting, count=len(statements))
 
         # 创建一个可重用的上下文对象

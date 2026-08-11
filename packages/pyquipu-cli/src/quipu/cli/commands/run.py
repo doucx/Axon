@@ -2,11 +2,11 @@ import inspect
 import logging
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
-from quipu.application.controller import run_quipu
 from needle.pointer import L
+from quipu.application.controller import run_quipu
 from quipu.common.bus import bus
 
 from ..config import DEFAULT_ENTRY_FILE, DEFAULT_WORK_DIR
@@ -21,7 +21,7 @@ def register(app: typer.Typer):
     def run_command(
         ctx: typer.Context,
         file: Annotated[
-            Optional[Path], typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
+            Path | None, typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
         ] = None,
         work_dir: Annotated[
             Path,
@@ -75,11 +75,10 @@ def register(app: typer.Typer):
             bus.error(L.common.error.fileNotFound, path=file)
             bus.warning(L.run.error.ambiguousCommand, command=file.name)
             ctx.exit(1)
-        if not content.strip():
-            if not file:
-                bus.warning(L.run.warning.noInput, filename=DEFAULT_ENTRY_FILE.name)
-                bus.info(L.run.info.usageHint)
-                ctx.exit(0)
+        if not content.strip() and not file:
+            bus.warning(L.run.warning.noInput, filename=DEFAULT_ENTRY_FILE.name)
+            bus.info(L.run.info.usageHint)
+            ctx.exit(0)
 
         logger.info(f"已加载指令源: {source_desc}")
         logger.info(f"工作区根目录: {work_dir}")

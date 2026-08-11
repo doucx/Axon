@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+import shutil
 import subprocess
 import sys
-import shutil
-import requests
 from pathlib import Path
+
+import requests
 import tomllib
 from packaging.version import parse as parse_version
 

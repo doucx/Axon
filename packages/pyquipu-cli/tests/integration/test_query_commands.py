@@ -1,7 +1,7 @@
-from needle.pointer import L
 import json
 from unittest.mock import MagicMock
 
+from needle.pointer import L
 from quipu.cli.main import app
 from quipu.test_utils.helpers import create_linear_history_from_specs, create_query_branching_history
 

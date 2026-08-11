@@ -1,12 +1,12 @@
 import logging
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Generator, List, Optional
 
 import typer
-from quipu.application.factory import create_engine
 from needle.pointer import L
+from quipu.application.factory import create_engine
 from quipu.common.bus import bus
 from quipu.engine.state_machine import Engine
 from quipu.spec.models.graph import QuipuNode
@@ -28,7 +28,7 @@ def engine_context(work_dir: Path) -> Generator[Engine, None, None]:
             engine.close()
 
 
-def _find_current_node(engine: Engine, graph: Dict[str, QuipuNode]) -> Optional[QuipuNode]:
+def _find_current_node(engine: Engine, graph: dict[str, QuipuNode]) -> QuipuNode | None:
     current_hash = engine.git_db.get_tree_hash()
     # 修复：直接从 graph 中通过 output_tree hash 查找
     for node in graph.values():
@@ -46,14 +46,14 @@ def _execute_visit(ctx: typer.Context, engine: Engine, target_hash: str, msg_id:
         engine.visit(target_hash)
         bus.success(L.navigation.success.visit, short_hash=target_hash[:7])
     except Exception as e:
-        logger.error(f"导航操作失败 (目标哈希: {target_hash[:12]})", exc_info=True)
+        logger.exception(f"导航操作失败 (目标哈希: {target_hash[:12]})")
         bus.error(L.navigation.error.generic, error=str(e))
         ctx.exit(1)
 
 
 def filter_nodes(
-    nodes: List[QuipuNode], limit: Optional[int], since: Optional[str], until: Optional[str]
-) -> List[QuipuNode]:
+    nodes: list[QuipuNode], limit: int | None, since: str | None, until: str | None
+) -> list[QuipuNode]:
     filtered = nodes
     if since:
         try:
@@ -72,7 +72,7 @@ def filter_nodes(
     return filtered
 
 
-def filter_reachable_nodes(engine: Engine, nodes: List[QuipuNode]) -> List[QuipuNode]:
+def filter_reachable_nodes(engine: Engine, nodes: list[QuipuNode]) -> list[QuipuNode]:
     current_node = _find_current_node(engine, engine.history_graph)
     if not current_node:
         # 如果工作区是脏的，无法确定起点，返回所有节点

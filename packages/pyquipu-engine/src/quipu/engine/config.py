@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import yaml
 from needle.pointer import L
@@ -26,9 +26,9 @@ DEFAULTS = {
 class ConfigManager:
     def __init__(self, work_dir: Path):
         self.config_path = work_dir.resolve() / ".quipu" / "config.yml"
-        self.user_config: Dict[str, Any] = self._load_config()
+        self.user_config: dict[str, Any] = self._load_config()
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         if not self.config_path.exists():
             return {}
 
@@ -60,7 +60,7 @@ class ConfigManager:
         # 返回最终的备用值
         return fallback
 
-    def _get_nested(self, data: Dict, key: str) -> Any:
+    def _get_nested(self, data: dict, key: str) -> Any:
         keys = key.split(".")
         current = data
         for k in keys:

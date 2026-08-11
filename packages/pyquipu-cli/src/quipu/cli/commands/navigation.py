@@ -218,7 +218,7 @@ def register(app: typer.Typer):
                 else:
                     bus.warning(L.navigation.back.atStart)
             except Exception as e:
-                logger.error("后退操作失败", exc_info=True)
+                logger.exception("后退操作失败")
                 bus.error(L.navigation.back.error, error=str(e))
                 ctx.exit(1)
 
@@ -235,6 +235,6 @@ def register(app: typer.Typer):
                 else:
                     bus.warning(L.navigation.forward.atEnd)
             except Exception as e:
-                logger.error("前进操作失败", exc_info=True)
+                logger.exception("前进操作失败")
                 bus.error(L.navigation.forward.error, error=str(e))
                 ctx.exit(1)

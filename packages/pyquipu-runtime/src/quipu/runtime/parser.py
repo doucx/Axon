@@ -1,17 +1,16 @@
 import re
-from typing import List, Optional
 
-from quipu.spec.protocols.runtime import Statement
 from quipu.spec.protocols.parser import PlanParser
+from quipu.spec.protocols.runtime import Statement
 
 
 class StateBlockParser:
     def __init__(self, fence_char: str):
         self.fence_char = fence_char
 
-    def parse(self, text: str) -> List[Statement]:
-        statements: List[Statement] = []
-        current_statement: Optional[Statement] = None
+    def parse(self, text: str) -> list[Statement]:
+        statements: list[Statement] = []
+        current_statement: Statement | None = None
 
         # keepends=True 保留换行符，确保内容原样还原
         lines = text.splitlines(keepends=True)
@@ -19,7 +18,7 @@ class StateBlockParser:
         in_block = False
         current_fence = ""  # 记录开始时的围栏字符串（不含语言标签）
         current_lang = ""
-        block_content: List[str] = []
+        block_content: list[str] = []
 
         for line in lines:
             stripped_line = line.strip()
@@ -74,8 +73,7 @@ class StateBlockParser:
                     # 这取决于 splitlines 的行为。
 
                     # 这里采用一个实用策略：strip 掉尾部的一个换行符。
-                    if full_content.endswith("\n"):
-                        full_content = full_content[:-1]
+                    full_content = full_content.removesuffix("\n")
 
                     # 根据语言标签分发
                     if current_lang == "act":
@@ -125,7 +123,7 @@ def get_parser(name: str) -> PlanParser:
     return _PARSERS[name]()
 
 
-def list_parsers() -> List[str]:
+def list_parsers() -> list[str]:
     return list(_PARSERS.keys())
 
 

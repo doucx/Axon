@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
@@ -8,5 +8,5 @@ class QuipuResult:
     exit_code: int
     message: str = ""
     data: Any = None
-    error: Optional[Exception] = None
-    msg_kwargs: Dict[str, Any] = field(default_factory=dict)
+    error: Exception | None = None
+    msg_kwargs: dict[str, Any] = field(default_factory=dict)

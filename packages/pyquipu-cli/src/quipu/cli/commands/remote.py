@@ -1,11 +1,11 @@
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
-from quipu.application.utils import find_git_repository_root
 from needle.pointer import L
+from quipu.application.utils import find_git_repository_root
 from quipu.common.bus import bus
 from quipu.common.identity import get_user_id_from_email
 from quipu.engine.config import ConfigManager
@@ -35,7 +35,7 @@ def register(app: typer.Typer):
             ),
         ] = DEFAULT_WORK_DIR,
         remote_option: Annotated[
-            Optional[str], typer.Option("--remote", "-r", help="Git 远程仓库的名称 (覆盖配置文件)。")
+            str | None, typer.Option("--remote", "-r", help="Git 远程仓库的名称 (覆盖配置文件)。")
         ] = None,
         mode: Annotated[
             SyncMode,
@@ -85,7 +85,7 @@ def register(app: typer.Typer):
             match mode:
                 case SyncMode.BIDIRECTIONAL:
                     bus.info(L.sync.run.info.pulling)
-                    for target_id in sorted(list(target_ids_to_fetch)):
+                    for target_id in sorted(target_ids_to_fetch):
                         git_db.fetch_quipu_refs(remote, target_id)
                     bus.info(L.sync.run.info.reconciling)
                     git_db.reconcile_local_with_remote(remote, final_user_id)
@@ -95,7 +95,7 @@ def register(app: typer.Typer):
 
                 case SyncMode.PULL_ONLY:
                     bus.info(L.sync.run.info.pulling)
-                    for target_id in sorted(list(target_ids_to_fetch)):
+                    for target_id in sorted(target_ids_to_fetch):
                         git_db.fetch_quipu_refs(remote, target_id)
                     bus.info(L.sync.run.info.reconciling)
                     git_db.reconcile_local_with_remote(remote, final_user_id)
@@ -103,7 +103,7 @@ def register(app: typer.Typer):
 
                 case SyncMode.PULL_PRUNE:
                     bus.info(L.sync.run.info.pullingPrune)
-                    for target_id in sorted(list(target_ids_to_fetch)):
+                    for target_id in sorted(target_ids_to_fetch):
                         git_db.fetch_quipu_refs(remote, target_id)
                     bus.info(L.sync.run.info.reconciling)
                     git_db.reconcile_local_with_remote(remote, final_user_id)

@@ -115,7 +115,7 @@ class TestGitObjectHistoryReader:
         assert child_contents == ["Plan B", "Plan C"]
 
     def test_corrupted_node_missing_metadata(self, reader_setup):
-        reader, _, git_db, repo = reader_setup
+        reader, _, git_db, _repo = reader_setup
 
         content_hash = git_db.hash_object(b"content")
         tree_hash = git_db.mktree(f"100444 blob {content_hash}\tcontent.md")
@@ -128,7 +128,7 @@ class TestGitObjectHistoryReader:
         assert len(nodes) == 0
 
     def test_corrupted_node_missing_trailer(self, reader_setup):
-        reader, _, git_db, repo = reader_setup
+        reader, _, git_db, _repo = reader_setup
 
         meta_hash = git_db.hash_object(json.dumps({"type": "plan"}).encode())
         content_hash = git_db.hash_object(b"c")
