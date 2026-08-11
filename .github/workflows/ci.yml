@@ -37,7 +37,7 @@ jobs:
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
         
       # 步骤 4: 创建虚拟环境并安装开发依赖
-      #   这模拟了 `bootstrap.py` 中创建 dev 环境的过程
+      #   这模拟了 `setup_dev.py` 中创建 dev 环境的过程
       - name: Create venv and install dev dependencies
         run: |
           # 激活 uv
