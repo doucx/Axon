@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix(cli): 修正 sync 自动补水逻辑中的未定义变量错误", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "0.1.0", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1780793482.7444649, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "Capture: M uv.lock", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786455301.8158247, "duration_ms": 0}}
