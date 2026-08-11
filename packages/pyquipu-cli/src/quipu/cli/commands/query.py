@@ -2,7 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated
 
 import typer
 from needle.pointer import L
@@ -13,7 +13,7 @@ from ..config import DEFAULT_WORK_DIR
 from .helpers import engine_context, filter_nodes, filter_reachable_nodes
 
 
-def _nodes_to_json_str(nodes: List[QuipuNode]) -> str:
+def _nodes_to_json_str(nodes: list[QuipuNode]) -> str:
     EXCLUDED_FIELDS = {"parent", "children", "content", "filename"}
     node_list = []
     for node in nodes:
@@ -44,9 +44,9 @@ def register(app: typer.Typer):
                 "--work-dir", "-w", help="操作执行的根目录（工作区）", file_okay=False, dir_okay=True, resolve_path=True
             ),
         ] = DEFAULT_WORK_DIR,
-        limit: Annotated[Optional[int], typer.Option("--limit", "-n", help="限制显示的节点数量。")] = None,
-        since: Annotated[Optional[str], typer.Option("--since", help="起始时间戳 (YYYY-MM-DD HH:MM)。")] = None,
-        until: Annotated[Optional[str], typer.Option("--until", help="截止时间戳 (YYYY-MM-DD HH:MM)。")] = None,
+        limit: Annotated[int | None, typer.Option("--limit", "-n", help="限制显示的节点数量。")] = None,
+        since: Annotated[str | None, typer.Option("--since", help="起始时间戳 (YYYY-MM-DD HH:MM)。")] = None,
+        until: Annotated[str | None, typer.Option("--until", help="截止时间戳 (YYYY-MM-DD HH:MM)。")] = None,
         reachable_only: Annotated[
             bool, typer.Option("--reachable-only", help="仅显示与当前工作区状态直接相关的节点。")
         ] = False,
@@ -98,10 +98,10 @@ def register(app: typer.Typer):
     def find_command(
         ctx: typer.Context,
         summary_regex: Annotated[
-            Optional[str], typer.Option("--summary", "-s", help="用于匹配节点摘要的正则表达式 (不区分大小写)。")
+            str | None, typer.Option("--summary", "-s", help="用于匹配节点摘要的正则表达式 (不区分大小写)。")
         ] = None,
         node_type: Annotated[
-            Optional[str], typer.Option("--type", "-t", help="节点类型 ('plan' 或 'capture')。")
+            str | None, typer.Option("--type", "-t", help="节点类型 ('plan' 或 'capture')。")
         ] = None,
         limit: Annotated[int, typer.Option("--limit", "-n", help="返回的最大结果数量。")] = 10,
         work_dir: Annotated[Path, typer.Option("--work-dir", "-w", help="工作区根目录。")] = DEFAULT_WORK_DIR,

@@ -64,5 +64,18 @@ packages = ["packages/pyquipu-cli/src/quipu"]
 line-length = 120
 target-version = "py310"
 
+[tool.ruff.lint]
+ignore = [
+    "BLE001",
+    "DTZ001",
+    "DTZ005",
+    "DTZ006",
+    "EXE001",
+    "LOG015",
+    "PLW1510",
+    "S110",
+    "SIM102",
+]
+
 [tool.stitcher]
 scan_paths = ["packages"]

@@ -1,10 +1,11 @@
 import logging
 import shutil
-from typing import List
 
 from needle.pointer import L
+
 from quipu.common.bus import bus
-from quipu.spec.protocols.runtime import ActContext, ExecutorProtocol as Executor
+from quipu.spec.protocols.runtime import ActContext
+from quipu.spec.protocols.runtime import ExecutorProtocol as Executor
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ def register(executor: Executor):
     executor.register("delete_file", _delete_file, arg_mode="exclusive")
 
 
-def _move_file(ctx: ActContext, args: List[str]):
+def _move_file(ctx: ActContext, args: list[str]):
     if len(args) < 2:
         ctx.fail(bus.render_to_string(L.acts.error.missingArgs, act_name="move_file", count=2, signature="[src, dest]"))
 
@@ -38,7 +39,7 @@ def _move_file(ctx: ActContext, args: List[str]):
     bus.success(L.acts.refactor.success.moved, source=src_raw, destination=dest_raw)
 
 
-def _delete_file(ctx: ActContext, args: List[str]):
+def _delete_file(ctx: ActContext, args: list[str]):
     if len(args) < 1:
         ctx.fail(bus.render_to_string(L.acts.error.missingArgs, act_name="delete_file", count=1, signature="[path]"))
 

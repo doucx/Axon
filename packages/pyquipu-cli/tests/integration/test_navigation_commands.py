@@ -14,7 +14,7 @@ def populated_workspace(quipu_workspace):
 
 
 def test_cli_back_forward_flow(runner, populated_workspace, monkeypatch):
-    workspace, hash_a, hash_b = populated_workspace
+    workspace, hash_a, _hash_b = populated_workspace
     mock_bus_nav = MagicMock()
     mock_bus_helper = MagicMock()
     monkeypatch.setattr("quipu.cli.commands.navigation.bus", mock_bus_nav)
@@ -41,7 +41,7 @@ def test_cli_back_forward_flow(runner, populated_workspace, monkeypatch):
 
 
 def test_cli_boundary_messages(runner, populated_workspace, monkeypatch):
-    workspace, hash_a, hash_b = populated_workspace
+    workspace, hash_a, _hash_b = populated_workspace
     mock_bus = MagicMock()
     monkeypatch.setattr("quipu.cli.commands.navigation.bus", mock_bus)
 

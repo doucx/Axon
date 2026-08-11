@@ -1,4 +1,3 @@
-from typing import List, Optional
 
 import click
 import typer
@@ -7,7 +6,7 @@ from quipu.common.bus import bus
 from quipu.spec.exceptions import OperationCancelledError
 
 
-def confirmation_handler_for_executor(diff_lines: List[str], prompt: str) -> bool:
+def confirmation_handler_for_executor(diff_lines: list[str], prompt: str) -> bool:
     # 原始逻辑是 `char.lower() != "n"`，这相当于默认为 True
     confirmed = prompt_for_confirmation(prompt=prompt, diff_lines=diff_lines, default=True)
     if not confirmed:
@@ -17,7 +16,7 @@ def confirmation_handler_for_executor(diff_lines: List[str], prompt: str) -> boo
     return True
 
 
-def prompt_for_confirmation(prompt: str, diff_lines: Optional[List[str]] = None, default: bool = False) -> bool:
+def prompt_for_confirmation(prompt: str, diff_lines: list[str] | None = None, default: bool = False) -> bool:
     if diff_lines:
         bus.info(L.prompt.ui.diffHeader)
         for line in diff_lines:

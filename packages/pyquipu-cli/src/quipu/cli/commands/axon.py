@@ -2,7 +2,7 @@ import inspect
 import logging
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from needle.pointer import L
@@ -20,7 +20,7 @@ def register(app: typer.Typer):
     def axon_command(
         ctx: typer.Context,
         file: Annotated[
-            Optional[Path], typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
+            Path | None, typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
         ] = None,
         work_dir: Annotated[
             Path,

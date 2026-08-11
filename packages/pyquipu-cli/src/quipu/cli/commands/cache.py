@@ -31,7 +31,7 @@ def cache_sync(
             pass
         bus.success(L.cache.sync.success)
     except Exception as e:
-        logger.error("数据同步失败", exc_info=True)
+        logger.exception("数据同步失败")
         bus.error(L.cache.sync.error, error=str(e))
         ctx.exit(1)
 

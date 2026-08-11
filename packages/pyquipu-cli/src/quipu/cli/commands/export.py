@@ -2,7 +2,7 @@ import logging
 import re
 import shutil
 from pathlib import Path
-from typing import Annotated, Dict, List, Optional, Set
+from typing import Annotated
 
 import typer
 import yaml
@@ -49,9 +49,9 @@ def _format_frontmatter(node: QuipuNode) -> str:
 
 def _generate_navbar(
     current_node: QuipuNode,
-    exported_hashes_set: Set[str],
-    filename_map: Dict[str, str],
-    hidden_link_types: Set[str],
+    exported_hashes_set: set[str],
+    filename_map: dict[str, str],
+    hidden_link_types: set[str],
 ) -> str:
     nav_links = []
 
@@ -102,9 +102,9 @@ def _generate_file_content(
     engine: Engine,
     no_frontmatter: bool,
     no_nav: bool,
-    exported_hashes_set: Set[str],
-    filename_map: Dict[str, str],
-    hidden_link_types: Set[str],
+    exported_hashes_set: set[str],
+    filename_map: dict[str, str],
+    hidden_link_types: set[str],
 ) -> str:
     parts = []
     if not no_frontmatter:
@@ -138,14 +138,14 @@ def register(app: typer.Typer):
         output_dir: Annotated[Path, typer.Option("--output-dir", "-o", help="导出目录", resolve_path=True)] = Path(
             "./.quipu/export"
         ),
-        limit: Annotated[Optional[int], typer.Option("--limit", "-n", help="限制最新节点数量")] = None,
-        since: Annotated[Optional[str], typer.Option("--since", help="起始时间戳 (YYYY-MM-DD HH:MM)")] = None,
-        until: Annotated[Optional[str], typer.Option("--until", help="截止时间戳 (YYYY-MM-DD HH:MM)")] = None,
+        limit: Annotated[int | None, typer.Option("--limit", "-n", help="限制最新节点数量")] = None,
+        since: Annotated[str | None, typer.Option("--since", help="起始时间戳 (YYYY-MM-DD HH:MM)")] = None,
+        until: Annotated[str | None, typer.Option("--until", help="截止时间戳 (YYYY-MM-DD HH:MM)")] = None,
         zip_output: Annotated[bool, typer.Option("--zip", help="压缩导出目录")] = False,
         no_nav: Annotated[bool, typer.Option("--no-nav", help="禁用导航栏")] = False,
         no_frontmatter: Annotated[bool, typer.Option("--no-frontmatter", help="禁用 Frontmatter")] = False,
         hide_link_type: Annotated[
-            Optional[List[str]],
+            list[str] | None,
             typer.Option(
                 "--hide-link-type", help="禁用特定类型的导航链接 (可多次使用: summary, branch, parent, child)"
             ),

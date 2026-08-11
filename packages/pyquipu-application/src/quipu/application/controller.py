@@ -1,16 +1,16 @@
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Dict, List
 
 from quipu.acts import register_core_acts
+from quipu.runtime.executor import Executor
+from quipu.runtime.parser import detect_best_parser, get_parser
 from quipu.spec.constants import EMPTY_TREE_HASH
-from quipu.spec.protocols.engine import QuipuEngine
 from quipu.spec.exceptions import ExecutionError as CoreExecutionError
 from quipu.spec.exceptions import OperationCancelledError
 from quipu.spec.models.execution import QuipuResult
-from quipu.runtime.executor import Executor
-from quipu.runtime.parser import detect_best_parser, get_parser
+from quipu.spec.protocols.engine import QuipuEngine
 
 from .factory import create_engine
 from .plugin_manager import PluginManager
@@ -18,7 +18,7 @@ from .plugin_manager import PluginManager
 logger = logging.getLogger(__name__)
 
 
-def get_available_acts(work_dir: Path) -> Dict[str, str]:
+def get_available_acts(work_dir: Path) -> dict[str, str]:
     # A dummy confirmation handler is used as it's not required for listing.
     # Yolo=True ensures no interactive prompts can be triggered.
     executor = Executor(
@@ -34,7 +34,7 @@ def get_available_acts(work_dir: Path) -> Dict[str, str]:
 # 定义 ConfirmationHandler 类型别名: (diff_lines, prompt) -> bool
 # 注意: Executor 期望如果不确认则抛出异常，或者返回 False (取决于 Executor 实现)。
 # 为了保持与 CLI 行为一致，调用方传入的 handler 应该在用户拒绝时抛出 OperationCancelledError。
-ConfirmationHandler = Callable[[List[str], str], bool]
+ConfirmationHandler = Callable[[list[str], str], bool]
 
 
 class QuipuApplication:
@@ -158,7 +158,7 @@ def run_quipu(
         )
 
     except Exception as e:
-        logger.error(f"运行时错误: {e}", exc_info=True)
+        logger.exception("运行时错误")
         return QuipuResult(
             success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
         )
@@ -208,7 +208,7 @@ def run_stateless_plan(
             success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
         )
     except Exception as e:
-        logger.error(f"运行时错误: {e}", exc_info=True)
+        logger.exception("运行时错误")
         return QuipuResult(
             success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
         )

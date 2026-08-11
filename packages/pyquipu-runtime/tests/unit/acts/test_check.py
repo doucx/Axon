@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 from quipu.acts.check import register as register_check_acts
+from quipu.runtime.executor import Executor
 from quipu.spec.exceptions import ExecutionError
 from quipu.spec.protocols.runtime import ActContext
-from quipu.runtime.executor import Executor
 
 
 class TestCheckActs:

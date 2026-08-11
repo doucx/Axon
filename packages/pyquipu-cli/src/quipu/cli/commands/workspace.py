@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from needle.pointer import L
@@ -15,7 +15,7 @@ def register(app: typer.Typer):
     @app.command(help="将当前工作区的变更创建为一个新的快照节点。")
     def save(
         ctx: typer.Context,
-        message: Annotated[Optional[str], typer.Argument(help="本次快照的简短描述。")] = None,
+        message: Annotated[str | None, typer.Argument(help="本次快照的简短描述。")] = None,
         work_dir: Annotated[
             Path,
             typer.Option(

@@ -1,11 +1,12 @@
 import logging
 import os
 from pathlib import Path
-from typing import List
 
 from needle.pointer import L
+
 from quipu.common.bus import bus
-from quipu.spec.protocols.runtime import ActContext, ExecutorProtocol as Executor
+from quipu.spec.protocols.runtime import ActContext
+from quipu.spec.protocols.runtime import ExecutorProtocol as Executor
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ def register(executor: Executor):
     executor.register("check_cwd_match", _check_cwd_match, arg_mode="exclusive")
 
 
-def _check_files_exist(ctx: ActContext, args: List[str]):
+def _check_files_exist(ctx: ActContext, args: list[str]):
     if len(args) < 1:
         ctx.fail(
             bus.render_to_string(
@@ -42,7 +43,7 @@ def _check_files_exist(ctx: ActContext, args: List[str]):
     bus.success(L.acts.check.success.filesExist)
 
 
-def _check_cwd_match(ctx: ActContext, args: List[str]):
+def _check_cwd_match(ctx: ActContext, args: list[str]):
     if len(args) < 1:
         ctx.fail(
             bus.render_to_string(

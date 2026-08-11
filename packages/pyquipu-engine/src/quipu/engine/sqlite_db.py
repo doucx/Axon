@@ -1,7 +1,6 @@
 import logging
 import sqlite3
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +9,7 @@ class DatabaseManager:
     def __init__(self, work_dir: Path):
         self.db_path = work_dir / ".quipu" / "history.sqlite"
         self.db_path.parent.mkdir(exist_ok=True)
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -98,7 +97,7 @@ class DatabaseManager:
             logger.error(f"❌ 数据库写入失败: {e} | SQL: {sql}")
             raise
 
-    def get_all_node_hashes(self) -> Set[str]:
+    def get_all_node_hashes(self) -> set[str]:
         conn = self._get_conn()
         try:
             cursor = conn.execute("SELECT commit_hash FROM nodes;")
@@ -107,7 +106,7 @@ class DatabaseManager:
             logger.error(f"❌ 查询节点哈希失败: {e}")
             return set()
 
-    def batch_insert_nodes(self, nodes: List[Tuple]):
+    def batch_insert_nodes(self, nodes: list[tuple]):
         conn = self._get_conn()
         sql = """
             INSERT OR IGNORE INTO nodes 
@@ -121,7 +120,7 @@ class DatabaseManager:
             logger.error(f"❌ 批量插入节点失败: {e}")
             raise
 
-    def batch_insert_edges(self, edges: List[Tuple]):
+    def batch_insert_edges(self, edges: list[tuple]):
         conn = self._get_conn()
         sql = "INSERT OR IGNORE INTO edges (child_hash, parent_hash) VALUES (?, ?)"
         try:

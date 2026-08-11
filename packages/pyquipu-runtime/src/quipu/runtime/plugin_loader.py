@@ -44,7 +44,7 @@ def load_plugins(executor: Executor, plugin_dir: Path):
 
                 # 查找约定的 'register' 函数
                 if hasattr(module, "register"):
-                    register_func = getattr(module, "register")
+                    register_func = module.register
                     register_func(executor)
                     logger.debug(f"✅ 成功加载插件: {file_path.name}")
                 else:

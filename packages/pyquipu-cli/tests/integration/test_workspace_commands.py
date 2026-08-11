@@ -1,7 +1,7 @@
-from needle.pointer import L
 from unittest import mock
 from unittest.mock import MagicMock
 
+from needle.pointer import L
 from quipu.cli.main import app
 
 

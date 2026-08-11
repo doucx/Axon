@@ -1,12 +1,11 @@
 import math
-from typing import Dict, List, Optional, Set
 
 from quipu.spec.models.graph import QuipuNode
 from quipu.spec.protocols.storage import HistoryReader
 
 
 class GraphViewModel:
-    def __init__(self, reader: HistoryReader, current_output_tree_hash: Optional[str], page_size: int = 50):
+    def __init__(self, reader: HistoryReader, current_output_tree_hash: str | None, page_size: int = 50):
         self.reader = reader
         self.current_output_tree_hash = current_output_tree_hash
         self.page_size = page_size
@@ -18,10 +17,10 @@ class GraphViewModel:
 
         # --- TUI 交互状态 ---
         self.show_unreachable: bool = True
-        self.current_page_nodes: List[QuipuNode] = []
-        self.current_selected_node: Optional[QuipuNode] = None
-        self._node_by_key: Dict[str, QuipuNode] = {}
-        self.reachable_set: Set[str] = set()
+        self.current_page_nodes: list[QuipuNode] = []
+        self.current_selected_node: QuipuNode | None = None
+        self._node_by_key: dict[str, QuipuNode] = {}
+        self.reachable_set: set[str] = set()
 
     def initialize(self):
         self.total_nodes = self.reader.get_node_count()
@@ -58,7 +57,7 @@ class GraphViewModel:
         # e.g. pos 0 -> page 1; pos 49 -> page 1; pos 50 -> page 2
         return (position // self.page_size) + 1
 
-    def load_page(self, page_number: int) -> List[QuipuNode]:
+    def load_page(self, page_number: int) -> list[QuipuNode]:
         if not (1 <= page_number <= self.total_pages):
             self.current_page_nodes = []
             self._node_by_key = {}
@@ -74,26 +73,26 @@ class GraphViewModel:
     def toggle_unreachable(self):
         self.show_unreachable = not self.show_unreachable
 
-    def get_nodes_to_render(self) -> List[QuipuNode]:
+    def get_nodes_to_render(self) -> list[QuipuNode]:
         if self.show_unreachable:
             return self.current_page_nodes
         return [node for node in self.current_page_nodes if self.is_reachable(node.output_tree)]
 
-    def select_node_by_key(self, key: str) -> Optional[QuipuNode]:
+    def select_node_by_key(self, key: str) -> QuipuNode | None:
         node = self._node_by_key.get(key)
         self.current_selected_node = node
         return node
 
-    def get_selected_node(self) -> Optional[QuipuNode]:
+    def get_selected_node(self) -> QuipuNode | None:
         return self.current_selected_node
 
     def get_public_content(self, node: QuipuNode) -> str:
         return self.reader.get_node_content(node) or ""
 
-    def previous_page(self) -> List[QuipuNode]:
+    def previous_page(self) -> list[QuipuNode]:
         return self.load_page(self.current_page - 1)
 
-    def next_page(self) -> List[QuipuNode]:
+    def next_page(self) -> list[QuipuNode]:
         return self.load_page(self.current_page + 1)
 
     def get_content_bundle(self, node: QuipuNode) -> str:
