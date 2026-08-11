@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] refactor(scripts): 重构开发环境配置脚本与 Shell 别名", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786457065.0494432, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "Capture: M uv.lock", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786457682.2489426, "duration_ms": 0}}
