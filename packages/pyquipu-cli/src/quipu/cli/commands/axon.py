@@ -19,9 +19,7 @@ def register(app: typer.Typer):
     @app.command(name="axon", help="无状态执行 Plan 文件，绕过 Quipu 引擎。")
     def axon_command(
         ctx: typer.Context,
-        file: Annotated[
-            Path | None, typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
-        ] = None,
+        file: Annotated[Path | None, typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)] = None,
         work_dir: Annotated[
             Path,
             typer.Option(
