@@ -1,33 +1,28 @@
 #!/bin/bash
 
-# 获取脚本所在目录的绝对路径
-# BASH_SOURCE[0] 是 bash 中获取当前脚本路径的标准方法
+# 获取项目根目录 (scripts/ 的上一级)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# 定义 Python 解释器路径
-STABLE_PYTHON="$SCRIPT_DIR/.envs/stable/bin/python"
-DEV_PYTHON="$SCRIPT_DIR/.envs/dev/bin/python"
-STABLE_BIN="$SCRIPT_DIR/.envs/stable/bin/quipu"
-DEV_BIN="$SCRIPT_DIR/.envs/dev/bin/quipu"
+# 定义可执行文件路径
+STABLE_BIN="$ROOT_DIR/.envs/stable/bin/quipu"
+DEV_BIN="$ROOT_DIR/.envs/dev/bin/quipu"
 
-# qs: Quipu Execute (Stable)
+# 别名定义
+# qs: Quipu Stable (PyPI 发行版，不受本地源码变动影响)
 alias qs="$STABLE_BIN"
 
-# qd: Quipu Dev (Development)
+# qd: Quipu Dev (本地可编辑源码版，实时反映代码修改)
 alias qd="$DEV_BIN"
 
 # qtest: 运行测试
-alias qtest="$SCRIPT_DIR/.envs/dev/bin/pytest"
+alias qtest="$ROOT_DIR/.envs/dev/bin/pytest"
 
 # ruff: 代码格式化与检查
-alias ruff="$SCRIPT_DIR/.envs/dev/bin/ruff"
-
-# qpromote: 晋升代码
-alias qpromote="$STABLE_PYTHON $SCRIPT_DIR/bootstrap.py promote"
+alias ruff="$ROOT_DIR/.envs/dev/bin/ruff"
 
 echo "✅ Quipu 开发环境已激活 (Bash)"
-echo "  🔹 qs [...]  -> 稳定版 (用于干活)"
-echo "  🔸 qd [...]  -> 开发版 (用于调试)"
+echo "  🔹 qs [...]  -> Stable 稳定版 (PyPI 安装，用于作为基础设施)"
+echo "  🔸 qd [...]  -> Dev 开发版 (本地源码，用于实时调试与测试)"
 echo "  🧪 qtest     -> 运行测试"
 echo "  💅 ruff      -> 代码格式化与检查"
-echo "  🚀 qpromote  -> 将当前代码快照更新到 qs"
