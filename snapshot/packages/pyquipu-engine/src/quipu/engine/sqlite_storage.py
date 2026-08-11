@@ -3,12 +3,12 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from quipu.engine.git_object_storage import GitObjectHistoryReader, GitObjectHistoryWriter
+from quipu.spec.constants import EMPTY_TREE_HASH
 from quipu.spec.models.graph import QuipuNode
 
-from quipu.spec.constants import EMPTY_TREE_HASH
 from .git_db import GitDB
 from .sqlite_db import DatabaseManager
 
@@ -21,14 +21,14 @@ class SQLiteHistoryReader:
         # git_reader 用于按需加载内容和解析二进制 tree
         self._git_reader = GitObjectHistoryReader(git_db)
 
-    def load_all_nodes(self) -> List[QuipuNode]:
+    def load_all_nodes(self) -> list[QuipuNode]:
         conn = self.db_manager._get_conn()
 
         # 1. 一次性获取所有节点元数据
         nodes_cursor = conn.execute("SELECT * FROM nodes ORDER BY timestamp DESC;")
         nodes_data = nodes_cursor.fetchall()
 
-        temp_nodes: Dict[str, QuipuNode] = {}
+        temp_nodes: dict[str, QuipuNode] = {}
         for row in nodes_data:
             commit_hash = row["commit_hash"]
             node = QuipuNode(
@@ -110,7 +110,7 @@ class SQLiteHistoryReader:
             logger.error(f"Failed to get node position: {e}")
             return -1
 
-    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+    def load_nodes_paginated(self, limit: int, offset: int) -> list[QuipuNode]:
         conn = self.db_manager._get_conn()
         try:
             # 1. Fetch nodes
@@ -187,7 +187,7 @@ class SQLiteHistoryReader:
             logger.error(f"Failed to load paginated nodes: {e}")
             return []
 
-    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> set[str]:
         conn = self.db_manager._get_conn()
         try:
             cursor = conn.execute("SELECT commit_hash FROM nodes WHERE output_tree = ?", (start_output_tree_hash,))
@@ -220,7 +220,7 @@ class SQLiteHistoryReader:
             logger.error(f"Failed to get descendants for {start_output_tree_hash[:7]}: {e}")
             return set()
 
-    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> set[str]:
         conn = self.db_manager._get_conn()
         try:
             cursor = conn.execute("SELECT commit_hash FROM nodes WHERE output_tree = ?", (start_output_tree_hash,))
@@ -253,7 +253,7 @@ class SQLiteHistoryReader:
             logger.error(f"Failed to get ancestors for {start_output_tree_hash[:7]}: {e}")
             return set()
 
-    def get_private_data(self, node_commit_hash: str) -> Optional[str]:
+    def get_private_data(self, node_commit_hash: str) -> str | None:
         conn = self.db_manager._get_conn()
         try:
             cursor = conn.execute("SELECT intent_md FROM private_data WHERE node_hash = ?", (node_commit_hash,))
@@ -263,7 +263,7 @@ class SQLiteHistoryReader:
             logger.error(f"Failed to get private data for {node_commit_hash[:7]}: {e}")
             return None
 
-    def get_node_blobs(self, commit_hash: str) -> Dict[str, bytes]:
+    def get_node_blobs(self, commit_hash: str) -> dict[str, bytes]:
         return self._git_reader.get_node_blobs(commit_hash)
 
     def get_node_content(self, node: QuipuNode) -> str:
@@ -289,10 +289,10 @@ class SQLiteHistoryReader:
 
     def find_nodes(
         self,
-        summary_regex: Optional[str] = None,
-        node_type: Optional[str] = None,
+        summary_regex: str | None = None,
+        node_type: str | None = None,
         limit: int = 10,
-    ) -> List[QuipuNode]:
+    ) -> list[QuipuNode]:
         query = "SELECT * FROM nodes"
         conditions = []
         params = []

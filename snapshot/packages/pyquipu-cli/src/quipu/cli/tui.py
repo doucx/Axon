@@ -1,7 +1,7 @@
 import logging
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from quipu.application.factory import create_engine
 from quipu.engine.state_machine import Engine
@@ -54,12 +54,12 @@ class QuipuUiApp(App[Optional[UiResult]]):
     def __init__(self, work_dir: Path, initial_raw_mode: bool = False):
         super().__init__()
         self.work_dir = work_dir
-        self.engine: Optional[Engine] = None
-        self.view_model: Optional[GraphViewModel] = None
+        self.engine: Engine | None = None
+        self.view_model: GraphViewModel | None = None
 
         # --- State Machine ---
         self.content_view_state = ContentViewSate.HIDDEN
-        self.update_timer: Optional[Timer] = None
+        self.update_timer: Timer | None = None
         self.debounce_delay_seconds: float = 0.50
         self.markdown_enabled = not initial_raw_mode
 
@@ -177,10 +177,10 @@ class QuipuUiApp(App[Optional[UiResult]]):
         self._focus_current_node(table)
         self._update_header()
 
-    def _populate_table(self, table: DataTable, nodes: List[QuipuNode]):
+    def _populate_table(self, table: DataTable, nodes: list[QuipuNode]):
         assert self.view_model is not None
         # 移除了过滤逻辑，因为 ViewModel 已经处理
-        tracks: list[Optional[str]] = []
+        tracks: list[str | None] = []
 
         for node in nodes:
             is_reachable = self.view_model.is_reachable(node.output_tree)

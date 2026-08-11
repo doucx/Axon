@@ -103,7 +103,7 @@ class TestSyncModes:
 
     def test_pull_prune_mode(self, sync_test_environment):
         """User B has a stale local ref that should be pruned after pulling."""
-        remote_path, user_a_path, user_b_path = sync_test_environment
+        remote_path, _user_a_path, user_b_path = sync_test_environment
         user_b_id = get_user_id_from_email("user.b@example.com")
 
         # User B creates two nodes and pushes

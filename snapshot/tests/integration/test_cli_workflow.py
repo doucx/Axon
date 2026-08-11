@@ -169,7 +169,7 @@ class TestCheckoutCLI:
 
     def test_cli_checkout_success(self, populated_workspace):
         """Test checking out from State B to State A."""
-        workspace, hash_a, hash_b = populated_workspace
+        workspace, hash_a, _hash_b = populated_workspace
 
         # Pre-flight check: we are in state B
         assert not (workspace / "a.txt").exists()
@@ -190,7 +190,7 @@ class TestCheckoutCLI:
         """Test that a dirty state is captured before checkout."""
         from quipu.application.factory import create_engine
 
-        workspace, hash_a, hash_b = populated_workspace
+        workspace, hash_a, _hash_b = populated_workspace
 
         # Make the workspace dirty
         (workspace / "c_dirty.txt").write_text("uncommitted change")

@@ -4,7 +4,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from typer.testing import CliRunner
 
@@ -13,7 +13,6 @@ from quipu.engine.state_machine import Engine
 from quipu.spec.constants import EMPTY_TREE_HASH
 from quipu.spec.models.graph import QuipuNode
 from quipu.spec.protocols.storage import HistoryReader, HistoryWriter
-
 
 # --- Git-based Test Helpers ---
 
@@ -37,12 +36,12 @@ def create_capture_node_with_change(engine: Engine, file_name: str, content: str
 
 class VirtualFileSystem:
     def __init__(self):
-        self._files: Dict[str, str] = {}
+        self._files: dict[str, str] = {}
 
     def write(self, path: str, content: str):
         self._files[path] = content
 
-    def read(self, path: str) -> Optional[str]:
+    def read(self, path: str) -> str | None:
         return self._files.get(path)
 
     def copy(self) -> "VirtualFileSystem":
@@ -51,15 +50,15 @@ class VirtualFileSystem:
         return new_vfs
 
     @property
-    def files(self) -> Dict[str, str]:
+    def files(self) -> dict[str, str]:
         return self._files
 
 
 class InMemoryDB:
     def __init__(self):
         self.vfs = VirtualFileSystem()
-        self.snapshots: Dict[str, VirtualFileSystem] = {EMPTY_TREE_HASH: VirtualFileSystem()}
-        self.nodes: Dict[str, QuipuNode] = {}  # output_tree -> Node
+        self.snapshots: dict[str, VirtualFileSystem] = {EMPTY_TREE_HASH: VirtualFileSystem()}
+        self.nodes: dict[str, QuipuNode] = {}  # output_tree -> Node
 
     def get_tree_hash(self) -> str:
         if not self.vfs.files:
@@ -76,14 +75,14 @@ class InMemoryDB:
             self.snapshots[tree_hash] = self.vfs.copy()
         return tree_hash
 
-    def checkout_tree(self, new_tree_hash: str, old_tree_hash: Optional[str] = None):
+    def checkout_tree(self, new_tree_hash: str, old_tree_hash: str | None = None):
         # InMemoryDB 总是执行“瞬间切换”，不需要模拟 diff 优化逻辑
         tree_hash = new_tree_hash
         if tree_hash not in self.snapshots:
             raise FileNotFoundError(f"In-memory snapshot not found for hash: {tree_hash}")
         self.vfs = self.snapshots[tree_hash].copy()
 
-    def get_diff_name_status(self, old_tree: str, new_tree: str) -> List[Tuple[str, str]]:
+    def get_diff_name_status(self, old_tree: str, new_tree: str) -> list[tuple[str, str]]:
         old_vfs = self.snapshots.get(old_tree, VirtualFileSystem()).files
         new_vfs = self.snapshots.get(new_tree, VirtualFileSystem()).files
 
@@ -119,7 +118,7 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
         input_tree: str,
         output_tree: str,
         content: str,
-        summary_override: Optional[str] = None,
+        summary_override: str | None = None,
         **kwargs: Any,
     ) -> QuipuNode:
         fake_commit_hash = hashlib.sha1(f"{output_tree}{content}{time.time()}".encode()).hexdigest()
@@ -144,23 +143,23 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
         self.db.nodes[output_tree] = node
         return node
 
-    def load_all_nodes(self) -> List[QuipuNode]:
+    def load_all_nodes(self) -> list[QuipuNode]:
         # The relationships are already built, just return the list
-        return sorted(list(self.db.nodes.values()), key=lambda n: n.timestamp)
+        return sorted(self.db.nodes.values(), key=lambda n: n.timestamp)
 
     def get_node_count(self) -> int:
         return len(self.db.nodes)
 
-    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+    def load_nodes_paginated(self, limit: int, offset: int) -> list[QuipuNode]:
         all_nodes = sorted(self.db.nodes.values(), key=lambda n: n.timestamp, reverse=True)
         return all_nodes[offset : offset + limit]
 
     def find_nodes(
         self,
-        summary_regex: Optional[str] = None,
-        node_type: Optional[str] = None,
+        summary_regex: str | None = None,
+        node_type: str | None = None,
         limit: int = 10,
-    ) -> List[QuipuNode]:
+    ) -> list[QuipuNode]:
         candidates = list(self.db.nodes.values())
 
         if summary_regex:
@@ -179,7 +178,7 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
     def get_node_content(self, node: QuipuNode) -> str:
         return node.content
 
-    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> set[str]:
         ancestors = set()
         if start_output_tree_hash not in self.db.nodes:
             return ancestors
@@ -191,7 +190,7 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
             curr = parent_node
         return ancestors
 
-    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> set[str]:
         descendants = set()
         if start_output_tree_hash not in self.db.nodes:
             return descendants
@@ -215,10 +214,10 @@ class InMemoryHistoryManager(HistoryReader, HistoryWriter):
                 return i
         return -1
 
-    def get_private_data(self, node_commit_hash: str) -> Optional[str]:
+    def get_private_data(self, node_commit_hash: str) -> str | None:
         return None
 
-    def get_node_blobs(self, commit_hash: str) -> Dict[str, bytes]:
+    def get_node_blobs(self, commit_hash: str) -> dict[str, bytes]:
         return {}
 
 
@@ -325,7 +324,7 @@ def create_complex_link_history(engine: Engine) -> Engine:
     return engine
 
 
-def create_linear_history(engine: Engine) -> Tuple[Engine, Dict[str, str]]:
+def create_linear_history(engine: Engine) -> tuple[Engine, dict[str, str]]:
     ws = engine.root_dir
 
     # State A
@@ -343,7 +342,7 @@ def create_linear_history(engine: Engine) -> Tuple[Engine, Dict[str, str]]:
     return engine, hashes
 
 
-def create_dirty_workspace_history(engine: Engine) -> Tuple[Engine, str]:
+def create_dirty_workspace_history(engine: Engine) -> tuple[Engine, str]:
     work_dir = engine.root_dir
     file_path = work_dir / "file.txt"
 
@@ -362,11 +361,11 @@ def create_dirty_workspace_history(engine: Engine) -> Tuple[Engine, str]:
     return engine, hash_a
 
 
-def create_linear_history_from_specs(engine: Engine, specs: List[Dict[str, Any]]):
+def create_linear_history_from_specs(engine: Engine, specs: list[dict[str, Any]]):
     parent_hash = EMPTY_TREE_HASH
     if engine.history_graph:
         # If history is not empty, start from the latest node
-        latest_node = sorted(engine.history_graph.values(), key=lambda n: n.timestamp)[-1]
+        latest_node = max(engine.history_graph.values(), key=lambda n: n.timestamp)
         parent_hash = latest_node.output_tree
 
     for i, spec in enumerate(specs):
@@ -389,7 +388,7 @@ def create_linear_history_from_specs(engine: Engine, specs: List[Dict[str, Any]]
     engine.align()
 
 
-def create_query_branching_history(engine: Engine) -> Tuple[Engine, str]:
+def create_query_branching_history(engine: Engine) -> tuple[Engine, str]:
     ws = engine.root_dir
     # root -> A
     (ws / "f_a").touch()

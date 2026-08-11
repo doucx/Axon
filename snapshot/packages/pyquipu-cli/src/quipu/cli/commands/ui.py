@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from quipu.application.factory import create_engine
 from needle.pointer import L
+from quipu.application.factory import create_engine
 from quipu.common.bus import bus
 
 from ..config import DEFAULT_WORK_DIR, LOG_LEVEL

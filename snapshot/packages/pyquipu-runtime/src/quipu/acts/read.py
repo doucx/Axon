@@ -5,12 +5,13 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List
 
 from needle.pointer import L
+
 from quipu.common.bus import bus
 from quipu.spec.exceptions import ExecutionError
-from quipu.spec.protocols.runtime import ActContext, ExecutorProtocol as Executor
+from quipu.spec.protocols.runtime import ActContext
+from quipu.spec.protocols.runtime import ExecutorProtocol as Executor
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class SafeArgumentParser(argparse.ArgumentParser):
             raise ExecutionError(message)
 
 
-def _search_files(ctx: ActContext, args: List[str]):
+def _search_files(ctx: ActContext, args: list[str]):
     parser = SafeArgumentParser(prog="search_files", add_help=False)
     parser.add_argument("pattern", help="搜索内容的正则表达式")
     parser.add_argument("--path", "-p", default=".", help="搜索的根目录")
@@ -92,7 +93,7 @@ def _python_search(ctx: ActContext, start_path: Path, pattern_str: str):
         bus.info(L.acts.read.info.noMatchPython)
 
 
-def _read_file(ctx: ActContext, args: List[str]):
+def _read_file(ctx: ActContext, args: list[str]):
     if not args:
         ctx.fail(bus.render_to_string(L.acts.error.missingArgs, act_name="read_file", count=1, signature="[path]"))
 
@@ -112,7 +113,7 @@ def _read_file(ctx: ActContext, args: List[str]):
         ctx.fail(bus.render_to_string(L.acts.read.error.readFailed, error=e))
 
 
-def _list_files(ctx: ActContext, args: List[str]):
+def _list_files(ctx: ActContext, args: list[str]):
     parser = SafeArgumentParser(prog="list_files", add_help=False)
     parser.add_argument("path", nargs="?", default=".", help="目标目录")
     parser.add_argument("--tree", "-t", action="store_true", help="以树状结构递归显示")
@@ -137,7 +138,7 @@ def _list_files(ctx: ActContext, args: List[str]):
             output.append(f"{indent}└── {path_object.name}{'/' if path_object.is_dir() else ''}")
     else:
         bus.info(L.acts.read.info.listingDir, path=target_dir)
-        items = sorted(list(target_dir.iterdir()), key=lambda p: (p.is_file(), p.name.lower()))
+        items = sorted(target_dir.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
         for item in items:
             if item.name.startswith("."):
                 continue

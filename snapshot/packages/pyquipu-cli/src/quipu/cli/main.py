@@ -1,6 +1,6 @@
 import importlib.metadata
 import logging
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from quipu.common.bus import bus
@@ -54,14 +54,13 @@ app.add_typer(cache.cache_app)
 @app.callback()
 def main(
     version: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--version", "-V", callback=version_callback, is_eager=True, help="显示版本信息并退出。"),
     ] = None,
 ):
     """
     Quipu: 一个基于 Git 的、用于文件系统状态溯源与文学化操作的工具。
     """
-    pass
 
 
 # 注册顶级命令

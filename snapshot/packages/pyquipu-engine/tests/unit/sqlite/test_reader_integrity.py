@@ -1,6 +1,5 @@
 import subprocess
 import time
-from typing import List
 
 import pytest
 from quipu.engine.git_db import GitDB
@@ -30,7 +29,7 @@ def repo_with_sqlite_db(tmp_path):
     db_manager.close()
 
 
-def _has_cycle(nodes: List[QuipuNode]) -> bool:
+def _has_cycle(nodes: list[QuipuNode]) -> bool:
     # A set for all nodes visited during the entire traversal, to avoid re-checking paths
     global_visited = set()
     for node in nodes:

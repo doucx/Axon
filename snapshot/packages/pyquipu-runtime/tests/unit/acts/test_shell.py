@@ -1,10 +1,9 @@
-from typing import List
 
 import pytest
 from quipu.acts.shell import register as register_shell_acts
+from quipu.runtime.executor import Executor
 from quipu.spec.exceptions import ExecutionError
 from quipu.spec.protocols.runtime import ActContext, Statement
-from quipu.runtime.executor import Executor
 
 
 class TestShellActs:
@@ -32,7 +31,7 @@ class TestShellActs:
 
     def test_run_command_does_not_swallow_blocks(self, executor: Executor, mock_runtime_bus):
         # 模拟解析器输出两个独立的指令
-        statements: List[Statement] = [
+        statements: list[Statement] = [
             {"act": "run_command", "contexts": ["echo 'first'"]},
             {"act": "echo", "contexts": ["second"]},
         ]

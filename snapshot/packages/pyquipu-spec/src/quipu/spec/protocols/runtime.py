@@ -1,6 +1,9 @@
 from __future__ import annotations
+
+from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, List, Callable, runtime_checkable, TypedDict, NoReturn, Any
+from typing import Any, NoReturn, Protocol, TypedDict, runtime_checkable
+
 from ..exceptions import ExecutionError
 
 
@@ -36,11 +39,11 @@ class ActContext:
 
 class Statement(TypedDict):
     act: str
-    contexts: List[str]
+    contexts: list[str]
 
 
 # Act 函数签名定义: (context, args) -> None
-ActFunction = Callable[[ActContext, List[str]], None]
+ActFunction = Callable[[ActContext, list[str]], None]
 
 # Summarizer 函数签名定义: (args, context_blocks) -> str
-Summarizer = Callable[[List[str], List[str]], str]
+Summarizer = Callable[[list[str], list[str]], str]

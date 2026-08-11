@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Protocol
 
 from needle.bus import FeedbackBus
 from needle.operators import I18NFactoryOperator, OverlayOperator
@@ -16,7 +16,7 @@ class QuipuRendererProtocol(RendererProtocol, Protocol):
 
 # --- 2. 定义支持 data 的 Bus 子类 ---
 class QuipuBus(FeedbackBus):
-    _renderer: Optional[QuipuRendererProtocol]  # type: ignore
+    _renderer: QuipuRendererProtocol | None  # type: ignore
 
     def data(self, data_string: str) -> None:
         if self._renderer and hasattr(self._renderer, "data"):
@@ -54,4 +54,4 @@ else:
 bus = QuipuBus()
 bus.set_operator(_nexus)
 
-__all__ = ["bus", "QuipuBus", "QuipuRendererProtocol"]
+__all__ = ["QuipuBus", "QuipuRendererProtocol", "bus"]

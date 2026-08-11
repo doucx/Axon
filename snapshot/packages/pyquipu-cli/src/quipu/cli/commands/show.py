@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated
 
 import typer
 from needle.pointer import L
@@ -15,7 +15,7 @@ from .helpers import engine_context
 logger = logging.getLogger(__name__)
 
 
-def _find_target_node(graph: Dict, hash_prefix: str):
+def _find_target_node(graph: dict, hash_prefix: str):
     matches = [
         node
         for node in graph.values()
@@ -48,7 +48,7 @@ def register(app: typer.Typer):
         ] = DEFAULT_WORK_DIR,
         json_output: Annotated[bool, typer.Option("--json", help="以 JSON 格式将结果输出到 stdout。")] = False,
         extract: Annotated[
-            Optional[List[str]], typer.Option("--extract", "-e", help="仅提取并显示指定文件的内容 (可多次使用)。")
+            list[str] | None, typer.Option("--extract", "-e", help="仅提取并显示指定文件的内容 (可多次使用)。")
         ] = None,
     ):
         with engine_context(work_dir) as engine:

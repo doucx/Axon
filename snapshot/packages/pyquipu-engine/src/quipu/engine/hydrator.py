@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
 
 from .git_db import GitDB
 from .git_object_storage import GitObjectHistoryReader  # Reuse parsing logic
@@ -17,7 +16,7 @@ class Hydrator:
         # 复用 Reader 中的二进制解析逻辑，避免代码重复
         self._parser = GitObjectHistoryReader(git_db)
 
-    def _get_owner_from_ref(self, ref_name: str, local_user_id: str) -> Optional[str]:
+    def _get_owner_from_ref(self, ref_name: str, local_user_id: str) -> str | None:
         remote_match = re.match(r"refs/quipu/remotes/[^/]+/([^/]+)/heads/.*", ref_name)
         if remote_match:
             return remote_match.group(1)
@@ -25,18 +24,15 @@ class Hydrator:
             return local_user_id
         return None
 
-    def _get_commit_owners(self, local_user_id: str) -> Dict[str, str]:
+    def _get_commit_owners(self, local_user_id: str) -> dict[str, str]:
         # 1. 获取所有分支末端 (heads) 及其直接所有者
         head_ref_tuples = self.git_db.get_all_ref_heads("refs/quipu/")
-        head_owners: Dict[str, str] = {}
+        head_owners: dict[str, str] = {}
         for commit_hash, ref_name in head_ref_tuples:
             # 优先级：远程所有者 > 本地所有者。避免本地 ref 覆盖正确的远程所有者。
             owner_id = self._get_owner_from_ref(ref_name, local_user_id)
-            if owner_id:
-                if ref_name.startswith("refs/quipu/remotes"):
-                    head_owners[commit_hash] = owner_id
-                elif commit_hash not in head_owners:
-                    head_owners[commit_hash] = owner_id
+            if owner_id and (ref_name.startswith("refs/quipu/remotes") or commit_hash not in head_owners):
+                head_owners[commit_hash] = owner_id
 
         if not head_owners:
             return {}
@@ -46,7 +42,7 @@ class Hydrator:
         log_map = {entry["hash"]: entry for entry in all_git_logs}
 
         # 3. 从 Heads 开始，通过图遍历传播所有权
-        final_commit_owners: Dict[str, str] = {}
+        final_commit_owners: dict[str, str] = {}
         queue = list(head_owners.keys())
 
         # 将 head 节点预先填入，作为遍历的起点
@@ -97,14 +93,14 @@ class Hydrator:
         logger.info(f"发现 {len(missing_hashes)} 个需要补水的节点。")
 
         # --- 阶段 2: 批量准备数据 ---
-        nodes_to_insert: List[Tuple] = []
-        edges_to_insert: List[Tuple] = []
+        nodes_to_insert: list[tuple] = []
+        edges_to_insert: list[tuple] = []
 
         tree_hashes = [log_map[h]["tree"] for h in missing_hashes if h in log_map]
         trees_content = self.git_db.batch_cat_file(tree_hashes)
 
-        tree_to_meta_blob: Dict[str, str] = {}
-        meta_blob_hashes: List[str] = []
+        tree_to_meta_blob: dict[str, str] = {}
+        meta_blob_hashes: list[str] = []
         for tree_hash, content_bytes in trees_content.items():
             entries = self._parser._parse_tree_binary(content_bytes)
             if "metadata.json" in entries:

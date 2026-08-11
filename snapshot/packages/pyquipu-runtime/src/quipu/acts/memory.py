@@ -1,10 +1,11 @@
 import logging
 from datetime import datetime
-from typing import List
 
 from needle.pointer import L
+
 from quipu.common.bus import bus
-from quipu.spec.protocols.runtime import ActContext, ExecutorProtocol as Executor
+from quipu.spec.protocols.runtime import ActContext
+from quipu.spec.protocols.runtime import ExecutorProtocol as Executor
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ def register(executor: Executor):
     executor.register("log_thought", _log_thought, arg_mode="block_only")
 
 
-def _log_thought(ctx: ActContext, args: List[str]):
+def _log_thought(ctx: ActContext, args: list[str]):
     if len(args) < 1:
         ctx.fail(bus.render_to_string(L.acts.memory.error.missingContent))
 

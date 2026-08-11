@@ -32,7 +32,7 @@ def register(executor):
         mock_runtime_bus.info.assert_called_with("runtime.plugin.info.loading", plugin_dir=custom_plugin_dir)
 
         # 验证模块是否被正确隔离加载
-        loaded_modules = [m for m in sys.modules.keys() if "quipu_plugin_hello_world" in m]
+        loaded_modules = [m for m in sys.modules if "quipu_plugin_hello_world" in m]
         assert len(loaded_modules) > 0
 
     def test_ignore_invalid_files(self, executor: Executor, custom_plugin_dir):

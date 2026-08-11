@@ -1,6 +1,5 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
 
 import pytest
 from quipu.cli.view_model import GraphViewModel
@@ -11,10 +10,10 @@ from quipu.spec.protocols.storage import HistoryReader
 class MockHistoryReader(HistoryReader):
     def __init__(
         self,
-        nodes: List[QuipuNode],
-        ancestors: Optional[Set[str]] = None,
-        descendants: Optional[Set[str]] = None,
-        private_data: Optional[dict[str, str]] = None,
+        nodes: list[QuipuNode],
+        ancestors: set[str] | None = None,
+        descendants: set[str] | None = None,
+        private_data: dict[str, str] | None = None,
     ):
         self._nodes = sorted(nodes, key=lambda n: n.timestamp, reverse=True)
         self._ancestors = ancestors or set()
@@ -24,13 +23,13 @@ class MockHistoryReader(HistoryReader):
     def get_node_count(self) -> int:
         return len(self._nodes)
 
-    def load_nodes_paginated(self, limit: int, offset: int) -> List[QuipuNode]:
+    def load_nodes_paginated(self, limit: int, offset: int) -> list[QuipuNode]:
         return self._nodes[offset : offset + limit]
 
-    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_ancestor_output_trees(self, start_output_tree_hash: str) -> set[str]:
         return self._ancestors
 
-    def get_descendant_output_trees(self, start_output_tree_hash: str) -> Set[str]:
+    def get_descendant_output_trees(self, start_output_tree_hash: str) -> set[str]:
         return self._descendants
 
     def get_node_position(self, output_tree_hash: str) -> int:
@@ -39,26 +38,26 @@ class MockHistoryReader(HistoryReader):
                 return i
         return -1
 
-    def get_private_data(self, node_commit_hash: str) -> Optional[str]:
+    def get_private_data(self, node_commit_hash: str) -> str | None:
         return self._private_data.get(node_commit_hash)
 
     def get_node_content(self, node: QuipuNode) -> str:
         # For simplicity, mock content is stored in the node's summary
         return node.summary
 
-    def get_node_blobs(self, commit_hash: str) -> Dict[str, bytes]:
+    def get_node_blobs(self, commit_hash: str) -> dict[str, bytes]:
         return {}
 
     # --- Unused abstract methods ---
-    def load_all_nodes(self) -> List[QuipuNode]:
+    def load_all_nodes(self) -> list[QuipuNode]:
         return self._nodes
 
     def find_nodes(
         self,
-        summary_regex: Optional[str] = None,
-        node_type: Optional[str] = None,
+        summary_regex: str | None = None,
+        node_type: str | None = None,
         limit: int = 10,
-    ) -> List[QuipuNode]:
+    ) -> list[QuipuNode]:
         return []
 
 

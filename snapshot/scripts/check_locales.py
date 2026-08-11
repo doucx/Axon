@@ -120,7 +120,7 @@ def main():
             print(f"  - Key '{key}' is defined in: {', '.join(files)}")
 
     # Check for missing keys (used but not defined)
-    missing_keys = sorted(list(used_keys - defined_keys))
+    missing_keys = sorted(used_keys - defined_keys)
     if missing_keys:
         print("\n❌ CRITICAL: Missing keys! (Used in code but not defined in locales)")
         has_errors = True
@@ -128,7 +128,7 @@ def main():
             print(f"  - {key}")
 
     # Check for unused keys (defined but not used)
-    unused_keys = sorted(list(defined_keys - used_keys))
+    unused_keys = sorted(defined_keys - used_keys)
     if unused_keys:
         print("\n⚠️  WARNING: Unused keys found. (Defined in locales but not used in code)")
         for key in unused_keys:

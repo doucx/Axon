@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 from quipu.acts.memory import register as register_memory_acts
+from quipu.runtime.executor import Executor
 from quipu.spec.exceptions import ExecutionError
 from quipu.spec.protocols.runtime import ActContext
-from quipu.runtime.executor import Executor
 
 
 class TestMemoryActs:
@@ -33,7 +33,7 @@ class TestMemoryActs:
 
     def test_log_thought_write_error(self, executor: Executor, isolated_vault: Path, monkeypatch):
         # 模拟 open 失败
-        monkeypatch.setattr("builtins.open", lambda *args, **kwargs: (_ for _ in ()).throw(IOError("Disk full")))
+        monkeypatch.setattr("builtins.open", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("Disk full")))
 
         func, _, _ = executor._acts["log_thought"]
         ctx = ActContext(executor)

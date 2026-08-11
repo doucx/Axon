@@ -1,11 +1,12 @@
 import logging
 import os
 import subprocess
-from typing import List
 
 from needle.pointer import L
+
 from quipu.common.bus import bus
-from quipu.spec.protocols.runtime import ActContext, ExecutorProtocol as Executor
+from quipu.spec.protocols.runtime import ActContext
+from quipu.spec.protocols.runtime import ExecutorProtocol as Executor
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,13 @@ def register(executor: Executor):
     executor.register("git_status", _git_status, arg_mode="exclusive")
 
 
-def _summarize_commit(args: List[str], contexts: List[str]) -> str:
+def _summarize_commit(args: list[str], contexts: list[str]) -> str:
     msg = contexts[0] if contexts else "No message"
     summary = (msg[:50] + "...") if len(msg) > 50 else msg
     return f"Git Commit: {summary}"
 
 
-def _run_git_cmd(ctx: ActContext, cmd_args: List[str]) -> str:
+def _run_git_cmd(ctx: ActContext, cmd_args: list[str]) -> str:
     env = os.environ.copy()
     env["LC_ALL"] = "C"
 
@@ -40,7 +41,7 @@ def _run_git_cmd(ctx: ActContext, cmd_args: List[str]) -> str:
     return ""
 
 
-def _git_init(ctx: ActContext, args: List[str]):
+def _git_init(ctx: ActContext, args: list[str]):
     if (ctx.root_dir / ".git").exists():
         bus.warning(L.acts.git.warning.repoExists)
         return
@@ -48,7 +49,7 @@ def _git_init(ctx: ActContext, args: List[str]):
     bus.success(L.acts.git.success.initialized, path=ctx.root_dir)
 
 
-def _git_add(ctx: ActContext, args: List[str]):
+def _git_add(ctx: ActContext, args: list[str]):
     targets = []
     if not args:
         targets = ["."]
@@ -61,7 +62,7 @@ def _git_add(ctx: ActContext, args: List[str]):
     bus.success(L.acts.git.success.added, targets=targets)
 
 
-def _git_commit(ctx: ActContext, args: List[str]):
+def _git_commit(ctx: ActContext, args: list[str]):
     if len(args) < 1:
         ctx.fail(bus.render_to_string(L.acts.error.missingArgs, act_name="git_commit", count=1, signature="[message]"))
 
@@ -78,6 +79,6 @@ def _git_commit(ctx: ActContext, args: List[str]):
     bus.success(L.acts.git.success.committed, message=message)
 
 
-def _git_status(ctx: ActContext, args: List[str]):
+def _git_status(ctx: ActContext, args: list[str]):
     status = _run_git_cmd(ctx, ["status"])
     bus.data(status)

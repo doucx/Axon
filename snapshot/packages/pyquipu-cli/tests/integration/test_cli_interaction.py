@@ -1,6 +1,6 @@
-from needle.pointer import L
 from unittest.mock import MagicMock
 
+from needle.pointer import L
 from quipu.cli.main import app
 from typer.testing import CliRunner
 

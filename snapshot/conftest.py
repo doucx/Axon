@@ -5,4 +5,4 @@ os.environ["QUIPU_LANG"] = "raw"
 
 from quipu.test_utils.fixtures import engine_instance, git_workspace, runner
 
-__all__ = ["runner", "git_workspace", "engine_instance"]
+__all__ = ["engine_instance", "git_workspace", "runner"]
