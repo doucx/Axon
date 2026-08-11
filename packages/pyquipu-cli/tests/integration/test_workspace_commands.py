@@ -49,12 +49,13 @@ def test_discard_interactive_abort(runner, quipu_workspace, monkeypatch):
     work_dir, _, engine = quipu_workspace
     mock_bus = MagicMock()
     monkeypatch.setattr("quipu.cli.commands.workspace.bus", mock_bus)
+    monkeypatch.setattr("click.getchar", lambda echo=False: "n")
 
     (work_dir / "file.txt").write_text("v1")
     engine.capture_drift(engine.git_db.get_tree_hash())
     (work_dir / "file.txt").write_text("v2")
 
-    result = runner.invoke(app, ["discard", "-w", str(work_dir)], input="n")
+    result = runner.invoke(app, ["discard", "-w", str(work_dir)])
 
     assert result.exit_code == 1
     mock_bus.warning.assert_called_once_with(L.common.prompt.cancel)
