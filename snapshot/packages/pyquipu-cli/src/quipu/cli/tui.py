@@ -1,7 +1,7 @@
 import logging
 from enum import Enum, auto
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 from quipu.application.factory import create_engine
 from quipu.engine.state_machine import Engine
@@ -29,11 +29,11 @@ class ContentViewSate(Enum):
     SHOWING_CONTENT = auto()
 
 
-class QuipuUiApp(App[Optional[UiResult]]):
+class QuipuUiApp(App[UiResult | None]):
     CSS_PATH = "tui.css"
     TITLE = "Quipu History Explorer"
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("q", "quit", "退出"),
         Binding("space", "checkout_node", "检出节点"),
         Binding("enter", "checkout_node", "检出节点"),
@@ -280,7 +280,7 @@ class QuipuUiApp(App[Optional[UiResult]]):
                 logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
 
         except Exception as e:
-            logger.error(f"DEBUG: Failed to focus current node: {e}", exc_info=True)
+            logger.exception(f"DEBUG: Failed to focus current node: {e}")
 
     def _update_loading_preview(self):
         assert self.view_model is not None

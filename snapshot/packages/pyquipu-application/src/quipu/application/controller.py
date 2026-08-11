@@ -158,7 +158,7 @@ def run_quipu(
         )
 
     except Exception as e:
-        logger.error(f"运行时错误: {e}", exc_info=True)
+        logger.exception(f"运行时错误: {e}")
         return QuipuResult(
             success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
         )
@@ -208,7 +208,7 @@ def run_stateless_plan(
             success=False, exit_code=1, message="run.error.execution", msg_kwargs={"error": str(e)}, error=e
         )
     except Exception as e:
-        logger.error(f"运行时错误: {e}", exc_info=True)
+        logger.exception(f"运行时错误: {e}")
         return QuipuResult(
             success=False, exit_code=1, message="run.error.system", msg_kwargs={"error": str(e)}, error=e
         )

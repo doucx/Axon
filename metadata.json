@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "ruff Capture: M conftest.py, M controller.py, M utils.py ... and 61 more files", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786458616.3528636, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "[WIP] fix: 修复 Ruff 静态代码检查错误与配置 Lint 规则", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786458944.1607513, "duration_ms": 0}}
