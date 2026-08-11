@@ -20,9 +20,7 @@ def register(app: typer.Typer):
     @app.command(name="run", help="执行 Plan 文件并记录到 Quipu 历史。")
     def run_command(
         ctx: typer.Context,
-        file: Annotated[
-            Path | None, typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)
-        ] = None,
+        file: Annotated[Path | None, typer.Argument(help="包含 Markdown 指令的文件路径。", resolve_path=True)] = None,
         work_dir: Annotated[
             Path,
             typer.Option(

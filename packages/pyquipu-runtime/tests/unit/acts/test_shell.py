@@ -1,4 +1,3 @@
-
 import pytest
 from quipu.acts.shell import register as register_shell_acts
 from quipu.runtime.executor import Executor

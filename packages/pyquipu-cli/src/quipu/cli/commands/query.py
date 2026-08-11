@@ -100,9 +100,7 @@ def register(app: typer.Typer):
         summary_regex: Annotated[
             str | None, typer.Option("--summary", "-s", help="用于匹配节点摘要的正则表达式 (不区分大小写)。")
         ] = None,
-        node_type: Annotated[
-            str | None, typer.Option("--type", "-t", help="节点类型 ('plan' 或 'capture')。")
-        ] = None,
+        node_type: Annotated[str | None, typer.Option("--type", "-t", help="节点类型 ('plan' 或 'capture')。")] = None,
         limit: Annotated[int, typer.Option("--limit", "-n", help="返回的最大结果数量。")] = 10,
         work_dir: Annotated[Path, typer.Option("--work-dir", "-w", help="工作区根目录。")] = DEFAULT_WORK_DIR,
         json_output: Annotated[bool, typer.Option("--json", help="以 JSON 格式输出结果。")] = False,
