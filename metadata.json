@@ -1,1 +1,1 @@
-{"meta_version": "1.0", "summary": "[WIP] fix: 清理 TRY401、G201 及未使用的 Optional 导入", "type": "plan", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786459018.6948118, "duration_ms": 0}}
+{"meta_version": "1.0", "summary": "ruff Capture: M tui.py, M state_machine.py", "type": "capture", "generator": {"id": "manual", "tool": "quipu-cli"}, "env": {"quipu": "unknown", "python": "3.13.5", "os": "linux"}, "exec": {"start": 1786459030.1640723, "duration_ms": 0}}

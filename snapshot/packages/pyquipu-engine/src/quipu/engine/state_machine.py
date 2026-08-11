@@ -219,7 +219,7 @@ class Engine:
                 user_id = self._get_current_user_id()
                 hydrator = Hydrator(self.git_db, self.db_manager)
                 hydrator.sync(local_user_id=user_id)
-            except Exception as e:
+            except Exception:
                 logger.exception("❌ 自动数据补水失败")
 
         all_nodes = self.reader.load_all_nodes()

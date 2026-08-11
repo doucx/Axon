@@ -279,7 +279,7 @@ class QuipuUiApp(App[UiResult | None]):
                 # LookupError 捕获 RowKeyError 等
                 logger.warning(f"DEBUG: Row key {row_key} not found in DataTable.")
 
-        except Exception as e:
+        except Exception:
             logger.exception("DEBUG: Failed to focus current node")
 
     def _update_loading_preview(self):
