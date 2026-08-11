@@ -22,18 +22,19 @@
 ```python
 # tests/cli/test_workspace_commands.py
 
+
 def test_save_without_changes_brittle(runner, quipu_workspace):
     work_dir, _, _ = quipu_workspace
-    
+
     # 第一次 save
     runner.invoke(app, ["save", "-w", str(work_dir)])
-    
+
     # 第二次 save，无变化
     result = runner.invoke(app, ["save", "-w", str(work_dir)])
 
     assert result.exit_code == 0
     # ！！！错误！！！断言了一个具体的、可能随时会改变的 UI 字符串
-    assert "✅ 工作区状态未发生变化" in result.stderr 
+    assert "✅ 工作区状态未发生变化" in result.stderr
 ```
 
 这种测试是不可接受的，因为它：
@@ -52,24 +53,25 @@ def test_save_without_changes_brittle(runner, quipu_workspace):
 from unittest.mock import MagicMock
 from quipu.cli.main import app
 
+
 def test_save_without_changes_robust(runner, quipu_workspace, monkeypatch):
     work_dir, _, _ = quipu_workspace
-    
+
     # 1. 创建一个 Mock Bus 实例
     mock_bus = MagicMock()
-    
+
     # 2. 使用 monkeypatch 将命令模块中的 bus 实例替换为 mock_bus
     #    注意：路径必须是 bus 被导入和使用的那个模块
     monkeypatch.setattr("quipu.cli.commands.workspace.bus", mock_bus)
 
     # 第一次 save
     runner.invoke(app, ["save", "-w", str(work_dir)])
-    
+
     # 第二次 save，无变化
     result = runner.invoke(app, ["save", "-w", str(work_dir)])
 
     assert result.exit_code == 0
-    
+
     # 3. 断言 mock_bus 的方法被以预期的参数调用
     #    这验证了业务逻辑的“意图”，而与具体文案无关
     mock_bus.success.assert_called_once_with("workspace.save.noChanges")

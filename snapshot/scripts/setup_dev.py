@@ -35,10 +35,7 @@ def setup_stable():
     print(f"📦 [Stable] 正在从 PyPI 安装最新发布的 pyquipu-cli 到 {STABLE_DIR.relative_to(ROOT_DIR)}...")
     create_venv(STABLE_DIR)
     try:
-        subprocess.run(
-            ["uv", "pip", "install", "-p", str(STABLE_DIR), "pyquipu-cli"],
-            check=True
-        )
+        subprocess.run(["uv", "pip", "install", "-p", str(STABLE_DIR), "pyquipu-cli"], check=True)
         print("✅ [Stable] 环境安装完成！")
     except subprocess.CalledProcessError:
         print("⚠️ [Stable] 安装失败（可能 PyPI 上尚未发布或网络异常）。但不影响开发环境使用。")
