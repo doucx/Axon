@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyquipu-engine"
-version = "0.3.0"
+version = "0.3.1"
 authors = [{ name="doucx", email="doucxldh@gmail.com" }]
 description = "The state and history engine for Quipu, powered by Git plumbing."
 requires-python = ">=3.10"

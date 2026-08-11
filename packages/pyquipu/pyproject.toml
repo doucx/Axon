@@ -1,6 +1,6 @@
 [project]
 name = "pyquipu"
-version = "0.3.0"
+version = "0.3.1"
 description = "Quipu: Process Archaeology for the AI Era (Meta-package)"
 authors = [{ name="doucx", email="doucxldh@gmail.com" }]
 readme = "README.md"
@@ -21,10 +21,10 @@ classifiers = [
 keywords = ["quipu", "devops", "cli", "tui", "git", "history", "automation", "ai"]
 
 dependencies = [
-    "pyquipu-application ~= 0.3.0",
-    "pyquipu-cli ~= 0.3.0",
+    "pyquipu-application ~= 0.3.1",
+    "pyquipu-cli ~= 0.3.3",
     "pyquipu-common ~= 0.2.0",
-    "pyquipu-engine ~= 0.3.0",
+    "pyquipu-engine ~= 0.3.1",
     "pyquipu-spec ~= 0.1.1",
     "pyquipu-runtime ~= 0.3.0",
 ]
