@@ -358,7 +358,7 @@ wheels = [
 
 [[package]]
 name = "pyquipu"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/pyquipu" }
 dependencies = [
     { name = "pyquipu-application" },
@@ -381,7 +381,7 @@ requires-dist = [
 
 [[package]]
 name = "pyquipu-application"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/pyquipu-application" }
 dependencies = [
     { name = "pyquipu-common" },
@@ -400,7 +400,7 @@ requires-dist = [
 
 [[package]]
 name = "pyquipu-cli"
-version = "0.3.2"
+version = "0.3.3"
 source = { editable = "packages/pyquipu-cli" }
 dependencies = [
     { name = "click" },
@@ -442,7 +442,7 @@ requires-dist = [
 
 [[package]]
 name = "pyquipu-engine"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/pyquipu-engine" }
 dependencies = [
     { name = "pyquipu-common" },
